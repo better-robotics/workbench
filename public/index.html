@@ -51,16 +51,19 @@
       padding: 24px;
       margin-bottom: 16px;
     }
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    .card-header:last-child { margin-bottom: 0; }
     .row {
       display: flex;
       align-items: center;
       gap: 16px;
       justify-content: space-between;
-    }
-    .row + .row {
-      margin-top: 16px;
-      padding-top: 16px;
-      border-top: 1px solid var(--line);
     }
     .label {
       font-weight: 500;
@@ -92,6 +95,11 @@
       color: var(--ink);
       border: 1px solid var(--line);
     }
+    button.sm {
+      min-height: 36px;
+      padding: 6px 12px;
+      font-size: 14px;
+    }
     button.danger { background: var(--danger); }
     .status {
       display: inline-flex;
@@ -108,6 +116,23 @@
     }
     .dot.connected { background: var(--success); }
     .dot.error { background: var(--danger); }
+    .robot {
+      padding: 16px 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .robot:first-child { padding-top: 0; }
+    .robot:last-child { border-bottom: none; padding-bottom: 0; }
+    .robot-controls {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px dashed var(--line);
+    }
+    .empty-state {
+      color: var(--ink-muted);
+      font-size: 14px;
+      text-align: center;
+      padding: 24px 0;
+    }
     .log {
       font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
       font-size: 12px;
@@ -151,20 +176,12 @@
   </section>
 
   <section class="card">
-    <div class="row">
-      <div>
-        <div class="label" id="device-name">Not connected</div>
-        <div class="status"><span class="dot" id="dot"></span><span id="status">Idle</span></div>
-      </div>
-      <button id="scan-btn">Scan</button>
+    <div class="card-header">
+      <div class="label">Your robots</div>
+      <button id="scan-btn" class="secondary sm">Scan for new</button>
     </div>
-    <div class="row" id="led-row" hidden>
-      <div>
-        <div class="label">LED</div>
-        <div class="meta" id="led-state">off</div>
-      </div>
-      <button id="led-btn" class="secondary">Turn on</button>
-    </div>
+    <div id="robot-list"></div>
+    <div id="empty-state" class="empty-state" hidden>No robots paired yet. Click "Scan for new" to add one.</div>
   </section>
 
   <section class="card">
@@ -181,84 +198,179 @@
     const now = new Date().toLocaleTimeString();
     $("log").textContent = `[${now}] ${msg}\n` + $("log").textContent;
   };
-  const setStatus = (text, kind) => {
-    $("status").textContent = text;
-    $("dot").className = "dot" + (kind ? " " + kind : "");
+
+  const state = {
+    devices: new Map(),       // id -> { device, status, ledChar, ledOn }
+    connectedId: null,
   };
 
-  let device = null;
-  let ledChar = null;
-  let ledOn = false;
+  function entryFor(device) {
+    if (!state.devices.has(device.id)) {
+      state.devices.set(device.id, { device, status: "idle", ledChar: null, ledOn: false });
+      device.addEventListener("gattserverdisconnected", () => onDisconnected(device.id));
+    }
+    return state.devices.get(device.id);
+  }
 
-  const renderLed = () => {
-    $("led-state").textContent = ledOn ? "on" : "off";
-    $("led-btn").textContent = ledOn ? "Turn off" : "Turn on";
-  };
+  async function loadPaired() {
+    if (!navigator.bluetooth.getDevices) {
+      log("This Chrome build does not expose getDevices(); paired list unavailable.");
+      return;
+    }
+    const paired = await navigator.bluetooth.getDevices();
+    paired.forEach(entryFor);
+    render();
+  }
 
-  async function scanAndConnect() {
+  async function scanForNew() {
     try {
-      setStatus("Requesting device…");
-      device = await navigator.bluetooth.requestDevice({
+      const device = await navigator.bluetooth.requestDevice({
         filters: [{ services: [SERVICE_UUID] }],
       });
-      device.addEventListener("gattserverdisconnected", onDisconnected);
-      $("device-name").textContent = device.name || device.id;
-      log(`Selected ${device.name || device.id}`);
-
-      setStatus("Connecting…");
-      const server = await device.gatt.connect();
-      const service = await server.getPrimaryService(SERVICE_UUID);
-      ledChar = await service.getCharacteristic(LED_CHAR_UUID);
-
-      const value = await ledChar.readValue();
-      ledOn = value.getUint8(0) !== 0;
-      renderLed();
-
-      await ledChar.startNotifications();
-      ledChar.addEventListener("characteristicvaluechanged", (e) => {
-        ledOn = e.target.value.getUint8(0) !== 0;
-        renderLed();
-        log(`LED changed to ${ledOn ? "on" : "off"}`);
-      });
-
-      $("led-row").hidden = false;
-      $("scan-btn").textContent = "Disconnect";
-      $("scan-btn").classList.add("danger");
-      setStatus("Connected", "connected");
-      log("Connected.");
+      entryFor(device);
+      log(`Paired ${device.name || device.id}`);
+      render();
+      connect(device.id);
     } catch (err) {
-      log(`Error: ${err.message}`);
-      setStatus("Error", "error");
+      if (err.name !== "NotFoundError") log(`Scan error: ${err.message}`);
     }
   }
 
-  function disconnect() {
-    if (device && device.gatt.connected) device.gatt.disconnect();
-    onDisconnected();
-  }
+  async function connect(id) {
+    if (state.connectedId && state.connectedId !== id) await disconnect(state.connectedId);
 
-  function onDisconnected() {
-    ledChar = null;
-    device = null;
-    $("led-row").hidden = true;
-    $("device-name").textContent = "Not connected";
-    $("scan-btn").textContent = "Scan";
-    $("scan-btn").classList.remove("danger");
-    setStatus("Idle");
-    log("Disconnected.");
-  }
+    const entry = state.devices.get(id);
+    if (!entry) return;
+    entry.status = "connecting";
+    render();
+    log(`Connecting to ${entry.device.name || id}…`);
 
-  async function toggleLed() {
-    if (!ledChar) return;
-    const next = !ledOn;
     try {
-      await ledChar.writeValueWithResponse(Uint8Array.of(next ? 1 : 0));
-      ledOn = next;
-      renderLed();
-      log(`Wrote LED=${next ? 1 : 0}`);
+      const server = await entry.device.gatt.connect();
+      const service = await server.getPrimaryService(SERVICE_UUID);
+      const ch = await service.getCharacteristic(LED_CHAR_UUID);
+      entry.ledChar = ch;
+
+      const value = await ch.readValue();
+      entry.ledOn = value.getUint8(0) !== 0;
+
+      await ch.startNotifications();
+      ch.addEventListener("characteristicvaluechanged", (e) => {
+        entry.ledOn = e.target.value.getUint8(0) !== 0;
+        render();
+        log(`LED → ${entry.ledOn ? "on" : "off"}`);
+      });
+
+      entry.status = "connected";
+      state.connectedId = id;
+      log(`Connected to ${entry.device.name || id}`);
+    } catch (err) {
+      entry.status = "error";
+      log(`Connect failed: ${err.message}`);
+    }
+    render();
+  }
+
+  async function disconnect(id) {
+    const entry = state.devices.get(id);
+    if (entry && entry.device.gatt.connected) entry.device.gatt.disconnect();
+    onDisconnected(id);
+  }
+
+  function onDisconnected(id) {
+    const entry = state.devices.get(id);
+    if (!entry) return;
+    entry.status = "idle";
+    entry.ledChar = null;
+    if (state.connectedId === id) state.connectedId = null;
+    log(`Disconnected from ${entry.device.name || id}`);
+    render();
+  }
+
+  async function forgetDevice(id) {
+    const entry = state.devices.get(id);
+    if (!entry) return;
+    if (entry.device.gatt.connected) entry.device.gatt.disconnect();
+    if (entry.device.forget) {
+      await entry.device.forget();  // Chrome 114+
+    }
+    state.devices.delete(id);
+    if (state.connectedId === id) state.connectedId = null;
+    log(`Forgot ${entry.device.name || id}`);
+    render();
+  }
+
+  async function toggleLed(id) {
+    const entry = state.devices.get(id);
+    if (!entry || !entry.ledChar) return;
+    const next = !entry.ledOn;
+    try {
+      await entry.ledChar.writeValueWithResponse(Uint8Array.of(next ? 1 : 0));
+      entry.ledOn = next;
+      render();
     } catch (err) {
       log(`Write failed: ${err.message}`);
     }
+  }
+
+  function render() {
+    const list = $("robot-list");
+    const empty = $("empty-state");
+    list.innerHTML = "";
+
+    if (state.devices.size === 0) {
+      empty.hidden = false;
+      return;
+    }
+    empty.hidden = true;
+
+    for (const [id, entry] of state.devices) {
+      const { device, status, ledOn } = entry;
+      const connected = status === "connected";
+      const connecting = status === "connecting";
+      const statusText = { idle: "Idle", connecting: "Connecting…", connected: "Connected", error: "Error" }[status] || "Idle";
+      const dotClass = connected ? " connected" : status === "error" ? " error" : "";
+
+      const robot = document.createElement("div");
+      robot.className = "robot";
+      robot.innerHTML = `
+        <div class="row">
+          <div>
+            <div class="label">${escapeHtml(device.name || device.id)}</div>
+            <div class="status"><span class="dot${dotClass}"></span><span>${statusText}</span></div>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            ${connected
+              ? `<button class="sm danger" data-action="disconnect">Disconnect</button>`
+              : `<button class="sm" data-action="connect" ${connecting ? "disabled" : ""}>${connecting ? "…" : "Connect"}</button>`}
+            <button class="secondary sm" data-action="forget" title="Forget this robot">×</button>
+          </div>
+        </div>
+        ${connected ? `
+          <div class="robot-controls row">
+            <div>
+              <div class="label">LED</div>
+              <div class="meta">${ledOn ? "on" : "off"}</div>
+            </div>
+            <button class="secondary sm" data-action="toggle-led">${ledOn ? "Turn off" : "Turn on"}</button>
+          </div>
+        ` : ""}
+      `;
+      robot.querySelectorAll("[data-action]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const action = btn.dataset.action;
+          if (action === "connect") connect(id);
+          else if (action === "disconnect") disconnect(id);
+          else if (action === "forget") forgetDevice(id);
+          else if (action === "toggle-led") toggleLed(id);
+        });
+      });
+      list.appendChild(robot);
+    }
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   }
 
   document.addEventListener("DOMContentLoaded", () => {
@@ -267,10 +379,8 @@
       $("scan-btn").disabled = true;
       return;
     }
-    $("scan-btn").addEventListener("click", () => {
-      device ? disconnect() : scanAndConnect();
-    });
-    $("led-btn").addEventListener("click", toggleLed);
+    $("scan-btn").addEventListener("click", scanForNew);
+    loadPaired();
   });
 </script>
 </body>
