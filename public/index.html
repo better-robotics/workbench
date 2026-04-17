@@ -101,6 +101,48 @@
       font-size: 14px;
     }
     button.danger { background: var(--danger); }
+    button.icon {
+      background: transparent;
+      color: var(--ink-muted);
+      border: 1px solid transparent;
+      min-height: 36px;
+      min-width: 36px;
+      padding: 0 10px;
+      font-size: 18px;
+      letter-spacing: -1px;
+      line-height: 1;
+    }
+    button.icon:hover {
+      background: var(--line);
+      color: var(--ink);
+    }
+    .menu {
+      position: fixed;
+      margin: 0;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.04);
+      padding: 6px;
+      min-width: 200px;
+    }
+    .menu::backdrop { background: transparent; }
+    .menu-item {
+      display: block;
+      width: 100%;
+      text-align: left;
+      background: transparent;
+      color: var(--ink);
+      border: none;
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-size: 14px;
+      min-height: 32px;
+      cursor: pointer;
+    }
+    .menu-item:hover { background: var(--line); }
+    .menu-item.destructive { color: var(--danger); }
+    .menu-item.destructive:hover { background: rgba(215, 0, 21, 0.08); }
     .status {
       display: inline-flex;
       align-items: center;
@@ -189,6 +231,10 @@
     <div class="log" id="log">Ready.</div>
   </section>
 </main>
+
+<div id="robot-menu" class="menu" popover="auto">
+  <button class="menu-item destructive" id="menu-forget">Forget this robot</button>
+</div>
 <script>
   const SERVICE_UUID  = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d91";
   const LED_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d92";
@@ -328,7 +374,7 @@
       const { device, status, ledOn } = entry;
       const connected = status === "connected";
       const connecting = status === "connecting";
-      const statusText = { idle: "Idle", connecting: "Connecting…", connected: "Connected", error: "Error" }[status] || "Idle";
+      const statusText = { idle: "Not connected", connecting: "Connecting…", connected: "Connected", error: "Error" }[status] || "Not connected";
       const dotClass = connected ? " connected" : status === "error" ? " error" : "";
 
       const robot = document.createElement("div");
@@ -339,11 +385,11 @@
             <div class="label">${escapeHtml(device.name || device.id)}</div>
             <div class="status"><span class="dot${dotClass}"></span><span>${statusText}</span></div>
           </div>
-          <div style="display: flex; gap: 8px;">
+          <div style="display: flex; gap: 4px;">
             ${connected
-              ? `<button class="sm danger" data-action="disconnect">Disconnect</button>`
+              ? `<button class="secondary sm" data-action="disconnect">Disconnect</button>`
               : `<button class="sm" data-action="connect" ${connecting ? "disabled" : ""}>${connecting ? "…" : "Connect"}</button>`}
-            <button class="secondary sm" data-action="forget" title="Forget this robot">×</button>
+            <button class="icon" data-action="menu" aria-label="More actions">⋯</button>
           </div>
         </div>
         ${connected ? `
@@ -357,16 +403,36 @@
         ` : ""}
       `;
       robot.querySelectorAll("[data-action]").forEach(btn => {
-        btn.addEventListener("click", () => {
+        btn.addEventListener("click", (e) => {
           const action = btn.dataset.action;
           if (action === "connect") connect(id);
           else if (action === "disconnect") disconnect(id);
-          else if (action === "forget") forgetDevice(id);
+          else if (action === "menu") openMenu(btn, id);
           else if (action === "toggle-led") toggleLed(id);
         });
       });
       list.appendChild(robot);
     }
+  }
+
+  let menuTargetId = null;
+
+  function openMenu(triggerBtn, id) {
+    menuTargetId = id;
+    const menu = $("robot-menu");
+    const rect = triggerBtn.getBoundingClientRect();
+    // Position below-right of trigger, nudging left if it would overflow viewport.
+    const menuWidth = 220;
+    const left = Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 8);
+    menu.style.top = `${rect.bottom + 6}px`;
+    menu.style.left = `${Math.max(8, left)}px`;
+    if (menu.showPopover) menu.showPopover();
+  }
+
+  function closeMenu() {
+    const menu = $("robot-menu");
+    if (menu.hidePopover) menu.hidePopover();
+    menuTargetId = null;
   }
 
   function escapeHtml(s) {
@@ -380,6 +446,19 @@
       return;
     }
     $("scan-btn").addEventListener("click", scanForNew);
+
+    $("menu-forget").addEventListener("click", () => {
+      const id = menuTargetId;
+      if (!id) return;
+      const entry = state.devices.get(id);
+      if (!entry) return;
+      const name = entry.device.name || id;
+      closeMenu();
+      if (confirm(`Forget ${name}?\n\nYou'll need to pair it again to use it.`)) {
+        forgetDevice(id);
+      }
+    });
+
     loadPaired();
   });
 </script>
