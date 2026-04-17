@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Better Robotics</title>
+  <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
   <style>
     :root {
       --bg: #f5f5f7;
@@ -134,6 +135,20 @@
   <div id="unsupported" class="unsupported" hidden>
     This browser does not support Web Bluetooth. Use Chrome, Edge, or Opera on desktop or Android.
   </div>
+
+  <section class="card">
+    <div class="row">
+      <div>
+        <div class="label">First-time setup</div>
+        <div class="meta">Flash firmware over USB — no Arduino IDE needed</div>
+      </div>
+      <esp-web-install-button manifest="firmware/manifest.json">
+        <button slot="activate" class="secondary">Flash firmware</button>
+        <span slot="unsupported" class="meta">Web Serial required (Chrome or Edge desktop).</span>
+        <span slot="not-allowed" class="meta">HTTPS required to flash.</span>
+      </esp-web-install-button>
+    </div>
+  </section>
 
   <section class="card">
     <div class="row">

@@ -31,8 +31,8 @@ static void applyLed(bool on) {
 
 class LedCallbacks : public BLECharacteristicCallbacks {
   void onWrite(BLECharacteristic* ch) override {
-    std::string value = ch->getValue();
-    if (!value.empty()) applyLed(value[0] != 0);
+    String value = ch->getValue();
+    if (value.length() > 0) applyLed(value[0] != 0);
   }
 };
 
