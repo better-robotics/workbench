@@ -39,6 +39,7 @@ export async function sendMotors(id, left, right) {
 
 export const motors = {
   name: "motors",
+  schema: { type: "signed-pair", range: [-100, 100], unit: "pct" },
   initEntry: () => ({
     motorChar: null, motorLeft: 0, motorRight: 0,
     motorSending: false, motorPending: null,

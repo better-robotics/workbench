@@ -59,6 +59,7 @@ function wifiSummary(entry) {
 
 export const wifi = {
   name: "wifi",
+  schema: { type: "wifi-scan" },
   initEntry: () => ({
     wifiScanChar: null, wifiJoinChar: null, wifiStatusChar: null,
     wifiStatus: { st: "idle" }, wifiNetworks: null, wifiScanning: false,

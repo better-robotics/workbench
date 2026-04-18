@@ -2,7 +2,7 @@
 // lifecycle, and top-level UI (menus, modals, header actions). Per-card
 // rendering is driven by the capability registry — adding a capability
 // doesn't require editing this file.
-import { SERVICE_UUID } from "./ble.js";
+import { SERVICE_UUID, FW_INFO_CHAR_UUID, decodeJson } from "./ble.js";
 import { $, escapeHtml, wireDialogOutsideClick } from "./dom.js";
 import { log, logFor, setLogRenderer } from "./log.js";
 import { settings, saveSettings } from "./settings.js";
@@ -184,6 +184,19 @@ async function connect(id) {
     // A robot advertising only the service (no chars) is still "connected" —
     // the card shows the header only. Every capability is optional.
     entry.status = "connected";
+
+    // Read fw-info once, before cap probes — it carries the capability
+    // schema the robot declares. Stored on the entry so every capability
+    // (and future LLM-orchestrator tools) sees the same structured view.
+    try {
+      const info = await service.getCharacteristic(FW_INFO_CHAR_UUID);
+      entry.fwInfo = decodeJson(await info.readValue());
+      entry.capSchema = entry.fwInfo?.caps || null;
+    } catch {
+      entry.fwInfo = null;
+      entry.capSchema = null;
+    }
+
     for (const cap of CAPABILITIES) {
       try { await cap.probe(entry, service); } catch { /* optional */ }
     }

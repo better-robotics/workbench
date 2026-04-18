@@ -5,7 +5,7 @@
 // otherwise full BLE stream. OTA has no card section — the actions sit in
 // the ⋯ menu, exposed as updateFirmware / updateFromFile exports.
 import {
-  OTA_DATA_CHAR_UUID, OTA_STATUS_CHAR_UUID, FW_INFO_CHAR_UUID,
+  OTA_DATA_CHAR_UUID, OTA_STATUS_CHAR_UUID,
   decodeJson,
 } from "../ble.js";
 import { logFor, log } from "../log.js";
@@ -199,6 +199,7 @@ export async function updateFromFile(id) {
 
 export const ota = {
   name: "ota",
+  schema: { type: "bundle-ota" },
   initEntry: () => ({
     otaDataChar: null, otaStatusChar: null,
     otaStatus: { st: "idle" }, fwInfo: null,
@@ -208,10 +209,9 @@ export const ota = {
     try {
       entry.otaDataChar   = await service.getCharacteristic(OTA_DATA_CHAR_UUID);
       entry.otaStatusChar = await service.getCharacteristic(OTA_STATUS_CHAR_UUID);
-      try {
-        const info = await service.getCharacteristic(FW_INFO_CHAR_UUID);
-        entry.fwInfo = decodeJson(await info.readValue());
-      } catch {}
+      // fw-info (and the cap schema it carries) is read once by the
+      // orchestrator in connect() before any capability probe — see
+      // app.js. No need to re-read it here.
       entry.otaStatus = decodeJson(await entry.otaStatusChar.readValue()) || { st: "idle" };
       await entry.otaStatusChar.startNotifications();
       entry.otaStatusChar.addEventListener("characteristicvaluechanged", (e) => {

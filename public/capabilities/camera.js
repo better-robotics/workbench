@@ -153,6 +153,7 @@ export async function installCamera(id) {
 
 export const camera = {
   name: "camera",
+  schema: { type: "webrtc-installable" },
   initEntry: () => ({
     cameraSignalChar: null, cameraStatusChar: null,
     cameraPc: null, cameraStream: null,

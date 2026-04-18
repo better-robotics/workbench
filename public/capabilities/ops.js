@@ -54,6 +54,7 @@ export async function installPackage(id, name, opts = {}) {
 
 export const ops = {
   name: "ops",
+  schema: { type: "command" },
   initEntry: () => ({ opsChar: null }),
   async probe(entry, service) {
     try {

@@ -57,10 +57,41 @@ OPS_CHAR_UUID           = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9c"
 
 FW_INFO = {
     "type": "pi",
-    # Bundle-only OTA. Dashboard fetches the manifest, builds a JSON bundle
-    # (firmware + helper scripts + systemd units), streams over the chunked
-    # OTA protocol; Pi applies atomically and reboots per the manifest.
     "bundle_url": "firmware/pi_robot/ota-manifest.json",
+    # Typed capability schema — one entry per capability the robot exposes.
+    # The dashboard stores this on the entry for introspection and future
+    # tool schemas (LLM-orchestrator work). Types name a UI/data shape:
+    #   "toggle"            single bool char (LED, future enable switches)
+    #   "signed-pair"       two signed int8 in [min,max] (tank-drive motors)
+    #   "wifi-scan"         scan/join/status over 3 chars (custom UI)
+    #   "bundle-ota"        multi-file OTA via one staged JSON bundle
+    #   "webrtc-installable"video track via BLE signaling, install-on-demand
+    #   "command"           JSON op channel (ops: restart, install, …)
+    # Each entry is filtered against what this Pi actually advertises at
+    # runtime — capability-config may omit LED/motors/camera; those entries
+    # are still declared so the dashboard knows what TYPE a future robot
+    # with the same UUID would expose.
+    "caps": [
+        {"name": "led",    "char": LED_CHAR_UUID,
+         "type": "toggle"},
+        {"name": "motors", "char": MOTOR_CHAR_UUID,
+         "type": "signed-pair", "range": [-100, 100], "unit": "pct"},
+        {"name": "wifi",
+         "chars": {"scan": WIFI_SCAN_CHAR_UUID,
+                   "join": WIFI_JOIN_CHAR_UUID,
+                   "status": WIFI_STATUS_CHAR_UUID},
+         "type": "wifi-scan"},
+        {"name": "ota",
+         "chars": {"data": OTA_DATA_CHAR_UUID,
+                   "status": OTA_STATUS_CHAR_UUID},
+         "type": "bundle-ota"},
+        {"name": "camera",
+         "chars": {"signal": CAMERA_SIGNAL_CHAR_UUID,
+                   "status": CAMERA_STATUS_CHAR_UUID},
+         "type": "webrtc-installable"},
+        {"name": "ops",    "char": OPS_CHAR_UUID,
+         "type": "command"},
+    ],
 }
 
 # Motor watchdog: every write resets the timer; silence reverts to (0, 0).

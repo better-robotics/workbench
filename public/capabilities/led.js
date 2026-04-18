@@ -25,6 +25,9 @@ export function setRender(fn) { renderEntry = fn; }
 
 export const led = {
   name: "led",
+  // Expected schema in fw-info.caps — lets the browser verify the robot
+  // exposes what this module knows how to drive.
+  schema: { type: "toggle" },
   initEntry: () => ({ ledChar: null, ledOn: false }),
 
   async probe(entry, service) {
