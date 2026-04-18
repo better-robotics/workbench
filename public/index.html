@@ -341,6 +341,10 @@
     This browser does not support Web Bluetooth. Use Chrome, Edge, or Opera on desktop or Android.
   </div>
 
+  <div id="bluetooth-off" class="unsupported" hidden>
+    Bluetooth is off — turn it on to scan for robots.
+  </div>
+
   <section class="card">
     <div class="label" style="margin-bottom: 12px;">Set up new hardware</div>
     <div class="setup-grid">
@@ -695,10 +699,21 @@
   async function forgetDevice(id) {
     const entry = state.devices.get(id);
     if (!entry) return;
-    if (entry.device) {
-      if (entry.device.gatt.connected) entry.device.gatt.disconnect();
-      if (entry.device.forget) {
-        try { await entry.device.forget(); } catch {}  // Chrome 114+, ignore if unsupported
+    // Resolve a BluetoothDevice handle if we don't already have one. Without
+    // this, our Forget only clears localStorage and Chrome keeps the device
+    // in its per-origin paired list — you'd see it come back as "Paired" in
+    // the next requestDevice chooser.
+    let device = entry.device;
+    if (!device && navigator.bluetooth.getDevices) {
+      try {
+        const all = await navigator.bluetooth.getDevices();
+        device = all.find(d => d.id === id);
+      } catch {}
+    }
+    if (device) {
+      if (device.gatt?.connected) device.gatt.disconnect();
+      if (device.forget) {
+        try { await device.forget(); } catch {}  // Chrome 114+, ignore if unsupported
       }
     }
     state.devices.delete(id);
@@ -743,6 +758,21 @@
     }
   }
 
+  // Keep the screen (and therefore the BLE radio's task scheduling) awake
+  // while a potentially-long OTA runs. macOS putting the display to sleep
+  // has been observed to throttle the BLE write loop enough to stall a
+  // 10-minute stream. Auto-released on tab hide; we don't re-acquire since
+  // user has probably bailed on the transfer by then.
+  let wakeLock = null;
+  async function acquireWakeLock() {
+    if (!("wakeLock" in navigator)) return;
+    try { wakeLock = await navigator.wakeLock.request("screen"); }
+    catch { wakeLock = null; }
+  }
+  async function releaseWakeLock() {
+    if (wakeLock) { try { await wakeLock.release(); } catch {} wakeLock = null; }
+  }
+
   async function streamOtaBytes(entry, bytes) {
     const ch = entry.otaDataChar;
     // Clear any lingering OTA session before we start a fresh one (opcode 0x00).
@@ -779,38 +809,43 @@
       log(`Fetch failed: ${err.message}`);
       return;
     }
-
-    // Route to the right data plane: if the robot has WiFi joined and advertises
-    // a URL-trigger-capable firmware, send a small BLE command and let the robot
-    // pull the binary itself over WiFi. 10 min → 10 sec on the ESP32's 1.6 MB bin.
-    const canUrlTrigger =
-      entry.fwInfo?.type === "esp32" && entry.wifiStatus?.st === "joined";
-
-    if (canUrlTrigger) {
-      const hashBuf = await crypto.subtle.digest("SHA-256", bytes);
-      const sha256 = [...new Uint8Array(hashBuf)]
-        .map(b => b.toString(16).padStart(2, "0")).join("");
-      const absoluteUrl = new URL(fetchUrl, location.href).toString();
-      const payload = JSON.stringify({ url: absoluteUrl, size: bytes.length, sha256 });
-      const frame = new Uint8Array(1 + payload.length);
-      frame[0] = 0x04;
-      frame.set(new TextEncoder().encode(payload), 1);
-      log(`OTA trigger → ${entry.name} will fetch ${bytes.length} B over WiFi`);
-      try {
-        await entry.otaDataChar.writeValueWithResponse(frame);
-      } catch (err) {
-        log(`OTA trigger failed: ${err.message}`);
-      }
-      return;
-    }
-
-    // Fallback: stream the whole binary over BLE (Pi always, or ESP32 offline).
-    log(`OTA streaming ${bytes.length} B to ${entry.name}…`);
+    await acquireWakeLock();
     try {
-      await streamOtaBytes(entry, bytes);
-      log("OTA commit sent — robot restarting");
-    } catch (err) {
-      log(`OTA failed: ${err.message}`);
+      // Route to the right data plane: if the robot has WiFi joined and
+      // advertises a URL-trigger-capable firmware, send a small BLE command and
+      // let the robot pull the binary itself over WiFi. 10 min → 10 sec on the
+      // ESP32's 1.6 MB bin.
+      const canUrlTrigger =
+        entry.fwInfo?.type === "esp32" && entry.wifiStatus?.st === "joined";
+
+      if (canUrlTrigger) {
+        const hashBuf = await crypto.subtle.digest("SHA-256", bytes);
+        const sha256 = [...new Uint8Array(hashBuf)]
+          .map(b => b.toString(16).padStart(2, "0")).join("");
+        const absoluteUrl = new URL(fetchUrl, location.href).toString();
+        const payload = JSON.stringify({ url: absoluteUrl, size: bytes.length, sha256 });
+        const frame = new Uint8Array(1 + payload.length);
+        frame[0] = 0x04;
+        frame.set(new TextEncoder().encode(payload), 1);
+        log(`OTA trigger → ${entry.name} will fetch ${bytes.length} B over WiFi`);
+        try {
+          await entry.otaDataChar.writeValueWithResponse(frame);
+        } catch (err) {
+          log(`OTA trigger failed: ${err.message}`);
+        }
+        return;
+      }
+
+      // Fallback: stream the whole binary over BLE (Pi always, or ESP32 offline).
+      log(`OTA streaming ${bytes.length} B to ${entry.name}…`);
+      try {
+        await streamOtaBytes(entry, bytes);
+        log("OTA commit sent — robot restarting");
+      } catch (err) {
+        log(`OTA failed: ${err.message}`);
+      }
+    } finally {
+      await releaseWakeLock();
     }
   }
 
@@ -830,11 +865,14 @@
       // Local file — always BLE-stream. URL-trigger needs a URL the robot
       // can reach, and a data:/blob: URL isn't useful to the ESP32.
       log(`OTA streaming ${file.name} (${bytes.length} B) to ${entry.name}…`);
+      await acquireWakeLock();
       try {
         await streamOtaBytes(entry, bytes);
         log("OTA commit sent — robot restarting");
       } catch (err) {
         log(`OTA failed: ${err.message}`);
+      } finally {
+        await releaseWakeLock();
       }
     });
     input.click();
@@ -1061,11 +1099,27 @@
     return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   }
 
+  function setBluetoothAvailable(available) {
+    $("bluetooth-off").hidden = !!available;
+    const btn = $("scan-btn");
+    if (btn) btn.disabled = !available;
+    const emptyBtn = $("empty-scan-btn");
+    if (emptyBtn) emptyBtn.disabled = !available;
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
     if (!navigator.bluetooth) {
       $("unsupported").hidden = false;
       $("scan-btn").disabled = true;
       return;
+    }
+    // Adapter-level availability — surfaces "Bluetooth is off" as a distinct
+    // state so Scan failures aren't opaque.
+    if (navigator.bluetooth.getAvailability) {
+      navigator.bluetooth.getAvailability().then(setBluetoothAvailable);
+      navigator.bluetooth.addEventListener("availabilitychanged", (e) => {
+        setBluetoothAvailable(e.value);
+      });
     }
     $("scan-btn").addEventListener("click", scanForNew);
     $("empty-scan-btn").addEventListener("click", scanForNew);
