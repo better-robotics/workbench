@@ -26,6 +26,13 @@
 #define OTA_DATA_CHAR_UUID    "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d96"
 #define OTA_STATUS_CHAR_UUID  "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d97"
 #define FW_INFO_CHAR_UUID     "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d98"
+#define MOTOR_CHAR_UUID       "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d99"
+
+// Motors are safe-by-construction: every write resets a watchdog. If no write
+// lands within MOTOR_WATCHDOG_MS, the robot reverts to (0, 0) on its own.
+// This covers browser tab closes, operator out-of-range, anything that drops
+// the BLE link — the failure mode you actually want when driving hardware.
+const unsigned long MOTOR_WATCHDOG_MS = 500;
 
 // Shared BLE OTA protocol (matches firmware/pi_robot/pi_robot.py):
 //   ota-data   (write)    — binary frames with 1-byte opcode:
@@ -61,6 +68,11 @@ BLECharacteristic* wifiStatusChar = nullptr;
 BLECharacteristic* otaDataChar    = nullptr;
 BLECharacteristic* otaStatusChar  = nullptr;
 BLECharacteristic* fwInfoChar     = nullptr;
+BLECharacteristic* motorChar      = nullptr;
+
+int8_t motorLeft = 0;
+int8_t motorRight = 0;
+unsigned long motorLastWriteAt = 0;
 
 // OTA state — Update class handles flash writes into the inactive OTA slot.
 bool otaInProgress = false;
@@ -407,6 +419,29 @@ class LedCallbacks : public BLECharacteristicCallbacks {
   }
 };
 
+static void applyMotors(int8_t left, int8_t right) {
+  motorLeft = left;
+  motorRight = right;
+  // Stub motor driver — wire your H-bridge / ledc PWM pins here. For now,
+  // just reflect the commanded state over BLE and serial so the watchdog
+  // behavior is visible end-to-end before any mechanical parts are wired.
+  uint8_t buf[2] = { (uint8_t)left, (uint8_t)right };
+  if (motorChar) {
+    motorChar->setValue(buf, 2);
+    motorChar->notify();
+  }
+  Serial.printf("motors → (%+d, %+d)\n", left, right);
+}
+
+class MotorCallbacks : public BLECharacteristicCallbacks {
+  void onWrite(BLECharacteristic* ch) override {
+    String v = ch->getValue();
+    if (v.length() < 2) return;
+    motorLastWriteAt = millis();
+    applyMotors((int8_t)v[0], (int8_t)v[1]);
+  }
+};
+
 class WifiScanCallbacks : public BLECharacteristicCallbacks {
   void onRead(BLECharacteristic* /*ch*/) override { startScan(); }
 };
@@ -510,6 +545,17 @@ void setup() {
   );
   fwInfoChar->setValue("{\"type\":\"esp32\",\"url\":\"firmware/bins/esp32_robot.bin\"}");
 
+  motorChar = service->createCharacteristic(
+    MOTOR_CHAR_UUID,
+    BLECharacteristic::PROPERTY_READ
+      | BLECharacteristic::PROPERTY_WRITE
+      | BLECharacteristic::PROPERTY_NOTIFY
+  );
+  motorChar->addDescriptor(new BLE2902());
+  motorChar->setCallbacks(new MotorCallbacks());
+  uint8_t motorInit[2] = { 0, 0 };
+  motorChar->setValue(motorInit, 2);
+
   service->start();
 
   BLEAdvertising* adv = BLEDevice::getAdvertising();
@@ -530,6 +576,15 @@ void setup() {
 }
 
 void loop() {
+  // Motor watchdog — safe-default on disconnect. Commanded to non-zero and
+  // silent for too long means the operator's gone; stop the hardware.
+  if ((motorLeft != 0 || motorRight != 0)
+      && motorLastWriteAt > 0
+      && millis() - motorLastWriteAt > MOTOR_WATCHDOG_MS) {
+    applyMotors(0, 0);
+    Serial.printf("motor watchdog: stopped\n");
+  }
+
   if (wifiPhase == PHASE_SCANNING) {
     int n = WiFi.scanComplete();
     if (n >= 0 || n == WIFI_SCAN_FAILED) {

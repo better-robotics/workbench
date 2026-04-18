@@ -36,8 +36,16 @@ WIFI_STATUS_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d95"
 OTA_DATA_CHAR_UUID    = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d96"
 OTA_STATUS_CHAR_UUID  = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d97"
 FW_INFO_CHAR_UUID     = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d98"
+MOTOR_CHAR_UUID       = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d99"
 
 FW_INFO = {"type": "pi", "url": "firmware/pi_robot/pi_robot.py"}
+
+# Motors are safe-by-construction: every write resets a 500ms watchdog. If no
+# write lands within the window, the robot reverts to (0, 0) on its own. This
+# is the failure mode you actually want when a browser tab closes or the
+# operator walks out of BLE range — not a redundant channel, just a safe
+# default behavior on disconnect.
+MOTOR_WATCHDOG_MS = 500
 
 # BLE OTA protocol:
 #   ota-data  (write) — binary frames with 1-byte opcode:
@@ -79,6 +87,9 @@ _wifi_scan: list[dict] = []
 _ota_status: dict = {"st": "idle", "n": 0}
 _ota_buffer: bytearray = bytearray()
 _ota_size: int = 0
+_motor_left: int = 0
+_motor_right: int = 0
+_motor_last_write_at: float = 0.0
 
 
 def device_name() -> str:
@@ -246,6 +257,42 @@ def _ota_handle_write(data: bytearray) -> None:
         _set_ota_status("failed", err=f"unknown op 0x{op:02x}")
 
 
+def _apply_motors(left: int, right: int) -> None:
+    """Stub motor driver. Wire to your H-bridge/PWM here (gpiozero.Motor,
+    RPi.GPIO.PWM, etc). Current behavior: update state + notify dashboard."""
+    global _motor_left, _motor_right
+    _motor_left, _motor_right = left, right
+    _publish(MOTOR_CHAR_UUID, bytearray([left & 0xff, right & 0xff]))
+    log.info("motors → (%+d, %+d)", left, right)
+
+
+def _motor_handle_write(data: bytearray) -> None:
+    global _motor_last_write_at
+    if len(data) < 2:
+        return
+    def signed(b: int) -> int:
+        return b - 256 if b >= 128 else b
+    _motor_last_write_at = asyncio.get_event_loop().time()
+    _apply_motors(signed(data[0]), signed(data[1]))
+
+
+async def _motor_watchdog_task() -> None:
+    """If motors are non-zero and we haven't heard from the operator in
+    MOTOR_WATCHDOG_MS, cut them. This is the "make the failure mode safe"
+    story — not a redundant channel, just a sane default on disconnect."""
+    interval_s = 0.1
+    window_s = MOTOR_WATCHDOG_MS / 1000.0
+    while True:
+        await asyncio.sleep(interval_s)
+        if _motor_left == 0 and _motor_right == 0:
+            continue
+        if _motor_last_write_at == 0.0:
+            continue
+        if asyncio.get_event_loop().time() - _motor_last_write_at > window_s:
+            _apply_motors(0, 0)
+            log.info("motor watchdog: stopped")
+
+
 async def _check_current_wifi() -> None:
     """On startup, reflect the actual current connection state."""
     try:
@@ -303,6 +350,8 @@ def on_read(characteristic: BlessGATTCharacteristic, **_) -> bytearray:
         return _json_bytes(_ota_status)
     if uuid == FW_INFO_CHAR_UUID:
         return _json_bytes(FW_INFO)
+    if uuid == MOTOR_CHAR_UUID:
+        return bytearray([_motor_left & 0xff, _motor_right & 0xff])
     return characteristic.value
 
 
@@ -332,6 +381,9 @@ def on_write(characteristic: BlessGATTCharacteristic, value: bytearray, **_) -> 
         return
     if uuid == OTA_DATA_CHAR_UUID:
         _ota_handle_write(value)
+        return
+    if uuid == MOTOR_CHAR_UUID:
+        _motor_handle_write(value)
 
 
 def _init_wifi_radio() -> None:
@@ -409,11 +461,20 @@ async def main() -> None:
         _json_bytes(FW_INFO),
         GATTAttributePermissions.readable,
     )
+    await _server.add_new_characteristic(
+        SERVICE_UUID, MOTOR_CHAR_UUID,
+        GATTCharacteristicProperties.read
+        | GATTCharacteristicProperties.write
+        | GATTCharacteristicProperties.notify,
+        bytearray([0, 0]),
+        GATTAttributePermissions.readable | GATTAttributePermissions.writeable,
+    )
 
     await _server.start()
     log.info("Advertising on service %s", SERVICE_UUID)
     log.info("Ctrl+C to stop.")
     asyncio.create_task(_check_current_wifi())
+    asyncio.create_task(_motor_watchdog_task())
     try:
         await asyncio.Event().wait()
     finally:
