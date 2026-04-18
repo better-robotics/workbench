@@ -13,30 +13,35 @@ BLE avoids the problem entirely:
 - Laptop's own WiFi stays connected (for internet, AI APIs)
 - Zero credentials, ever
 
-Bandwidth caps at ~1–3 Mbps, which is fine for commands, telemetry, and parameter updates. Video and other high-bandwidth work will switch to on-demand WiFi later.
-
 ## Architecture
 
+Two channels, each doing what it's best at:
+
+- **BLE — control plane.** Always on. Carries commands, telemetry, state changes, and update triggers. Low bandwidth (~1–3 Mbps) but reliable and network-free. The browser's pairing UI is the gatekeeper; no credentials cross the air.
+- **WiFi — data plane, optional.** Onboarded via BLE when a robot wants it. Carries anything too big for BLE: large OTA payloads, video streams, cloud ML inference. Robots work fully without it.
+
+Each robot advertises a single BLE GATT service. Capabilities (LED, motors, sensors, WiFi config, OTA) are characteristics inside it. A `fw-info` characteristic reports the robot's type and where to fetch its firmware — BLE-streamed for small payloads (Pi's 9 KB Python), WiFi-fetched when that's faster (ESP32's 1.6 MB binary). Same control protocol, different data plane per robot.
+
 ```
-┌──────────────────┐          BLE GATT           ┌──────────────────┐
-│  Chrome browser  │ ◄────────────────────────► │  ESP32 firmware  │
-│  (Web Bluetooth) │   commands / telemetry      │  (BLE advertise) │
-└──────────────────┘                             └──────────────────┘
+┌──────────────────┐      BLE GATT (always on)       ┌──────────────────┐
+│  Chrome browser  │ ◄──────────────────────────────► │  Robot firmware  │
+│  (Web Bluetooth) │   commands · state · triggers    │  (ESP32 or Pi)   │
+└──────────────────┘                                  └──────────────────┘
+          ▲                                                     ▲
+          └───────────── WiFi (data plane, optional) ───────────┘
+                  large OTA · video · cloud calls
 ```
 
-- **Firmware:** ESP32 advertises a GATT service. Each characteristic maps to a logical topic (LED state, motor command, sensor reading).
-- **Dashboard:** single-page Chrome app. Uses Web Bluetooth API to scan, connect, read/write characteristics.
-- **No server, no broker, no cloud.** Everything runs on the laptop.
+- **No server, no broker, no cloud in the critical path.** The browser pairs directly with the robot over BLE. WiFi, when present, is used only for content fetched from the same GitHub Pages deploy that serves the dashboard itself.
 
 ## Scope of this repo (today)
 
-Minimum viable path: one LED, one button.
+- `firmware/esp32_robot/` — ESP32 variant. Advertises BLE, handles LED control, WiFi onboarding, and OTA self-update.
+- `firmware/pi_robot/` — Raspberry Pi variant (Python + `bless`). Same service UUID, same characteristic UUIDs — indistinguishable from the ESP32 side of the dashboard. Same capabilities plus offline-first install.
+- `public/index.html` — Chrome dashboard: scans over BLE, pairs, controls LED, onboards WiFi, triggers OTA, prints QR labels per robot.
+- `public/prepare.html` — browser-based SD-card prep for fresh Pis (File System Access API).
 
-- `firmware/esp32_robot/` — ESP32 variant. One BLE service per robot; each capability (LED, motors, sensors) is a characteristic inside that service. Today: just the onboard LED.
-- `firmware/pi_robot/` — Raspberry Pi variant (Python + `bless`). Same service UUID, same characteristic UUIDs — indistinguishable from the ESP32 side of the dashboard.
-- `public/index.html` — Chrome page that flashes firmware over Web Serial and controls the robot over Web Bluetooth (served by GitHub Pages via the `docs` symlink)
-
-Once this loop works end-to-end on real hardware, scope expands to motors, sensors, and multi-robot.
+Each robot's capabilities grow by adding characteristics to the shared service. Motors, sensors, cameras, and more are future characteristics, not future protocols.
 
 ## Quickstart
 
@@ -75,7 +80,7 @@ Web Bluetooth works in Chrome, Edge, and Opera (desktop + Android). It does **no
 
 ## Status
 
-Proof-of-concept. Expect it to break. The point today is to prove the primitives (BLE GATT from ESP32 ↔ Web Bluetooth from Chrome) work on the target hardware before committing to this architecture at scale.
+End-to-end loop works on Pi 4 and ESP32-CAM-MB hardware: pair over BLE, toggle LED, onboard WiFi, OTA the firmware, print QR labels. Control/data channel split validated. Expanding to motors, sensors, and multi-robot coordination from this shape.
 
 ## License
 
