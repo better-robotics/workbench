@@ -43,6 +43,12 @@ MOTOR_CHAR_UUID       = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d99"
 #   camera-status (notify)  — status + outbound SDP answer / ICE back to browser
 CAMERA_SIGNAL_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9a"
 CAMERA_STATUS_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9b"
+# Admin channel for out-of-band ops the user may need when BLE is alive but
+# the service is stuck. Opcodes: 0x01 = restart pi-robot.service. Works only
+# while the GATT server is up — "service dead" recovery still requires SSH
+# or a power cycle.
+ADMIN_CHAR_UUID         = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9c"
+ADMIN_OP_RESTART = 0x01
 
 FW_INFO = {"type": "pi", "url": "firmware/pi_robot/pi_robot.py"}
 
@@ -108,8 +114,13 @@ CAM_OP_INSTALL = 0x05
 # Optional camera stack. Gated on config: if CAMERA_ENABLED is False we skip
 # the imports entirely. "auto" attempts import and tolerates failure — a Pi
 # without aiortc or without picamera2 installed simply doesn't advertise the
-# camera chars.
+# camera chars. Catch broadly: a broken av/aiortc install can raise OSError,
+# AttributeError, or partial-module-loaded errors that aren't ImportError.
+# Silently degrading to "no camera" is always preferable to crashing BLE —
+# the dashboard stays reachable, user can SSH / re-install / pick a different
+# image.
 _camera_available = False
+_camera_import_err = None
 if CAMERA_ENABLED is not False:
     try:
         from picamera2 import Picamera2  # type: ignore
@@ -121,8 +132,8 @@ if CAMERA_ENABLED is not False:
         import av  # type: ignore
         import fractions
         _camera_available = True
-    except ImportError as _e:
-        _camera_import_err = str(_e)
+    except Exception as _e:  # noqa: BLE001 — see comment above
+        _camera_import_err = f"{type(_e).__name__}: {_e}"
 
 logging.basicConfig(format="%(asctime)s %(message)s", level=logging.INFO)
 log = logging.getLogger("pi_robot")
@@ -647,6 +658,11 @@ def on_write(characteristic: BlessGATTCharacteristic, value: bytearray, **_) -> 
     if uuid == CAMERA_SIGNAL_CHAR_UUID:
         _cam_handle_write(value)
         return
+    if uuid == ADMIN_CHAR_UUID:
+        if len(value) >= 1 and value[0] == ADMIN_OP_RESTART:
+            log.info("admin: restart service requested")
+            subprocess.Popen(["systemctl", "restart", "pi-robot"])
+        return
 
 
 def _init_wifi_radio() -> None:
@@ -757,6 +773,15 @@ async def main() -> None:
                  "loaded" if _camera_available else "not installed")
     else:
         log.info("camera: disabled in pi-robot.conf")
+
+    # Admin char is always registered — it's the "soft restart" escape hatch
+    # for cases where BLE is alive but the service needs a refresh.
+    await _server.add_new_characteristic(
+        SERVICE_UUID, ADMIN_CHAR_UUID,
+        GATTCharacteristicProperties.write,
+        bytearray(),
+        GATTAttributePermissions.writeable,
+    )
 
     await _server.start()
     log.info("Advertising on service %s", SERVICE_UUID)
