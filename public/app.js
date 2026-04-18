@@ -927,20 +927,33 @@ async function toggleLed(id) {
   }
 }
 
-// "Connect all" is only shown when ≥2 idle entries already have a device
-// handle. Chrome allows one chooser per user gesture, so batch-connect can't
-// restore entries that need a new pairing prompt — for those, per-card
-// Connect remains the right path.
+// "Connect all" shows whenever at least one paired robot is idle. Previously
+// it was gated on ≥2 idle robots that ALSO had a BluetoothDevice handle —
+// but `getDevices()` is flag-gated on most Chromes, so after a page refresh
+// paired entries typically have device=null and the button would silently
+// hide. Now it shows; connectAll degrades gracefully when handles are
+// missing (see below).
 function updateHeaderActions() {
-  const idleReady = [...state.devices.values()]
-    .filter(e => e.status === "idle" && e.device).length;
-  $("connect-all-btn").hidden = idleReady < 2;
+  const idle = [...state.devices.values()].filter(e => e.status === "idle").length;
+  $("connect-all-btn").hidden = idle < 1;
 }
 
 function connectAll() {
-  const targets = [...state.devices.values()]
-    .filter(e => e.status === "idle" && e.device);
-  targets.forEach(e => connect(e.id));
+  const all = [...state.devices.values()].filter(e => e.status === "idle");
+  const ready = all.filter(e => e.device);
+  const needsPicker = all.filter(e => !e.device);
+  // Ready ones fire in parallel — no chooser, no gesture issue.
+  ready.forEach(e => connect(e.id));
+  // Chrome allows one chooser per user gesture. We fire the first that needs
+  // a picker now (still inside the click's activation window) and log an
+  // honest note that the rest need individual re-pair clicks. Fail-loud
+  // beats fail-silent.
+  if (needsPicker.length > 0) {
+    connect(needsPicker[0].id);
+    if (needsPicker.length > 1) {
+      log(`${needsPicker.length - 1} more need individual Connect — Chrome allows one pairing chooser per click`);
+    }
+  }
 }
 
 // Two-level render. render() reconciles the list (add / remove / order)
