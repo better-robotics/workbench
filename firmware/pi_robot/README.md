@@ -13,19 +13,13 @@ Four characteristics under one service UUID:
 
 ## SD-card first boot
 
-Flash Raspberry Pi OS to the card normally, then with the boot partition mounted at `/Volumes/bootfs`:
-
-```bash
-USER_PASS='sudopass' make sd-prep
-```
-
-`sd-prep` stages aarch64 Python wheels (`bless`, `bleak`, `dbus-fast`, `dbus-next`, `typing-extensions`) into `/boot/firmware/wheels/` and the pi_robot source into `/boot/firmware/betterpi/`, then renders `firstrun.sh` with your values and patches `cmdline.txt`. Wheels for both Python 3.11 and 3.13 are bundled so either Pi OS Bookworm or Trixie works without a re-prep.
-
-Browser equivalent: open `/prepare.html` on the deployed dashboard and pick the boot partition with File System Access API. Same end state, no Python or terminal.
+Flash Raspberry Pi OS to the card normally, then open [prepare.html on the deployed dashboard](https://neevs.io/better-robotics/prepare.html). Fill in hostname + sudo password, paste or pick your SSH public key, and pick the mounted boot partition (usually `/Volumes/bootfs` on macOS). The page stages aarch64 Python wheels (`bless`, `bleak`, `dbus-fast`, `dbus-next`, `typing-extensions`) into `/boot/firmware/wheels/`, the pi_robot source into `/boot/firmware/betterpi/`, renders `firstrun.sh`, and patches `cmdline.txt` + `config.txt`. Wheels for both Python 3.11 and 3.13 are bundled so either Pi OS Bookworm or Trixie works without a re-prep.
 
 First boot runs entirely offline: no WiFi, no captive portal, no PyPI roundtrip. `firstrun.sh` copies the staged firmware into `/home/pi/better-robotics/firmware/pi_robot/`, creates a venv with `--system-site-packages` (so it picks up `python3-lgpio` from the base Pi OS image), installs with `pip install --no-index --find-links=/boot/firmware/wheels`, unblocks Bluetooth via rfkill, enables BlueZ's experimental advertising API, and starts `pi-robot.service` as root. Progress is appended to `/boot/firmware/firstrun.status` as an offline breadcrumb.
 
 After that, the Pi runs BLE-only. WiFi is onboarded from the dashboard via the `wifi-scan` + `wifi-join` characteristics whenever a network is wanted. The SD card holds no credentials.
+
+Developers: the wheels + template that `prepare.html` consumes are published under `public/firmware/pi_robot/` by `make publish-pi-firmware`. Run it after firmware changes, then commit + push so the browser tool serves the new set.
 
 ## Manual run (development)
 
@@ -66,8 +60,8 @@ Hard-won gotchas from getting first boot to actually work on Pi OS Trixie. Check
 
 - **Green LED blinks briefly then goes dark, nothing else happens.** Pi isn't completing boot. Most common cause is under-voltage — Pi 4 wants 5V/3A; phone chargers rated 2A often brown out. Less common: ext4 root corrupted from an earlier bad boot (re-flash Raspberry Pi OS). HDMI monitor is the fastest diagnostic.
 - **`firstrun.status` exists but `pi-robot.service` isn't advertising.** Check `pi-robot-journal.log`. If you see `dbus_next.errors.DBusError: Failed to register advertisement`, Bluetooth is rfkill-blocked. Pi OS Trixie ships with `hci0` soft-blocked by default. `firstrun.sh` handles this, but if you're running manually, `sudo rfkill unblock bluetooth` first.
-- **`pip install` fails with `No matching distribution found` for a wheel that exists.** Python version mismatch. Pi OS Bookworm ships Python 3.11, Trixie ships 3.13. `sd-prep` bundles wheels for both; if you're staging manually, target `--python-version 313` for current images.
+- **`pip install` fails with `No matching distribution found` for a wheel that exists.** Python version mismatch. Pi OS Bookworm ships Python 3.11, Trixie ships 3.13. Wheels for both are bundled; if you're staging manually, target `--python-version 313` for current images.
 - **`bless` install fails with "no dbus-next / typing-extensions".** Don't use pip's resolver across platforms — enumerate the Linux dep chain explicitly: `bless bleak dbus-fast dbus-next typing-extensions`. bless needs `dbus-next` on Linux; `bleak` separately needs `dbus-fast` + `typing-extensions` (on Python<3.12).
 - **Browser SD-prep page can't fetch wheels.** `files.pythonhosted.org` has no CORS headers. Host the wheels on the same origin as the dashboard (we do, under `public/firmware/pi_robot/wheels/` with a `manifest.json`).
 - **`sudo: unable to resolve host <name>` warning in `firstrun.status`.** Benign — the hostname changed mid-session and `/etc/hosts` hasn't caught up. sudo continues normally. Not a failure.
-- **`prepare-sd.py` throws `FileNotFoundError` iterating `._*.whl`.** macOS creates AppleDouble companion files on FAT32; deleting the primary auto-deletes the companion, so the glob can return a file that's already gone. Skip names starting with `._` during iteration.
+- **AppleDouble `._*.whl` gotcha.** macOS creates companion files on FAT32; deleting the primary auto-deletes the companion, so naive directory iteration can return a file that's already gone. Skip names starting with `._` during iteration. The browser SD-prep tool handles this already.

@@ -1,7 +1,8 @@
 #!/bin/bash
 # Better Robotics — offline first-boot provisioning for the Pi.
-# Generated from firstrun.template.sh by prepare-sd.py. Do not edit the
-# copy on the SD card directly — regenerate with `make sd-prep`.
+# Rendered from firstrun.template.sh by the browser SD-prep tool
+# (public/prepare.html). Don't edit the copy on the SD card directly —
+# regenerate it from prepare.html.
 #
 # Everything the Pi needs is staged on the boot partition:
 #   /boot/firmware/betterpi/   pi_robot.py + requirements.txt + service unit
