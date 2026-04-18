@@ -15,6 +15,7 @@ import asyncio
 import json
 import logging
 import socket
+import subprocess
 
 from bless import (
     BlessServer,
@@ -95,23 +96,43 @@ def _set_status(st: str, ssid: str | None = None, err: str | None = None) -> Non
     log.info("wifi-status → %s", _wifi_status)
 
 
+WIFI_DEBUG_LOG = "/boot/firmware/wifi-scan.log"
+
+
+def _debug_log(section: str, content: str) -> None:
+    """Append a diagnostic dump to the boot partition so we can read scan
+    failures from macOS without SSH access to the Pi."""
+    try:
+        with open(WIFI_DEBUG_LOG, "a") as f:
+            f.write(f"=== {section} ===\n{content}\n")
+    except OSError:
+        pass
+
+
 async def _wifi_scan_task() -> None:
     # nmcli SIGNAL is 0..100 already; we pass it through as our unified "strength".
     # Doesn't touch wifi-status — scan activity is orthogonal to connection state.
     global _wifi_scan
     try:
+        _init_wifi_radio()  # belt-and-suspenders in case state changed
         proc = await asyncio.create_subprocess_exec(
             "nmcli", "-t", "-f", "SSID,SIGNAL,SECURITY",
             "dev", "wifi", "list", "--rescan", "yes",
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
         )
         out, err = await proc.communicate()
+        out_str = out.decode(errors="replace")
+        err_str = err.decode(errors="replace")
+        _debug_log(
+            f"scan @ rc={proc.returncode}",
+            f"STDOUT:\n{out_str}\nSTDERR:\n{err_str}",
+        )
         if proc.returncode != 0:
-            log.warning("wifi scan failed: %s", err.decode(errors="replace").strip())
+            log.warning("wifi scan failed: %s", err_str.strip())
             return
         seen: set[str] = set()
         results: list[dict] = []
-        for line in out.decode(errors="replace").splitlines():
+        for line in out_str.splitlines():
             # -t uses ':' as delimiter; embedded ':' in fields is escaped as '\:'.
             parts = line.replace("\\:", "\x00").split(":")
             if len(parts) < 3:
@@ -131,6 +152,7 @@ async def _wifi_scan_task() -> None:
         _publish(WIFI_SCAN_CHAR_UUID, _json_bytes(_wifi_scan))
     except Exception as e:
         log.warning("wifi scan error: %s", e)
+        _debug_log("scan exception", repr(e))
 
 
 async def _check_current_wifi() -> None:
@@ -214,9 +236,29 @@ def on_write(characteristic: BlessGATTCharacteristic, value: bytearray, **_) -> 
         _schedule(_wifi_join_task(ssid, password))
 
 
+def _init_wifi_radio() -> None:
+    """Get wlan0 to a state where nmcli scans return networks.
+
+    Idempotent sequence: unblock rfkill → make sure NetworkManager is running →
+    turn on the WiFi radio. Any step failing is logged but not fatal — we want
+    pi_robot to come up for BLE even if WiFi is unavailable."""
+    steps = [
+        ["rfkill", "unblock", "wifi"],
+        ["rfkill", "unblock", "all"],
+        ["systemctl", "start", "NetworkManager"],
+        ["nmcli", "radio", "wifi", "on"],
+    ]
+    for cmd in steps:
+        try:
+            subprocess.run(cmd, check=False, timeout=5, capture_output=True)
+        except Exception as e:
+            log.warning("wifi init: %s failed: %s", cmd, e)
+
+
 async def main() -> None:
     global _server, _loop
     _loop = asyncio.get_running_loop()
+    _init_wifi_radio()
     name = device_name()
     log.info("Starting %s", name)
 
