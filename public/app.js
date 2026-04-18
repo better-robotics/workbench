@@ -613,6 +613,61 @@ async function updateFromFile(id) {
   input.click();
 }
 
+// Gamepad drive. The first connected Standard-layout gamepad drives the
+// currently-selected robot: left stick Y → left motor, right stick Y → right
+// motor (tank drive). Deadzone 0.10 suppresses idle stick drift. Commands go
+// through sendMotors which already drops-intermediate-values, so 60 Hz polling
+// doesn't flood BLE.
+const GAMEPAD_DEADZONE = 0.10;
+let _gamepadTargetId = null;
+let _gamepadRafHandle = null;
+
+function pickGamepadTarget() {
+  if (_gamepadTargetId) {
+    const e = state.devices.get(_gamepadTargetId);
+    if (e && e.motorChar && e.status === "connected") return _gamepadTargetId;
+  }
+  for (const e of state.devices.values()) {
+    if (e.motorChar && e.status === "connected") return e.id;
+  }
+  return null;
+}
+
+function gamepadTick() {
+  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+  const pad = [...pads].find(p => p && p.connected);
+  if (!pad) {
+    _gamepadRafHandle = null;
+    renderGamepadBadge();
+    return;
+  }
+  const id = pickGamepadTarget();
+  if (id) {
+    const ly = pad.axes[1] ?? 0;  // left stick Y (down = +1 → reverse)
+    const ry = pad.axes[3] ?? 0;  // right stick Y
+    const toMotor = (v) => {
+      const dz = Math.abs(v) < GAMEPAD_DEADZONE ? 0 : v;
+      return Math.round(-dz * 100);  // invert so stick-up = forward
+    };
+    sendMotors(id, toMotor(ly), toMotor(ry));
+  }
+  renderGamepadBadge(id, pad.id);
+  _gamepadRafHandle = requestAnimationFrame(gamepadTick);
+}
+
+function renderGamepadBadge(targetId, padName) {
+  const box = $("gamepad-badge");
+  if (!targetId) { box.hidden = true; return; }
+  const entry = state.devices.get(targetId);
+  box.hidden = false;
+  box.textContent = `🎮 ${padName || "gamepad"} → ${entry?.name || "?"}`;
+}
+
+function startGamepadLoop() {
+  if (_gamepadRafHandle) return;
+  _gamepadRafHandle = requestAnimationFrame(gamepadTick);
+}
+
 async function sendMotors(id, left, right) {
   const entry = state.devices.get(id);
   if (!entry || !entry.motorChar) return;
@@ -898,6 +953,20 @@ document.addEventListener("DOMContentLoaded", () => {
   $("scan-btn").addEventListener("click", scanForNew);
   $("empty-scan-btn").addEventListener("click", scanForNew);
   $("connect-all-btn").addEventListener("click", connectAll);
+
+  // Start/stop the gamepad poll loop when a pad connects/disconnects. No
+  // loop runs when no gamepad is attached — zero idle cost.
+  window.addEventListener("gamepadconnected", (e) => {
+    log(`Gamepad connected: ${e.gamepad.id}`);
+    startGamepadLoop();
+  });
+  window.addEventListener("gamepaddisconnected", (e) => {
+    log(`Gamepad disconnected: ${e.gamepad.id}`);
+    renderGamepadBadge();
+  });
+  if (navigator.getGamepads && [...navigator.getGamepads()].some(p => p)) {
+    startGamepadLoop();
+  }
 
   // Settings modal — passive-scan toggle gates on both the flag and the
   // underlying API; if Chrome lacks requestLEScan, the status line explains
