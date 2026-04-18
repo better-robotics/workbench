@@ -1,0 +1,15 @@
+[Unit]
+Description=Better Robotics — Pi robot firmware
+After=bluetooth.service NetworkManager.service
+Requires=bluetooth.service
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/better-robotics/firmware/pi_robot
+ExecStart=/home/pi/better-robotics/firmware/pi_robot/.venv/bin/python pi_robot.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -8,7 +8,7 @@ PUBLISH_DIR := public/firmware/bins
 BOOT_APP0   := $(shell find ~/Library/Arduino15/packages/esp32 -name boot_app0.bin 2>/dev/null | sort -V | tail -1)
 MONITOR      = arduino-cli monitor --port "$(PORT)" --config baudrate=115200,dtr=off,rts=off
 
-.PHONY: help setup compile flash monitor flash-monitor preview publish-firmware
+.PHONY: help setup compile flash monitor flash-monitor preview publish-firmware publish-pi-firmware
 
 help:
 	@echo ""
@@ -24,6 +24,7 @@ help:
 	@echo "\033[2mDashboard\033[0m"
 	@echo "  \033[36mpreview\033[0m             Serve dashboard at http://localhost:8080"
 	@echo "  \033[36mpublish-firmware\033[0m    Package firmware bins into public/firmware/bins/ for web flashing"
+	@echo "  \033[36mpublish-pi-firmware\033[0m Publish Pi firmware to public/firmware/pi_robot/ for SD-card first-boot fetch"
 	@echo ""
 
 setup:
@@ -64,3 +65,11 @@ publish-firmware: compile
 	cp "$(BOOT_APP0)"                              "$(PUBLISH_DIR)/boot_app0.bin"
 	@echo ""
 	@echo "Firmware bins copied to $(PUBLISH_DIR). Commit and push to deploy."
+
+publish-pi-firmware:
+	@mkdir -p public/firmware/pi_robot
+	cp firmware/pi_robot/pi_robot.py       public/firmware/pi_robot/pi_robot.py
+	cp firmware/pi_robot/requirements.txt  public/firmware/pi_robot/requirements.txt
+	cp firmware/pi_robot/pi-robot.service  public/firmware/pi_robot/pi-robot.service
+	@echo ""
+	@echo "Pi firmware published to public/firmware/pi_robot/. Commit and push to deploy."

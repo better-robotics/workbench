@@ -169,6 +169,20 @@
       padding-top: 12px;
       border-top: 1px dashed var(--line);
     }
+    .wifi-list {
+      margin-top: 8px;
+      border-top: 1px dashed var(--line);
+      padding-top: 8px;
+    }
+    .wifi-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .wifi-row:last-child { border-bottom: none; }
     .empty-state {
       text-align: center;
       padding: 24px 16px 8px;
@@ -248,8 +262,19 @@
   <button class="menu-item destructive" id="menu-forget">Forget this robot</button>
 </div>
 <script>
-  const SERVICE_UUID  = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d91";
-  const LED_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d92";
+  const SERVICE_UUID          = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d91";
+  const LED_CHAR_UUID         = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d92";
+  const WIFI_SCAN_CHAR_UUID   = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d93";
+  const WIFI_JOIN_CHAR_UUID   = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d94";
+  const WIFI_STATUS_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d95";
+
+  const decodeJson = (dv) => {
+    try {
+      const text = new TextDecoder().decode(dv);
+      return text ? JSON.parse(text) : null;
+    } catch { return null; }
+  };
+  const encodeJson = (obj) => new TextEncoder().encode(JSON.stringify(obj));
 
   const $ = (id) => document.getElementById(id);
   const log = (msg) => {
@@ -296,6 +321,12 @@
       status: "idle",
       ledChar: null,
       ledOn: false,
+      wifiScanChar: null,
+      wifiJoinChar: null,
+      wifiStatusChar: null,
+      wifiStatus: { st: "idle" },
+      wifiNetworks: null,
+      wifiScanning: false,
     };
     attachDevice(entry, device);
     state.devices.set(device.id, entry);
@@ -307,7 +338,12 @@
     // Restore remembered robots first — works even when getDevices() is missing.
     for (const { id, name } of loadKnown()) {
       if (!state.devices.has(id)) {
-        state.devices.set(id, { id, name, device: null, status: "idle", ledChar: null, ledOn: false });
+        state.devices.set(id, {
+          id, name, device: null, status: "idle",
+          ledChar: null, ledOn: false,
+          wifiScanChar: null, wifiJoinChar: null, wifiStatusChar: null,
+          wifiStatus: { st: "idle" }, wifiNetworks: null, wifiScanning: false,
+        });
       }
     }
     // Reattach live BluetoothDevice objects if the browser exposes them.
@@ -384,6 +420,29 @@
       entry.status = "connected";
       state.connectedId = id;
       log(`Connected to ${entry.name}`);
+
+      // WiFi characteristics are optional — older firmwares may not expose them.
+      try {
+        entry.wifiScanChar   = await service.getCharacteristic(WIFI_SCAN_CHAR_UUID);
+        entry.wifiJoinChar   = await service.getCharacteristic(WIFI_JOIN_CHAR_UUID);
+        entry.wifiStatusChar = await service.getCharacteristic(WIFI_STATUS_CHAR_UUID);
+        entry.wifiStatus = decodeJson(await entry.wifiStatusChar.readValue()) || { st: "idle" };
+        await entry.wifiStatusChar.startNotifications();
+        entry.wifiStatusChar.addEventListener("characteristicvaluechanged", (e) => {
+          entry.wifiStatus = decodeJson(e.target.value) || { st: "idle" };
+          const { st, ssid, err: errMsg } = entry.wifiStatus;
+          log(`WiFi ${st}${ssid ? ` [${ssid}]` : ""}${errMsg ? ` — ${errMsg}` : ""}`);
+          render();
+        });
+        await entry.wifiScanChar.startNotifications();
+        entry.wifiScanChar.addEventListener("characteristicvaluechanged", (e) => {
+          entry.wifiNetworks = decodeJson(e.target.value) || [];
+          entry.wifiScanning = false;
+          render();
+        });
+      } catch {
+        entry.wifiScanChar = null;  // robot has no WiFi onboarding — that's fine.
+      }
     } catch (err) {
       entry.status = "error";
       log(`Connect failed: ${err.message}`);
@@ -402,6 +461,9 @@
     if (!entry) return;
     entry.status = "idle";
     entry.ledChar = null;
+    entry.wifiScanChar = entry.wifiJoinChar = entry.wifiStatusChar = null;
+    entry.wifiNetworks = null;
+    entry.wifiScanning = false;
     if (state.connectedId === id) state.connectedId = null;
     log(`Disconnected from ${entry.name}`);
     render();
@@ -421,6 +483,42 @@
     persist();
     log(`Forgot ${entry.name}`);
     render();
+  }
+
+  async function scanWifi(id) {
+    const entry = state.devices.get(id);
+    if (!entry || !entry.wifiScanChar) return;
+    entry.wifiScanning = true;
+    render();
+    try {
+      // Triggers a rescan on the device; we also get the cached value right now.
+      const v = await entry.wifiScanChar.readValue();
+      const cached = decodeJson(v);
+      if (cached && cached.length) {
+        entry.wifiNetworks = cached;
+        render();
+      }
+      // Fresh results arrive via the scan notification handler.
+    } catch (err) {
+      entry.wifiScanning = false;
+      log(`WiFi scan failed: ${err.message}`);
+      render();
+    }
+  }
+
+  async function joinWifi(id, ssid, secured) {
+    const entry = state.devices.get(id);
+    if (!entry || !entry.wifiJoinChar) return;
+    let password = "";
+    if (secured) {
+      password = prompt(`Password for ${ssid}:`);
+      if (password === null) return;
+    }
+    try {
+      await entry.wifiJoinChar.writeValueWithResponse(encodeJson({ s: ssid, p: password }));
+    } catch (err) {
+      log(`WiFi join failed: ${err.message}`);
+    }
   }
 
   async function toggleLed(id) {
@@ -481,6 +579,30 @@
             <button class="secondary sm" data-action="toggle-led">${ledOn ? "Turn off" : "Turn on"}</button>
           </div>
         ` : ""}
+        ${connected && entry.wifiScanChar ? `
+          <div class="robot-controls row">
+            <div>
+              <div class="label">WiFi</div>
+              <div class="meta">${escapeHtml(wifiSummary(entry))}</div>
+            </div>
+            <button class="secondary sm" data-action="scan-wifi" ${entry.wifiScanning ? "disabled" : ""}>
+              ${entry.wifiScanning ? "Scanning…" : "Scan"}
+            </button>
+          </div>
+          ${entry.wifiNetworks && entry.wifiNetworks.length ? `
+            <div class="wifi-list">
+              ${entry.wifiNetworks.map(n => `
+                <div class="wifi-row">
+                  <div>
+                    <div>${escapeHtml(n.s)}</div>
+                    <div class="meta">${n.r} · ${n.p ? "secured" : "open"}</div>
+                  </div>
+                  <button class="secondary sm" data-action="join-wifi" data-ssid="${escapeHtml(n.s)}" data-secured="${n.p ? 1 : 0}">Join</button>
+                </div>
+              `).join("")}
+            </div>
+          ` : ""}
+        ` : ""}
       `;
       robot.querySelectorAll("[data-action]").forEach(btn => {
         btn.addEventListener("click", (e) => {
@@ -489,6 +611,8 @@
           else if (action === "disconnect") disconnect(id);
           else if (action === "menu") openMenu(btn, id);
           else if (action === "toggle-led") toggleLed(id);
+          else if (action === "scan-wifi") scanWifi(id);
+          else if (action === "join-wifi") joinWifi(id, btn.dataset.ssid, btn.dataset.secured === "1");
         });
       });
       list.appendChild(robot);
@@ -513,6 +637,14 @@
     const menu = $("robot-menu");
     if (menu.hidePopover) menu.hidePopover();
     menuTargetId = null;
+  }
+
+  function wifiSummary(entry) {
+    const { st, ssid, err } = entry.wifiStatus || {};
+    if (st === "joined")  return `Connected to ${ssid || "network"}`;
+    if (st === "joining") return `Joining${ssid ? ` ${ssid}` : ""}…`;
+    if (st === "failed")  return `Failed${err ? ` — ${err}` : ""}`;
+    return "Not configured";
   }
 
   function escapeHtml(s) {
