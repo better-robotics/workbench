@@ -60,37 +60,6 @@ p.lede { color: var(--ink-muted); margin: 0 0 32px; max-width: 640px; }
 
 .label { font-weight: 500; display: flex; align-items: center; gap: 8px; }
 
-/* Robot-card name doubles as the menu trigger — tapping the name opens
-   Show label / Update firmware / Forget. Frees the card's top-right
-   corner for the primary Connect/Disconnect action. */
-.name-trigger {
-  background: transparent;
-  border: none;
-  padding: 0;
-  min-height: unset;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font: inherit;
-  font-weight: 500;
-  color: var(--ink);
-  text-align: left;
-}
-.name-trigger:hover { color: var(--accent); }
-.name-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
-.name-trigger .caret {
-  display: inline-block;
-  color: var(--ink-muted);
-  opacity: 0.55;
-  margin-left: 2px;
-  line-height: 1;
-  transition: transform 0.15s, opacity 0.15s;
-}
-.name-trigger:hover .caret { opacity: 1; color: var(--accent); }
-/* Matches the Set-up-new-hardware <details> chevron: points right when
-   closed, rotates 90° to face down when the menu (popover) is open. */
-.name-trigger.menu-open .caret { transform: rotate(90deg); }
 .meta {
   color: var(--ink-muted);
   font-size: 13px;

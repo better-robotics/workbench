@@ -13,9 +13,11 @@ Run:
 
 import ast
 import asyncio
+import base64
 import json
 import logging
 import os
+import shlex
 import socket
 import subprocess
 
@@ -50,7 +52,18 @@ CAMERA_STATUS_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9b"
 ADMIN_CHAR_UUID         = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9c"
 ADMIN_OP_RESTART = 0x01
 
-FW_INFO = {"type": "pi", "url": "firmware/pi_robot/pi_robot.py"}
+FW_INFO = {
+    "type": "pi",
+    # Legacy single-file OTA target — still supported so older dashboards
+    # can update the firmware.
+    "url": "firmware/pi_robot/pi_robot.py",
+    # Bundle OTA — ships multiple files in one transfer (firmware + helper
+    # scripts + systemd units). Dashboard fetches the manifest, builds a
+    # JSON bundle, streams over the same chunked OTA protocol. Commit path
+    # sniffs the payload shape.
+    "caps": ["bundle-ota"],
+    "bundle_url": "firmware/pi_robot/ota-manifest.json",
+}
 
 # Motor watchdog: every write resets the timer; silence reverts to (0, 0).
 # Safe default on disconnect — no redundant channel required.
@@ -258,6 +271,93 @@ def _set_ota_status(st: str, n: int = 0, total: int = 0, err: str | None = None)
     log.info("ota-status → %s", _ota_status)
 
 
+# Destination prefixes a bundle-OTA may write to. Anything outside these
+# is rejected — malicious manifests can't overwrite /etc/passwd or similar.
+# The threat model is "anyone paired to the robot", which already implies
+# user consent, but defense-in-depth is cheap here.
+_OTA_ALLOWED_DEST_PREFIXES = (
+    "/home/pi/better-robotics/firmware/",
+    "/etc/systemd/system/",
+    "/usr/local/bin/",
+    "/boot/firmware/",
+)
+
+
+def _ota_dest_allowed(dest: str) -> bool:
+    norm = os.path.realpath(dest)
+    return any(norm.startswith(p) for p in _OTA_ALLOWED_DEST_PREFIXES)
+
+
+async def _apply_bundle(bundle: dict) -> None:
+    """Multi-file OTA. bundle shape:
+        {"manifest": {"files": [...], "post_install": [...], "restart": "..."},
+         "files":    {"<src>": "<base64>", ...}}
+    Write all files to staging paths, validate each, then atomically rename.
+    Run post_install commands, optionally restart a service at the end.
+    Atomicity across files is best-effort — there's a small window between
+    renames; good enough for our update cadence."""
+    global _ota_buffer
+    manifest = bundle.get("manifest") or {}
+    blobs    = bundle.get("files") or {}
+    files    = manifest.get("files") or []
+    if not files:
+        _set_ota_status("failed", err="bundle has no files")
+        return
+
+    # Phase 1: validate and stage all files to *.new paths.
+    staged: list[tuple[str, str, int]] = []  # (dest, tmp, mode)
+    for spec in files:
+        src  = spec.get("src")
+        dest = spec.get("dest")
+        mode = int(spec.get("mode", "644"), 8)
+        if not src or not dest:
+            _set_ota_status("failed", err=f"bad file spec: {spec}")
+            return
+        if not _ota_dest_allowed(dest):
+            _set_ota_status("failed", err=f"dest not allowed: {dest}"[:120])
+            return
+        b64 = blobs.get(src)
+        if not b64:
+            _set_ota_status("failed", err=f"bundle missing file: {src}")
+            return
+        try:
+            content = base64.b64decode(b64)
+        except Exception as e:
+            _set_ota_status("failed", err=f"bad b64 for {src}: {e}"[:120])
+            return
+        if dest.endswith(".py"):
+            try:
+                ast.parse(content)
+            except SyntaxError as e:
+                _set_ota_status("failed", err=f"SyntaxError in {src}: {e}"[:120])
+                return
+        os.makedirs(os.path.dirname(dest) or "/", exist_ok=True)
+        tmp = dest + ".new"
+        with open(tmp, "wb") as f:
+            f.write(content)
+        os.chmod(tmp, mode)
+        staged.append((dest, tmp, mode))
+
+    # Phase 2: atomic-rename each staged file.
+    for dest, tmp, _ in staged:
+        os.replace(tmp, dest)
+
+    # Phase 3: post_install hooks (daemon-reload, enables, etc.).
+    for cmd in manifest.get("post_install") or []:
+        argv = shlex.split(cmd)
+        rc = subprocess.run(argv, check=False, capture_output=True).returncode
+        if rc != 0:
+            _set_ota_status("failed", err=f"post_install: {cmd} rc={rc}"[:120])
+            return
+
+    _set_ota_status("done", n=len(_ota_buffer), total=_ota_size)
+    _ota_buffer = bytearray()
+    await asyncio.sleep(0.5)  # let the notify flush
+    restart = manifest.get("restart")
+    if restart:
+        subprocess.Popen(["systemctl", "restart", f"{restart}.service"])
+
+
 async def _ota_commit() -> None:
     global _ota_buffer, _ota_size
     try:
@@ -265,6 +365,21 @@ async def _ota_commit() -> None:
             _set_ota_status("failed", err=f"size mismatch {len(_ota_buffer)} != {_ota_size}")
             _ota_buffer = bytearray()
             return
+        # Sniff payload shape: bundle-OTA is a JSON object starting with
+        # {"manifest":…. Anything else is treated as single-file Python
+        # source for legacy compatibility.
+        head = bytes(_ota_buffer[:12])
+        if head.startswith(b'{"manifest":'):
+            try:
+                bundle = json.loads(_ota_buffer.decode("utf-8"))
+            except Exception as e:
+                _set_ota_status("failed", err=f"bundle json: {e}"[:120])
+                _ota_buffer = bytearray()
+                return
+            await _apply_bundle(bundle)
+            return
+
+        # Legacy: single-file pi_robot.py update.
         try:
             ast.parse(bytes(_ota_buffer))
         except SyntaxError as e:
@@ -277,7 +392,6 @@ async def _ota_commit() -> None:
         os.replace(tmp, OTA_TARGET)
         _set_ota_status("done", n=len(_ota_buffer), total=_ota_size)
         _ota_buffer = bytearray()
-        # Let the notify flush over BLE before systemd kills us.
         await asyncio.sleep(0.5)
         subprocess.Popen(["systemctl", "restart", "pi-robot.service"])
     except Exception as e:

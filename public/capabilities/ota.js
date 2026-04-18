@@ -46,15 +46,71 @@ async function streamOtaBytes(entry, bytes) {
   await ch.writeValueWithResponse(new Uint8Array([0x03]));
 }
 
+// Build a bundle blob for multi-file OTA. Reads the robot's manifest,
+// fetches each file under firmware/pi_robot/, base64-encodes contents, and
+// returns a JSON-serialized object the Pi's _apply_bundle knows how to
+// extract. One-trip fetches + one BLE stream covers the whole update.
+async function buildBundle(entry) {
+  const manifestUrl = entry.fwInfo.bundle_url;
+  const manifest = await (await fetch(manifestUrl, { cache: "no-cache" })).json();
+  const files = {};
+  for (const spec of manifest.files || []) {
+    const src = spec.src;
+    const url = `firmware/pi_robot/${src}`;
+    const buf = await (await fetch(url, { cache: "no-cache" })).arrayBuffer();
+    // Base64 without spreading the whole array into String.fromCharCode
+    // (avoids stack overflow on larger files).
+    const bytes = new Uint8Array(buf);
+    let bin = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+      bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    }
+    files[src] = btoa(bin);
+  }
+  return { manifest, files };
+}
+
 export async function updateFirmware(id) {
   const entry = state.devices.get(id);
   if (!entry || !entry.otaDataChar) {
     log("Update not supported by this firmware");
     return;
   }
+
+  // Bundle path: robot advertises bundle-ota in fw-info. Ships pi_robot.py
+  // plus any helper scripts / systemd units / etc. declared in the manifest.
+  const useBundle =
+    entry.fwInfo?.caps?.includes("bundle-ota") && entry.fwInfo?.bundle_url;
+
+  let bytes;
+  if (useBundle) {
+    logFor(entry, `fetching bundle (${entry.fwInfo.bundle_url})…`);
+    try {
+      const bundle = await buildBundle(entry);
+      bytes = new TextEncoder().encode(JSON.stringify(bundle));
+      logFor(entry, `bundle ready: ${bundle.manifest.files.length} files, ${bytes.length} B`);
+    } catch (err) {
+      logFor(entry, `bundle build failed: ${err.message}`);
+      return;
+    }
+    await acquireWakeLock();
+    try {
+      logFor(entry, `OTA streaming bundle ${bytes.length} B…`);
+      try {
+        await streamOtaBytes(entry, bytes);
+        logFor(entry, "OTA commit sent — robot applying bundle");
+      } catch (err) {
+        logFor(entry, `OTA failed: ${err.message}`);
+      }
+    } finally {
+      await releaseWakeLock();
+    }
+    return;
+  }
+
+  // Legacy single-file path (ESP32, or older Pi firmware without bundle-ota).
   const fetchUrl = entry.fwInfo?.url || "firmware/pi_robot/pi_robot.py";
   logFor(entry, `fetching ${fetchUrl}…`);
-  let bytes;
   try {
     const resp = await fetch(fetchUrl, { cache: "no-cache" });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
