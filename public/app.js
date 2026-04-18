@@ -1082,9 +1082,6 @@ function wifiSummary(entry) {
   return "Not configured";
 }
 
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
 
 function setBluetoothAvailable(available) {
   $("bluetooth-off").hidden = !!available;
