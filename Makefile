@@ -8,23 +8,24 @@ PUBLISH_DIR := public/firmware/bins
 BOOT_APP0   := $(shell find ~/Library/Arduino15/packages/esp32 -name boot_app0.bin 2>/dev/null | sort -V | tail -1)
 MONITOR      = arduino-cli monitor --port "$(PORT)" --config baudrate=115200,dtr=off,rts=off
 
-.PHONY: help setup compile flash monitor flash-monitor preview publish-firmware publish-pi-firmware
+.PHONY: help setup compile flash monitor flash-monitor preview publish publish-firmware publish-pi-firmware
 
 help:
 	@echo ""
 	@echo "\033[2mSetup\033[0m"
 	@echo "  \033[36msetup\033[0m          Install host dependencies (once per machine)"
 	@echo ""
-	@echo "\033[2mFirmware\033[0m"
+	@echo "\033[2mFirmware (ESP32 local dev loop)\033[0m"
 	@echo "  \033[36mcompile\033[0m        Compile $(SKETCH)"
-	@echo "  \033[36mflash\033[0m          Compile + upload over USB"
+	@echo "  \033[36mflash\033[0m          Compile + upload over USB — fast dev iteration"
 	@echo "  \033[36mmonitor\033[0m        Open serial monitor at 115200"
 	@echo "  \033[36mflash-monitor\033[0m  Flash then open monitor"
 	@echo ""
-	@echo "\033[2mDashboard\033[0m"
-	@echo "  \033[36mpreview\033[0m             Serve dashboard at http://localhost:8080"
-	@echo "  \033[36mpublish-firmware\033[0m    Package firmware bins into public/firmware/bins/ for web flashing"
-	@echo "  \033[36mpublish-pi-firmware\033[0m Publish Pi firmware + wheels to public/firmware/pi_robot/ for the browser SD-prep tool"
+	@echo "\033[2mDashboard & publishing (what the browser serves + OTA fetches)\033[0m"
+	@echo "  \033[36mpreview\033[0m             Serve dashboard at http://localhost:8080 (local)"
+	@echo "  \033[36mpublish-firmware\033[0m    Stage ESP32 bins in public/firmware/bins/ for web flashing + ESP32 OTA"
+	@echo "  \033[36mpublish-pi-firmware\033[0m Stage Pi firmware + wheels in public/firmware/pi_robot/ for SD-prep + Pi OTA"
+	@echo "  \033[36mpublish\033[0m             Both publish targets — run before pushing to deploy"
 	@echo ""
 
 setup:
@@ -78,3 +79,5 @@ publish-pi-firmware:
 	@python3 -c "import json, pathlib; d = pathlib.Path('public/firmware/pi_robot/wheels'); (d/'manifest.json').write_text(json.dumps({'wheels': sorted(p.name for p in d.glob('*.whl'))}, indent=2) + '\n')"
 	@echo ""
 	@echo "Pi firmware + wheels published. Commit and push to deploy. SD-card prep runs in the browser via prepare.html."
+
+publish: publish-firmware publish-pi-firmware
