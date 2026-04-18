@@ -499,6 +499,8 @@
       motorChar: null,
       motorLeft: 0,
       motorRight: 0,
+      motorSending: false,
+      motorPending: null,
     };
     attachDevice(entry, device);
     state.devices.set(device.id, entry);
@@ -517,6 +519,7 @@
           wifiStatus: { st: "idle" }, wifiNetworks: null, wifiScanning: false,
           otaDataChar: null, otaStatusChar: null, otaStatus: { st: "idle" }, fwInfo: null,
           motorChar: null, motorLeft: 0, motorRight: 0,
+          motorSending: false, motorPending: null,
         });
       }
     }
@@ -847,13 +850,28 @@
     const entry = state.devices.get(id);
     if (!entry || !entry.motorChar) return;
     const clamp = (v) => Math.max(-100, Math.min(100, Math.round(Number(v) || 0)));
-    const l = clamp(left), r = clamp(right);
+    // Drop-intermediate-values: slider input events fire faster than BLE
+    // writes can complete ("GATT operation already in progress" otherwise).
+    // We always queue the latest wanted value; while a write is in flight,
+    // newer calls just update the pending intent. Latest intent wins.
+    entry.motorPending = [clamp(left), clamp(right)];
+    if (entry.motorSending) return;
+    entry.motorSending = true;
     try {
-      // Int8 wire encoding: negative values become 0x80..0xFF via two's complement.
-      await entry.motorChar.writeValueWithResponse(
-        Uint8Array.of(l & 0xff, r & 0xff));
-    } catch (err) {
-      log(`Motors write failed: ${err.message}`);
+      while (entry.motorPending) {
+        const [l, r] = entry.motorPending;
+        entry.motorPending = null;
+        try {
+          // Int8 wire encoding: negatives become 0x80..0xFF via two's complement.
+          await entry.motorChar.writeValueWithResponse(
+            Uint8Array.of(l & 0xff, r & 0xff));
+        } catch (err) {
+          log(`Motors write failed: ${err.message}`);
+          break;
+        }
+      }
+    } finally {
+      entry.motorSending = false;
     }
   }
 

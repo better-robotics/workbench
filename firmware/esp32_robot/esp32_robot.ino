@@ -78,6 +78,11 @@ unsigned long motorLastWriteAt = 0;
 bool otaInProgress = false;
 size_t otaExpected = 0;
 size_t otaReceived = 0;
+// Restart is deferred out of the BLE write callback so the ATT response
+// for the commit opcode (0x03) can actually be sent before we reboot.
+// Restarting inline makes the client see "GATT operation failed" even
+// though the flash commit succeeded.
+volatile bool otaRestartPending = false;
 
 Preferences prefs;
 
@@ -343,8 +348,7 @@ static void otaFetchUrl(const String& url, size_t expectedSize, const uint8_t ex
     return;
   }
   publishOta("done", total, expectedSize);
-  delay(500);
-  ESP.restart();
+  otaRestartPending = true;  // loop() restarts after the current callback returns
 }
 
 class OtaDataCallbacks : public BLECharacteristicCallbacks {
@@ -394,8 +398,7 @@ class OtaDataCallbacks : public BLECharacteristicCallbacks {
         return;
       }
       publishOta("done", otaReceived, otaExpected);
-      delay(500);  // let the notify flush before the restart
-      ESP.restart();
+      otaRestartPending = true;  // loop() restarts after onWrite returns
     } else if (op == 0x04) {
       String payload = v.substring(1);
       String url = extractJsonString(payload, "url");
@@ -576,6 +579,14 @@ void setup() {
 }
 
 void loop() {
+  // Deferred OTA restart — runs after the BLE write callback has returned
+  // and the ATT response for opcode 0x03 has had a chance to go out. Restarting
+  // inside the callback eats the response and the client thinks OTA failed.
+  if (otaRestartPending) {
+    delay(500);  // let the last notify + ATT response land
+    ESP.restart();
+  }
+
   // Motor watchdog — safe-default on disconnect. Commanded to non-zero and
   // silent for too long means the operator's gone; stop the hardware.
   if ((motorLeft != 0 || motorRight != 0)
