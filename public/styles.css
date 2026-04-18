@@ -125,6 +125,27 @@ button.icon:hover { background: var(--line); color: var(--ink); }
   outline: none;
   border-color: var(--accent);
 }
+.field-overlay { position: relative; }
+.field-overlay textarea {
+  padding-right: 84px;
+  padding-bottom: 32px;
+  resize: none;  /* native resize grip lives where the overlay button sits */
+}
+.overlay-action {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  min-height: unset;
+  padding: 4px 12px;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
+  background: var(--surface);
+  color: var(--ink-muted);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.overlay-action:hover { color: var(--ink); background: var(--line); }
 
 .menu {
   position: fixed;
@@ -196,7 +217,8 @@ button.icon:hover { background: var(--line); color: var(--ink); }
 }
 .wifi-row:last-child { border-bottom: none; }
 
-.setup-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.setup-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+.setup-grid .card { margin-bottom: 0; }
 @media (max-width: 520px) { .setup-grid { grid-template-columns: 1fr; } }
 .setup-item { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .setup-item button { margin-top: 4px; }

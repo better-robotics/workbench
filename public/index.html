@@ -22,26 +22,27 @@
     Bluetooth is off — turn it on to scan for robots.
   </div>
 
-  <section class="card">
-    <div class="label" style="margin-bottom: 12px;">Set up new hardware</div>
-    <div class="setup-grid">
-      <div class="setup-item">
-        <div class="label">Flash an ESP32</div>
-        <div class="meta">Full firmware over USB — takes a blank chip to a working robot in one click.</div>
-        <esp-web-install-button manifest="firmware/manifest.json">
-          <button slot="activate" class="secondary">Flash firmware</button>
-          <span slot="unsupported" class="meta">Web Serial required (Chrome or Edge desktop).</span>
-          <span slot="not-allowed" class="meta">HTTPS required to flash.</span>
-        </esp-web-install-button>
-        <button type="button" class="help-hint" popovertarget="esp32-drivers">Do I need a driver?</button>
-      </div>
-      <div class="setup-item">
-        <div class="label">Customize a Pi SD card</div>
-        <div class="meta">Pi OS already on the card (via Raspberry Pi Imager)? Stage firmware, wheels, SSH key on the boot partition.</div>
-        <button class="secondary" type="button" id="prepare-open-btn">Customize card</button>
-      </div>
-    </div>
-  </section>
+  <div class="robots-heading">
+    <div class="label">Set up new hardware</div>
+  </div>
+
+  <div class="setup-grid">
+    <section class="card setup-item">
+      <div class="label">Flash an ESP32</div>
+      <div class="meta">Full firmware over USB — takes a blank chip to a working robot in one click.</div>
+      <esp-web-install-button manifest="firmware/manifest.json">
+        <button slot="activate" class="secondary">Flash firmware</button>
+        <span slot="unsupported" class="meta">Web Serial required (Chrome or Edge desktop).</span>
+        <span slot="not-allowed" class="meta">HTTPS required to flash.</span>
+      </esp-web-install-button>
+      <button type="button" class="help-hint" popovertarget="esp32-drivers">Do I need a driver?</button>
+    </section>
+    <section class="card setup-item">
+      <div class="label">Customize a Pi SD card</div>
+      <div class="meta">Pi OS already on the card (via Raspberry Pi Imager)? Stage firmware, wheels, SSH key on the boot partition.</div>
+      <button class="secondary" type="button" id="prepare-open-btn">Customize card</button>
+    </section>
+  </div>
 
   <div class="robots-heading" id="robots-heading" hidden>
     <div class="label">Your robots</div>
@@ -112,10 +113,9 @@
   </div>
   <div class="field">
     <label for="prep-sshkey">SSH public key</label>
-    <textarea id="prep-sshkey" rows="2" placeholder="ssh-ed25519 AAAA..." autocomplete="off"></textarea>
-    <div style="display: flex; gap: 8px; margin-top: 4px; align-items: center;">
-      <button type="button" class="secondary sm" id="prep-sshkey-load">Load from file…</button>
-      <span class="meta" id="prep-sshkey-remembered"></span>
+    <div class="field-overlay">
+      <textarea id="prep-sshkey" rows="2" placeholder="ssh-ed25519 AAAA..." autocomplete="off"></textarea>
+      <button type="button" class="overlay-action" id="prep-sshkey-load">Upload</button>
     </div>
   </div>
   <div class="row" style="margin-top: 12px;">

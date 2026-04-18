@@ -936,13 +936,11 @@ document.addEventListener("DOMContentLoaded", () => {
       $("prep-pick-btn").disabled = true;
     }
 
-    // Restore SSH key (public, safe to persist across sessions).
+    // Restore SSH key (public, safe to persist across sessions). Pre-fill
+    // is its own "remembered" indicator — no separate meta line needed.
     try {
       const saved = localStorage.getItem(SSH_KEY_STORE);
-      if (saved) {
-        $("prep-sshkey").value = saved;
-        $("prep-sshkey-remembered").textContent = "remembered from last time";
-      }
+      if (saved) $("prep-sshkey").value = saved;
     } catch {}
 
     $("prepare-open-btn").addEventListener("click", openDialog);
@@ -957,7 +955,6 @@ document.addEventListener("DOMContentLoaded", () => {
         const file = input.files && input.files[0];
         if (!file) return;
         $("prep-sshkey").value = (await file.text()).trim();
-        $("prep-sshkey-remembered").textContent = `loaded ${file.name}`;
       });
       input.click();
     });
