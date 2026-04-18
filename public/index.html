@@ -159,12 +159,14 @@
     }
     .dot.connected { background: var(--success); }
     .dot.error { background: var(--danger); }
-    .robot {
-      padding: 16px 0;
-      border-bottom: 1px solid var(--line);
+    .robots-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 4px;
+      margin: 24px 0 8px;
     }
-    .robot:first-child { padding-top: 0; }
-    .robot:last-child { border-bottom: none; padding-bottom: 0; }
+    #robot-list { display: flex; flex-direction: column; gap: 16px; }
     .robot-controls {
       margin-top: 12px;
       padding-top: 12px;
@@ -315,8 +317,6 @@
     }
     .robot.highlight {
       background: #fff8e1;
-      border-radius: 8px;
-      padding: 16px 12px;
       transition: background 1.5s;
     }
     @media print {
@@ -362,17 +362,17 @@
     </div>
   </section>
 
-  <section class="card">
-    <div class="card-header" id="robots-header" hidden>
-      <div class="label">Your robots</div>
-      <button id="scan-btn" class="secondary sm">Scan for new</button>
-    </div>
-    <div id="robot-list"></div>
-    <div id="empty-state" class="empty-state" hidden>
-      <div class="empty-title">No robots yet</div>
-      <div class="empty-sub">Click below to scan for a robot nearby.</div>
-      <button id="empty-scan-btn">Scan for a robot</button>
-    </div>
+  <div class="robots-heading" id="robots-heading" hidden>
+    <div class="label">Your robots</div>
+    <button id="scan-btn" class="secondary sm">Scan for new</button>
+  </div>
+
+  <div id="robot-list"></div>
+
+  <section class="card empty-state" id="empty-state" hidden>
+    <div class="empty-title">No robots yet</div>
+    <div class="empty-sub">Click below to scan for a robot nearby.</div>
+    <button id="empty-scan-btn">Scan for a robot</button>
   </section>
 
   <section class="card">
@@ -450,11 +450,10 @@
   const STORAGE_KEY = "better-robotics:known";
 
   const state = {
-    // id -> { id, name, device?, status, ledChar?, ledOn }
-    // device is present during an active session, absent after a refresh
-    // when Chrome lacks getDevices().
+    // id -> entry (connection + capability handles). Multiple entries can be
+    // connected simultaneously — connection state is tracked per-entry via
+    // entry.status; there's no single "active" robot.
     devices: new Map(),
-    connectedId: null,
   };
 
   function persist() {
@@ -559,8 +558,6 @@
   }
 
   async function connect(id) {
-    if (state.connectedId && state.connectedId !== id) await disconnect(state.connectedId);
-
     const entry = state.devices.get(id);
     if (!entry) return;
 
@@ -595,7 +592,6 @@
       });
 
       entry.status = "connected";
-      state.connectedId = id;
       log(`Connected to ${entry.name}`);
 
       // WiFi characteristics are optional — older firmwares may not expose them.
@@ -692,7 +688,6 @@
     entry.fwInfo = null;
     entry.motorChar = null;
     entry.motorLeft = entry.motorRight = 0;
-    if (state.connectedId === id) state.connectedId = null;
     log(`Disconnected from ${entry.name}`);
     render();
   }
@@ -707,7 +702,6 @@
       }
     }
     state.devices.delete(id);
-    if (state.connectedId === id) state.connectedId = null;
     persist();
     log(`Forgot ${entry.name}`);
     render();
@@ -891,7 +885,7 @@
   function render() {
     const list = $("robot-list");
     const empty = $("empty-state");
-    const header = $("robots-header");
+    const header = $("robots-heading");
     list.innerHTML = "";
 
     if (state.devices.size === 0) {
@@ -909,8 +903,8 @@
       const statusText = { idle: "Not connected", connecting: "Connecting…", connected: "Connected", error: "Error" }[status] || "Not connected";
       const dotClass = connected ? " connected" : status === "error" ? " error" : "";
 
-      const robot = document.createElement("div");
-      robot.className = "robot";
+      const robot = document.createElement("section");
+      robot.className = "card robot";
       robot.innerHTML = `
         <div class="row">
           <div>
