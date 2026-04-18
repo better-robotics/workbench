@@ -1,5 +1,5 @@
 import {
-  SERVICE_UUID, LED_CHAR_UUID,
+  SERVICE_UUID,
   WIFI_SCAN_CHAR_UUID, WIFI_JOIN_CHAR_UUID, WIFI_STATUS_CHAR_UUID,
   OTA_DATA_CHAR_UUID, OTA_STATUS_CHAR_UUID, FW_INFO_CHAR_UUID,
   MOTOR_CHAR_UUID,
@@ -13,12 +13,15 @@ import {
   state, persist, loadKnown,
   makeEntry, entryFor, attachDevice, setDisconnectHandler,
 } from "./state.js";
+import { ALL as CAPABILITIES, setCapabilityRenderer } from "./capabilities/index.js";
+import { toggleLed } from "./capabilities/led.js";
 
-// Wire the back-edges that state.js and log.js couldn't do themselves without
-// pulling render/connect into their files. Lazy injection keeps the imports
-// acyclic.
+// Wire the back-edges that state, log, and capability modules couldn't do
+// themselves without pulling render/connect into their files. Lazy injection
+// keeps the imports acyclic.
 setLogRenderer((entry) => renderEntry(entry));
 setDisconnectHandler((id) => onDisconnected(id));
+setCapabilityRenderer((entry) => renderEntry(entry));
 
 async function loadPaired() {
   // Restore remembered robots first — works even when getDevices() is missing.
@@ -186,19 +189,11 @@ async function connect(id) {
     // LED is no longer a hard dependency; Pi capability config may omit it.
     entry.status = "connected";
 
-    try {
-      const ch = await service.getCharacteristic(LED_CHAR_UUID);
-      entry.ledChar = ch;
-      const value = await ch.readValue();
-      entry.ledOn = value.getUint8(0) !== 0;
-      await ch.startNotifications();
-      ch.addEventListener("characteristicvaluechanged", (e) => {
-        entry.ledOn = e.target.value.getUint8(0) !== 0;
-        renderEntry(entry);
-        logFor(entry, `LED → ${entry.ledOn ? "on" : "off"}`);
-      });
-    } catch {
-      entry.ledChar = null;  // robot declared no LED — skip silently.
+    // Modular capabilities (LED, and later motors/wifi/ota/camera) probe
+    // themselves via the registry. Inline capabilities below are scheduled
+    // for the next extraction pass.
+    for (const cap of CAPABILITIES) {
+      try { await cap.probe(entry, service); } catch { /* optional capability */ }
     }
 
     // WiFi characteristics are optional — older firmwares may not expose them.
@@ -810,18 +805,8 @@ async function sendMotors(id, left, right) {
   }
 }
 
-async function toggleLed(id) {
-  const entry = state.devices.get(id);
-  if (!entry || !entry.ledChar) return;
-  const next = !entry.ledOn;
-  try {
-    await entry.ledChar.writeValueWithResponse(Uint8Array.of(next ? 1 : 0));
-    entry.ledOn = next;
-    renderEntry(entry);
-  } catch (err) {
-    logFor(entry, `LED write failed: ${err.message}`);
-  }
-}
+// toggleLed now lives in capabilities/led.js. Voice commands import it from
+// there via the module path; app.js doesn't need a local copy.
 
 // "Connect all" is for the silent path only — shows when ≥1 idle robot has
 // a BluetoothDevice handle already attached (will connect without a chooser).
@@ -916,15 +901,7 @@ function renderEntry(entry) {
             connecting ? "…" : (entry.device ? "Connect" : "Pair")
           }</button>`}
     </div>
-    ${connected && entry.ledChar ? `
-      <div class="robot-controls row">
-        <div>
-          <div class="label">LED</div>
-          <div class="meta">${ledOn ? "on" : "off"}</div>
-        </div>
-        <button class="secondary sm" data-action="toggle-led">${ledOn ? "Turn off" : "Turn on"}</button>
-      </div>
-    ` : ""}
+    ${CAPABILITIES.map(c => c.renderSection(entry)).join("")}
     ${connected && entry.motorChar ? `
       <div class="robot-controls row">
         <div>
@@ -997,6 +974,10 @@ function renderEntry(entry) {
       <div class="last-event">${escapeHtml(entry.lastEvent)}</div>
     ` : ""}
   `;
+  // Modular capabilities own their action wiring. Inline data-actions below
+  // (scan-wifi, motors-stop, camera-*, menu, connect/disconnect) are handled
+  // by the legacy dispatcher until they migrate to capability modules.
+  for (const cap of CAPABILITIES) cap.wireActions(entry, entry.node);
   entry.node.querySelectorAll("[data-action]").forEach(btn => {
     const action = btn.dataset.action;
     if (action === "motor-left" || action === "motor-right") {
@@ -1011,7 +992,6 @@ function renderEntry(entry) {
       if (action === "connect") connect(id);
       else if (action === "disconnect") disconnect(id);
       else if (action === "menu") openMenu(btn, id);
-      else if (action === "toggle-led") toggleLed(id);
       else if (action === "scan-wifi") scanWifi(id);
       else if (action === "join-wifi") joinWifi(id, btn.dataset.ssid, btn.dataset.secured === "1");
       else if (action === "motors-stop") {
