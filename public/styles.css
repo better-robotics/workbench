@@ -238,15 +238,7 @@ button.icon:hover { background: var(--line); color: var(--ink); }
   transition: transform 0.2s;
 }
 #setup-section[open] > summary .label::after { transform: rotate(90deg); }
-.gamepad-badge {
-  display: inline-block;
-  background: var(--accent);
-  color: var(--accent-ink);
-  font-size: 12px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  margin: 0 0 12px 0;
-}
+.gamepad-dot { font-size: 12px; margin-left: 4px; vertical-align: middle; }
 
 #robot-list {
   display: grid;

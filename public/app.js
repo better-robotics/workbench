@@ -788,10 +788,11 @@ function gamepadTick() {
   const pad = [...pads].find(p => p && p.connected);
   if (!pad) {
     _gamepadRafHandle = null;
-    renderGamepadBadge();
+    setGamepadTarget(null);
     return;
   }
   const id = pickGamepadTarget();
+  setGamepadTarget(id);
   if (id) {
     const ly = pad.axes[1] ?? 0;  // left stick Y (down = +1 → reverse)
     const ry = pad.axes[3] ?? 0;  // right stick Y
@@ -801,16 +802,24 @@ function gamepadTick() {
     };
     sendMotors(id, toMotor(ly), toMotor(ry));
   }
-  renderGamepadBadge(id, pad.id);
   _gamepadRafHandle = requestAnimationFrame(gamepadTick);
 }
 
-function renderGamepadBadge(targetId, padName) {
-  const box = $("gamepad-badge");
-  if (!targetId) { box.hidden = true; return; }
-  const entry = state.devices.get(targetId);
-  box.hidden = false;
-  box.textContent = `🎮 ${padName || "gamepad"} → ${entry?.name || "?"}`;
+// Gamepad target is surfaced as a small 🎮 indicator on the driven robot's
+// card (see renderEntry). When it changes, re-render the before/after cards
+// so the indicator moves with the selection.
+function setGamepadTarget(id) {
+  if (id === _gamepadTargetId) return;
+  const prev = _gamepadTargetId;
+  _gamepadTargetId = id;
+  if (prev) {
+    const e = state.devices.get(prev);
+    if (e) renderEntry(e);
+  }
+  if (id) {
+    const e = state.devices.get(id);
+    if (e) renderEntry(e);
+  }
 }
 
 function startGamepadLoop() {
@@ -1032,7 +1041,7 @@ function renderEntry(entry) {
     ${connected && entry.motorChar ? `
       <div class="robot-controls row">
         <div>
-          <div class="label">Motors</div>
+          <div class="label">Motors${_gamepadTargetId === entry.id ? ` <span class="gamepad-dot" title="gamepad controlling this robot">🎮</span>` : ""}</div>
           <div class="meta">L: ${entry.motorLeft} · R: ${entry.motorRight}</div>
         </div>
         <button class="secondary sm" data-action="motors-stop">Stop</button>
@@ -1241,7 +1250,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   window.addEventListener("gamepaddisconnected", (e) => {
     log(`Gamepad disconnected: ${e.gamepad.id}`);
-    renderGamepadBadge();
+    setGamepadTarget(null);
   });
   if (navigator.getGamepads && [...navigator.getGamepads()].some(p => p)) {
     startGamepadLoop();
