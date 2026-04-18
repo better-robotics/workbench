@@ -13,13 +13,13 @@ Four characteristics under one service UUID:
 
 ## SD-card first boot
 
-Flash Raspberry Pi OS to the card normally, then open [prepare.html on the deployed dashboard](https://neevs.io/better-robotics/prepare.html). Fill in hostname + sudo password, paste or pick your SSH public key, and pick the mounted boot partition (usually `/Volumes/bootfs` on macOS). The page stages aarch64 Python wheels (`bless`, `bleak`, `dbus-fast`, `dbus-next`, `typing-extensions`) into `/boot/firmware/wheels/`, the pi_robot source into `/boot/firmware/betterpi/`, renders `firstrun.sh`, and patches `cmdline.txt` + `config.txt`. Wheels for both Python 3.11 and 3.13 are bundled so either Pi OS Bookworm or Trixie works without a re-prep.
+Flash Raspberry Pi OS to the card normally, then open the [dashboard](https://neevs.io/better-robotics/) and click **Customize card** in the Set up new hardware panel (or go direct with `?prepare` in the URL). Fill in hostname + sudo password, paste or pick your SSH public key, and pick the mounted boot partition (usually `/Volumes/bootfs` on macOS). The dialog stages aarch64 Python wheels (`bless`, `bleak`, `dbus-fast`, `dbus-next`, `typing-extensions`) into `/boot/firmware/wheels/`, the pi_robot source into `/boot/firmware/betterpi/`, renders `firstrun.sh`, and patches `cmdline.txt` + `config.txt`. Wheels for both Python 3.11 and 3.13 are bundled so either Pi OS Bookworm or Trixie works without a re-prep.
 
 First boot runs entirely offline: no WiFi, no captive portal, no PyPI roundtrip. `firstrun.sh` copies the staged firmware into `/home/pi/better-robotics/firmware/pi_robot/`, creates a venv with `--system-site-packages` (so it picks up `python3-lgpio` from the base Pi OS image), installs with `pip install --no-index --find-links=/boot/firmware/wheels`, unblocks Bluetooth via rfkill, enables BlueZ's experimental advertising API, and starts `pi-robot.service` as root. Progress is appended to `/boot/firmware/firstrun.status` as an offline breadcrumb.
 
 After that, the Pi runs BLE-only. WiFi is onboarded from the dashboard via the `wifi-scan` + `wifi-join` characteristics whenever a network is wanted. The SD card holds no credentials.
 
-Developers: the wheels + template that `prepare.html` consumes live under `public/firmware/pi_robot/`. CI refreshes them automatically on any push touching `firmware/**` (see `.github/workflows/build-firmware.yml`). Run `make publish-pi-firmware` locally only if you want to test the artifacts before pushing.
+Developers: the wheels + template the Customize-card dialog consumes live under `public/firmware/pi_robot/`. CI refreshes them automatically on any push touching `firmware/**` (see `.github/workflows/build-firmware.yml`). Run `make publish-pi-firmware` locally only if you want to test the artifacts before pushing.
 
 ## Manual run (development)
 

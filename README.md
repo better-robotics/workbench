@@ -45,7 +45,7 @@ This is the architecture's answer to "what happens when the channel drops?" — 
 - `firmware/esp32_robot/` — ESP32 variant. Advertises BLE, handles LED control, WiFi onboarding, and OTA self-update.
 - `firmware/pi_robot/` — Raspberry Pi variant (Python + `bless`). Same service UUID, same characteristic UUIDs — indistinguishable from the ESP32 side of the dashboard. Same capabilities plus offline-first install.
 - `public/index.html` — Chrome dashboard: scans over BLE, pairs, controls LED, onboards WiFi, triggers OTA, prints QR labels per robot.
-- `public/prepare.html` — browser-based SD-card prep for fresh Pis (File System Access API).
+- `public/styles.css`, `public/app.js` — dashboard styles + logic. Single-page app; the Customize-card dialog is a `<dialog>` inside `index.html`.
 
 Each robot's capabilities grow by adding characteristics to the shared service. Motors, sensors, cameras, and more are future characteristics, not future protocols.
 
@@ -56,7 +56,7 @@ Each robot's capabilities grow by adding characteristics to the shared service. 
 1. Open [neevs.io/better-robotics](https://neevs.io/better-robotics/) in Chrome or Edge.
 2. Flash or prepare hardware:
    - **ESP32 on USB:** click **Flash firmware** — bins come from GitHub Pages, no local toolchain.
-   - **Pi 4 with a flashed SD card:** open [prepare.html](https://neevs.io/better-robotics/prepare.html) and point it at the mounted boot partition.
+   - **Pi 4 with a flashed SD card:** click **Customize card** in the dashboard (or go direct via `?prepare` in the URL) and point it at the mounted boot partition.
 3. Click **Scan for new**, pair a robot, toggle LED, onboard WiFi, drive motors. Future updates go over BLE via **Update firmware**.
 
 ### Editing firmware (contributors)
