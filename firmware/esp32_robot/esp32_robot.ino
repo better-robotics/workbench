@@ -281,7 +281,12 @@ void setup() {
 
   BLEDevice::init(name);
   BLEServer* server = BLEDevice::createServer();
-  BLEService* service = server->createService(SERVICE_UUID);
+  // Default numHandles is 15; every characteristic eats 2 handles (decl + val)
+  // and every CCCD (2902) eats 1 more. This service needs 19 with current
+  // characteristics — 32 leaves room for future ones without another silent
+  // truncation. Exceeding the budget just drops chars past the cap without
+  // reporting an error.
+  BLEService* service = server->createService(BLEUUID(SERVICE_UUID), 32, 0);
 
   ledChar = service->createCharacteristic(
     LED_CHAR_UUID,
