@@ -63,6 +63,31 @@ systemctl enable ssh
 systemctl start ssh
 note ssh_enabled
 
+# --- USB gadget network (durable SSH-over-USB debug channel) ---
+# usb0 comes up when the Pi is plugged into a host via USB-C. NM assigns it
+# 10.55.0.1/24 and runs a shared-mode DHCP server so the Mac gets an IP in
+# the same subnet without any Mac-side config. `ssh pi@10.55.0.1` then works.
+install -d -m 700 /etc/NetworkManager/system-connections
+cat > /etc/NetworkManager/system-connections/usb-gadget.nmconnection <<'NMEOF'
+[connection]
+id=usb-gadget
+type=ethernet
+interface-name=usb0
+autoconnect=true
+
+[ethernet]
+
+[ipv4]
+method=shared
+address1=10.55.0.1/24
+
+[ipv6]
+method=ignore
+NMEOF
+chmod 600 /etc/NetworkManager/system-connections/usb-gadget.nmconnection
+nmcli connection reload 2>/dev/null || true
+note usb_gadget_configured
+
 # --- Firmware install (from staged files, no network) ---
 INSTALL_OK=0
 DEST="/home/$USER_NAME/better-robotics/firmware/pi_robot"

@@ -29,6 +29,9 @@ SYSTEMD_RUN = (
     " systemd.run_success_action=reboot"
     " systemd.unit=kernel-command-line.target"
 )
+CMDLINE_USB_GADGET = " modules-load=dwc2,g_ether"
+CONFIG_USB_MARKER = "# Better Robotics: USB gadget mode"
+CONFIG_USB_BLOCK = f"\n{CONFIG_USB_MARKER}\n[all]\ndtoverlay=dwc2\n"
 
 # Explicit Linux/aarch64 dep chain. pip's resolver picks macOS-era bleak
 # variants when run from a Mac even with --platform flags, so we enumerate.
@@ -112,8 +115,13 @@ def main() -> int:
 
     cmdline_path = bootfs / "cmdline.txt"
     line = cmdline_path.read_text().rstrip("\n").rstrip()
-    # Strip any previous systemd.run= we added so re-running is idempotent.
-    for token in (" systemd.run=", " systemd.run_success_action=", " systemd.unit="):
+    # Strip directives we manage so re-running is idempotent.
+    for token in (
+        " systemd.run=",
+        " systemd.run_success_action=",
+        " systemd.unit=",
+        " modules-load=",
+    ):
         while token in line:
             idx = line.index(token)
             end = line.find(" ", idx + 1)
@@ -121,8 +129,15 @@ def main() -> int:
                 line = line[:idx]
             else:
                 line = line[:idx] + line[end:]
-    line = line + SYSTEMD_RUN + "\n"
+    line = line + CMDLINE_USB_GADGET + SYSTEMD_RUN + "\n"
     cmdline_path.write_text(line)
+
+    # Enable the dwc2 device-tree overlay so USB-C behaves as a USB device
+    # port (required for g_ether gadget mode). Idempotent via a marker line.
+    config_path = bootfs / "config.txt"
+    config = config_path.read_text()
+    if CONFIG_USB_MARKER not in config:
+        config_path.write_text(config.rstrip("\n") + CONFIG_USB_BLOCK)
 
     print(f"Wrote {bootfs / 'firstrun.sh'}")
     print(f"Patched {cmdline_path}")

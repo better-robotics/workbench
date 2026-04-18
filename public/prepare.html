@@ -151,6 +151,10 @@
     <div class="field">
       <label for="sshkey">SSH public key</label>
       <textarea id="sshkey" rows="2" placeholder="ssh-ed25519 AAAA..." autocomplete="off"></textarea>
+      <div style="display: flex; gap: 8px; margin-top: 4px; align-items: center;">
+        <button type="button" class="secondary sm" id="sshkey-load">Load from file…</button>
+        <span class="meta" id="sshkey-remembered" style="font-family: inherit; color: var(--ink-muted);"></span>
+      </div>
     </div>
   </section>
 
@@ -179,6 +183,12 @@
   const $ = (id) => document.getElementById(id);
   const FIRMWARE_URL = "firmware/pi_robot";  // same-origin path on GH Pages
   const FIRMWARE_FILES = ["pi_robot.py", "requirements.txt", "pi-robot.service"];
+  const SSH_KEY_STORE = "better-robotics:ssh-pub";
+  // USB gadget trigger — appended to cmdline.txt, loaded at kernel init.
+  const CMDLINE_USB = " modules-load=dwc2,g_ether";
+  const CONFIG_USB_MARKER = "# Better Robotics: USB gadget mode";
+  const CONFIG_USB_LINES =
+    `\n${CONFIG_USB_MARKER}\n[all]\ndtoverlay=dwc2\n`;
   const SYSTEMD_RUN =
     " systemd.run=/boot/firmware/firstrun.sh" +
     " systemd.run_success_action=reboot" +
@@ -225,12 +235,20 @@
   }
 
   async function patchCmdline(text) {
-    // Strip any prior systemd.run= we added, then append a clean copy.
+    // Strip any prior systemd.run= we added, then append a clean copy plus
+    // the modules-load directive for USB gadget (idempotent).
     let line = text.replace(/\n+$/, "").trim();
     line = line.replace(/\s+systemd\.run=\S+/g, "");
     line = line.replace(/\s+systemd\.run_success_action=\S+/g, "");
     line = line.replace(/\s+systemd\.unit=\S+/g, "");
-    return line + SYSTEMD_RUN + "\n";
+    line = line.replace(/\s+modules-load=\S+/g, "");
+    return line + CMDLINE_USB + SYSTEMD_RUN + "\n";
+  }
+
+  async function patchConfig(text) {
+    // Add dtoverlay=dwc2 once, idempotently.
+    if (text.includes(CONFIG_USB_MARKER)) return text;
+    return text.replace(/\n*$/, "") + CONFIG_USB_LINES;
   }
 
   async function renderFirstrun(template, values) {
@@ -303,6 +321,12 @@
       if (oldCmdline === null) throw new Error("cmdline.txt not found on card");
       await writeFile(dirHandle, "cmdline.txt", await patchCmdline(oldCmdline));
 
+      log("Enabling USB gadget mode…");
+      const oldConfig = await readTextFile(dirHandle, "config.txt");
+      if (oldConfig === null) throw new Error("config.txt not found on card");
+      await writeFile(dirHandle, "config.txt", await patchConfig(oldConfig));
+
+      try { localStorage.setItem(SSH_KEY_STORE, sshKey); } catch {}
       log("Done. Eject the card and boot the Pi.", "ok");
     } catch (err) {
       log(`Error: ${err.message}`, "err");
@@ -317,6 +341,26 @@
       $("pick-btn").disabled = true;
       return;
     }
+    // Pre-fill from a previous session — public key, safe to persist.
+    try {
+      const saved = localStorage.getItem(SSH_KEY_STORE);
+      if (saved) {
+        $("sshkey").value = saved;
+        $("sshkey-remembered").textContent = "remembered from last time";
+      }
+    } catch {}
+    $("sshkey-load").addEventListener("click", async () => {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = ".pub,text/*";
+      input.addEventListener("change", async () => {
+        const file = input.files && input.files[0];
+        if (!file) return;
+        $("sshkey").value = (await file.text()).trim();
+        $("sshkey-remembered").textContent = `loaded ${file.name}`;
+      });
+      input.click();
+    });
     $("pick-btn").addEventListener("click", async () => {
       try {
         dirHandle = await window.showDirectoryPicker({ mode: "readwrite" });
