@@ -17,44 +17,60 @@ const decodeJson = (dv) => {
 const encodeJson = (obj) => new TextEncoder().encode(JSON.stringify(obj));
 
 const $ = (id) => document.getElementById(id);
-// Adjacent-duplicate coalescing: streaming events (OTA progress, WiFi
-// status notifies) fire many times with the same rounded value. Each line
-// is a DOM node so we can (a) rewrite the newest line with a (xN) counter
-// when the message repeats, and (b) colorize errors/successes via CSS
-// classes inferred from keywords in the message.
+// Log is a three-column grid (time · name · msg). Name is suppressed on
+// older lines in a burst from the same robot so a stream of events reads
+// as one group with a single anchor. Adjacent-duplicate coalescing
+// rewrites the newest line with a (xN) counter instead of stacking.
 let _lastLogNode = null;
-let _lastLogMsg = null;
+let _lastLogMsgNode = null;
+let _lastLogNameNode = null;
+let _lastLogKey = null;
+let _lastLogName = null;
 let _lastLogCount = 0;
 const _errRe = /\b(fail(?:ed|ure)?|error|rejected|timeout|cancelled|stalled|stuck|not found)\b/i;
-const _okRe  = /\b(connected|paired|joined|installed|done|ready|enabled|ok)\b/i;
+const _okRe  = /\b(paired|joined|installed|done|ready|enabled|ok)\b/i;
 const _logClass = (msg) => _errRe.test(msg) ? "err" : _okRe.test(msg) ? "ok" : "";
-const log = (msg) => {
+const log = (msg, name = "") => {
   const el = $("log");
   const now = new Date().toLocaleTimeString();
-  if (msg === _lastLogMsg && _lastLogNode) {
+  const key = `${name}|${msg}`;
+  if (key === _lastLogKey && _lastLogMsgNode) {
     _lastLogCount++;
-    _lastLogNode.textContent = `[${now}] ${msg} (×${_lastLogCount})`;
+    _lastLogMsgNode.textContent = `${msg} (×${_lastLogCount})`;
     return;
   }
-  _lastLogMsg = msg;
+  _lastLogKey = key;
   _lastLogCount = 1;
   const line = document.createElement("div");
   const cls = _logClass(msg);
   if (cls) line.className = cls;
-  line.textContent = `[${now}] ${msg}`;
+  if (!name) line.classList.add("sys");
+  const timeSpan = document.createElement("span");
+  timeSpan.className = "log-time";
+  timeSpan.textContent = now;
+  const nameSpan = document.createElement("span");
+  nameSpan.className = "log-name";
+  nameSpan.textContent = name;
+  const msgSpan = document.createElement("span");
+  msgSpan.className = "log-msg";
+  msgSpan.textContent = msg;
+  line.append(timeSpan, nameSpan, msgSpan);
   el.prepend(line);
+  // Suppress the previous line's name when this burst continues from it —
+  // anchor name stays on the newest line, older siblings go anonymous.
+  if (name && name === _lastLogName && _lastLogNameNode) {
+    _lastLogNameNode.classList.add("dup");
+  }
   _lastLogNode = line;
+  _lastLogMsgNode = msgSpan;
+  _lastLogNameNode = nameSpan;
+  _lastLogName = name;
 };
-// Robot-scoped logging. Any event that belongs to a specific robot gets
-// its name prefixed so multi-robot logs stay legible. System-wide events
-// (scan errors, bluetooth off, paired-device listing) use bare log().
-// Also stores the message as the entry's last-activity line so each card
-// shows its most recent event inline without scrolling to the global log.
 const logFor = (entry, msg) => {
-  log(`${entry.name}: ${msg}`);
+  log(msg, entry.name);
   if (entry.lastEvent !== msg) {
     entry.lastEvent = msg;
-    render();
+    renderEntry(entry);
   }
 };
 
@@ -83,36 +99,35 @@ function attachDevice(entry, device) {
   device.addEventListener("gattserverdisconnected", () => onDisconnected(entry.id));
 }
 
+function makeEntry(id, name) {
+  return {
+    id, name,
+    device: null,
+    status: "idle",
+    ledChar: null, ledOn: false,
+    wifiScanChar: null, wifiJoinChar: null, wifiStatusChar: null,
+    wifiStatus: { st: "idle" }, wifiNetworks: null, wifiScanning: false,
+    otaDataChar: null, otaStatusChar: null, otaStatus: { st: "idle" }, fwInfo: null,
+    motorChar: null, motorLeft: 0, motorRight: 0,
+    motorSending: false, motorPending: null,
+    lastEvent: null,
+    // DOM node for this card. Owned by render()/renderEntry(); null until
+    // first mounted. Holding it per-entry is the foundation for the future
+    // LLM-orchestrated interface — one state change mutates one card, and
+    // a get_robot_state(id) tool can return just this entry without touching
+    // siblings. It's also what lets slider drags on one robot survive state
+    // changes on other robots.
+    node: null,
+  };
+}
+
 function entryFor(device) {
   const existing = state.devices.get(device.id);
   if (existing) {
     if (!existing.device) attachDevice(existing, device);
     return existing;
   }
-  const entry = {
-    id: device.id,
-    name: device.name || device.id,
-    device: null,
-    status: "idle",
-    ledChar: null,
-    ledOn: false,
-    wifiScanChar: null,
-    wifiJoinChar: null,
-    wifiStatusChar: null,
-    wifiStatus: { st: "idle" },
-    wifiNetworks: null,
-    wifiScanning: false,
-    otaDataChar: null,
-    otaStatusChar: null,
-    otaStatus: { st: "idle" },
-    fwInfo: null,
-    motorChar: null,
-    motorLeft: 0,
-    motorRight: 0,
-    motorSending: false,
-    motorPending: null,
-    lastEvent: null,
-  };
+  const entry = makeEntry(device.id, device.name || device.id);
   attachDevice(entry, device);
   state.devices.set(device.id, entry);
   persist();
@@ -122,18 +137,7 @@ function entryFor(device) {
 async function loadPaired() {
   // Restore remembered robots first — works even when getDevices() is missing.
   for (const { id, name } of loadKnown()) {
-    if (!state.devices.has(id)) {
-      state.devices.set(id, {
-        id, name, device: null, status: "idle",
-        ledChar: null, ledOn: false,
-        wifiScanChar: null, wifiJoinChar: null, wifiStatusChar: null,
-        wifiStatus: { st: "idle" }, wifiNetworks: null, wifiScanning: false,
-        otaDataChar: null, otaStatusChar: null, otaStatus: { st: "idle" }, fwInfo: null,
-        motorChar: null, motorLeft: 0, motorRight: 0,
-        motorSending: false, motorPending: null,
-        lastEvent: null,
-      });
-    }
+    if (!state.devices.has(id)) state.devices.set(id, makeEntry(id, name));
   }
   // Reattach live BluetoothDevice objects if the browser exposes them.
   if (navigator.bluetooth.getDevices) {
@@ -152,8 +156,9 @@ async function scanForNew() {
     const device = await navigator.bluetooth.requestDevice({
       filters: [{ services: [SERVICE_UUID] }],
     });
+    const name = device.name || device.id;
     entryFor(device);
-    log(`Paired ${device.name || device.id}`);
+    log("paired", name);
     render();
     connect(device.id);
   } catch (err) {
@@ -176,7 +181,7 @@ async function connect(id) {
 
   if (!entry.device) {
     try {
-      log(`Reconnecting ${entry.name}…`);
+      log("reconnecting…", entry.name);
       await restoreDevice(entry);
     } catch (err) {
       if (err.name !== "NotFoundError") logFor(entry, `reconnect cancelled: ${err.message}`);
@@ -185,8 +190,7 @@ async function connect(id) {
   }
 
   entry.status = "connecting";
-  render();
-  logFor(entry, "connecting…");
+  renderEntry(entry);
 
   try {
     const server = await entry.device.gatt.connect();
@@ -200,12 +204,11 @@ async function connect(id) {
     await ch.startNotifications();
     ch.addEventListener("characteristicvaluechanged", (e) => {
       entry.ledOn = e.target.value.getUint8(0) !== 0;
-      render();
+      renderEntry(entry);
       logFor(entry, `LED → ${entry.ledOn ? "on" : "off"}`);
     });
 
     entry.status = "connected";
-    logFor(entry, "connected");
 
     // WiFi characteristics are optional — older firmwares may not expose them.
     try {
@@ -218,13 +221,13 @@ async function connect(id) {
         entry.wifiStatus = decodeJson(e.target.value) || { st: "idle" };
         const { st, ssid, err: errMsg } = entry.wifiStatus;
         logFor(entry, `WiFi ${st}${ssid ? ` [${ssid}]` : ""}${errMsg ? ` — ${errMsg}` : ""}`);
-        render();
+        renderEntry(entry);
       });
       await entry.wifiScanChar.startNotifications();
       entry.wifiScanChar.addEventListener("characteristicvaluechanged", (e) => {
         entry.wifiNetworks = decodeJson(e.target.value) || [];
         entry.wifiScanning = false;
-        render();
+        renderEntry(entry);
       });
     } catch {
       entry.wifiScanChar = null;  // robot has no WiFi onboarding — that's fine.
@@ -245,7 +248,7 @@ async function connect(id) {
         const { st, n = 0, total = 0, err: errMsg } = entry.otaStatus;
         const pct = total ? Math.round(100 * n / total) : 0;
         logFor(entry, `OTA ${st}${total ? ` ${pct}%` : ""}${errMsg ? ` — ${errMsg}` : ""}`);
-        render();
+        renderEntry(entry);
       });
     } catch {
       entry.otaDataChar = null;
@@ -261,16 +264,15 @@ async function connect(id) {
       entry.motorChar.addEventListener("characteristicvaluechanged", (e) => {
         const l = e.target.value.getInt8(0);
         const r = e.target.value.getInt8(1);
-        // Notify arrives when the robot's state changes — most interestingly
-        // when the watchdog cuts motors to zero after silence. Log that
-        // transition so the safety behavior is visible.
+        // Notify fires on changes only — most interesting when the watchdog
+        // cuts motors to zero after silence.
         if (l !== entry.motorLeft || r !== entry.motorRight) {
           if (l === 0 && r === 0 && (entry.motorLeft || entry.motorRight)) {
-            log(`motors stopped (watchdog) on ${entry.name}`);
+            log("motors stopped (watchdog)", entry.name);
           }
           entry.motorLeft = l;
           entry.motorRight = r;
-          render();
+          renderEntry(entry);
         }
       });
     } catch {
@@ -280,7 +282,7 @@ async function connect(id) {
     entry.status = "error";
     logFor(entry, `connect failed: ${err.message}`);
   }
-  render();
+  renderEntry(entry);
 }
 
 async function disconnect(id) {
@@ -301,8 +303,7 @@ function onDisconnected(id) {
   entry.fwInfo = null;
   entry.motorChar = null;
   entry.motorLeft = entry.motorRight = 0;
-  logFor(entry, "disconnected");
-  render();
+  renderEntry(entry);
 }
 
 async function forgetDevice(id) {
@@ -325,9 +326,10 @@ async function forgetDevice(id) {
       try { await device.forget(); } catch {}  // Chrome 114+, ignore if unsupported
     }
   }
+  const name = entry.name;
   state.devices.delete(id);
   persist();
-  log(`Forgot ${entry.name}`);
+  log("forgotten", name);
   render();
 }
 
@@ -335,20 +337,20 @@ async function scanWifi(id) {
   const entry = state.devices.get(id);
   if (!entry || !entry.wifiScanChar) return;
   entry.wifiScanning = true;
-  render();
+  renderEntry(entry);
   try {
     // Triggers a rescan on the device; we also get the cached value right now.
     const v = await entry.wifiScanChar.readValue();
     const cached = decodeJson(v);
     if (cached && cached.length) {
       entry.wifiNetworks = cached;
-      render();
+      renderEntry(entry);
     }
     // Fresh results arrive via the scan notification handler.
   } catch (err) {
     entry.wifiScanning = false;
     logFor(entry, `WiFi scan failed: ${err.message}`);
-    render();
+    renderEntry(entry);
   }
 }
 
@@ -534,128 +536,149 @@ async function toggleLed(id) {
   try {
     await entry.ledChar.writeValueWithResponse(Uint8Array.of(next ? 1 : 0));
     entry.ledOn = next;
-    render();
+    renderEntry(entry);
   } catch (err) {
     logFor(entry, `LED write failed: ${err.message}`);
   }
 }
 
+// Two-level render. render() reconciles the list (add / remove / order)
+// against state.devices; renderEntry() rebuilds one card's innards. Most
+// state changes go through renderEntry so a notification for robot A never
+// touches robot B's DOM — a slider being dragged on one card isn't
+// interrupted by a sibling's OTA progress notify.
 function render() {
   const list = $("robot-list");
   const empty = $("empty-state");
   const header = $("robots-heading");
-  list.innerHTML = "";
 
   if (state.devices.size === 0) {
     empty.hidden = false;
     header.hidden = true;
+    list.innerHTML = "";
     return;
   }
   empty.hidden = true;
   header.hidden = false;
 
-  for (const [id, entry] of state.devices) {
-    const { name, status, ledOn } = entry;
-    const connected = status === "connected";
-    const connecting = status === "connecting";
-    const statusText = { idle: "Not connected", connecting: "Connecting…", connected: "Connected", error: "Error" }[status] || "Not connected";
-    const dotClass = connected ? " connected" : status === "error" ? " error" : "";
-
-    const robot = document.createElement("section");
-    robot.className = "card robot";
-    robot.innerHTML = `
-      <div class="row">
-        <div>
-          <div class="label">${escapeHtml(name)}</div>
-          <div class="status"><span class="dot${dotClass}"></span><span>${statusText}</span></div>
-        </div>
-        <div style="display: flex; gap: 4px;">
-          ${connected
-            ? `<button class="secondary sm" data-action="disconnect">Disconnect</button>`
-            : `<button class="sm" data-action="connect" ${connecting ? "disabled" : ""}>${connecting ? "…" : "Connect"}</button>`}
-          <button class="icon" data-action="menu" aria-label="More actions">⋯</button>
-        </div>
-      </div>
-      ${connected ? `
-        <div class="robot-controls row">
-          <div>
-            <div class="label">LED</div>
-            <div class="meta">${ledOn ? "on" : "off"}</div>
-          </div>
-          <button class="secondary sm" data-action="toggle-led">${ledOn ? "Turn off" : "Turn on"}</button>
-        </div>
-      ` : ""}
-      ${connected && entry.motorChar ? `
-        <div class="robot-controls row">
-          <div>
-            <div class="label">Motors</div>
-            <div class="meta">L: ${entry.motorLeft} · R: ${entry.motorRight}</div>
-          </div>
-          <button class="secondary sm" data-action="motors-stop">Stop</button>
-        </div>
-        <div class="motor-sliders">
-          <label>L <input type="range" min="-100" max="100" value="0" data-action="motor-left"></label>
-          <label>R <input type="range" min="-100" max="100" value="0" data-action="motor-right"></label>
-        </div>
-      ` : ""}
-      ${connected && entry.wifiScanChar ? `
-        <div class="robot-controls row">
-          <div>
-            <div class="label">WiFi</div>
-            <div class="meta">${escapeHtml(wifiSummary(entry))}</div>
-          </div>
-          <button class="secondary sm" data-action="scan-wifi" ${entry.wifiScanning ? "disabled" : ""}>
-            ${entry.wifiScanning ? "Scanning…" : "Scan"}
-          </button>
-        </div>
-        ${entry.wifiNetworks && entry.wifiNetworks.length ? `
-          <div class="wifi-list">
-            ${entry.wifiNetworks.map(n => `
-              <div class="wifi-row">
-                <div>
-                  <div>${escapeHtml(n.s)}</div>
-                  <div class="meta">${n.r} · ${n.p ? "secured" : "open"}</div>
-                </div>
-                <button class="secondary sm" data-action="join-wifi" data-ssid="${escapeHtml(n.s)}" data-secured="${n.p ? 1 : 0}">Join</button>
-              </div>
-            `).join("")}
-          </div>
-        ` : ""}
-      ` : ""}
-      ${entry.lastEvent ? `
-        <div class="last-event">${escapeHtml(entry.lastEvent)}</div>
-      ` : ""}
-    `;
-    robot.querySelectorAll("[data-action]").forEach(btn => {
-      const action = btn.dataset.action;
-      if (action === "motor-left" || action === "motor-right") {
-        // Sliders fire on every input tick; reading both keeps us in sync
-        // with whichever slider the user is currently moving.
-        btn.addEventListener("input", () => {
-          const root = btn.closest(".robot");
-          const l = root.querySelector('[data-action="motor-left"]').value;
-          const r = root.querySelector('[data-action="motor-right"]').value;
-          sendMotors(id, l, r);
-        });
-        return;
-      }
-      btn.addEventListener("click", () => {
-        if (action === "connect") connect(id);
-        else if (action === "disconnect") disconnect(id);
-        else if (action === "menu") openMenu(btn, id);
-        else if (action === "toggle-led") toggleLed(id);
-        else if (action === "scan-wifi") scanWifi(id);
-        else if (action === "join-wifi") joinWifi(id, btn.dataset.ssid, btn.dataset.secured === "1");
-        else if (action === "motors-stop") {
-          const root = btn.closest(".robot");
-          root.querySelector('[data-action="motor-left"]').value = 0;
-          root.querySelector('[data-action="motor-right"]').value = 0;
-          sendMotors(id, 0, 0);
-        }
-      });
-    });
-    list.appendChild(robot);
+  // Drop nodes for entries that are no longer in state (e.g., forgetDevice).
+  const ids = new Set(state.devices.keys());
+  for (const child of [...list.children]) {
+    if (!ids.has(child.dataset.entryId)) child.remove();
   }
+
+  // Mount or re-order in state-map order. Nodes are owned by entry.node.
+  let prev = null;
+  for (const entry of state.devices.values()) {
+    if (!entry.node) {
+      entry.node = document.createElement("section");
+      entry.node.className = "card robot";
+      entry.node.dataset.entryId = entry.id;
+      renderEntry(entry);
+    }
+    const target = prev ? prev.nextSibling : list.firstChild;
+    if (target !== entry.node) {
+      if (prev) prev.after(entry.node); else list.prepend(entry.node);
+    }
+    prev = entry.node;
+  }
+}
+
+function renderEntry(entry) {
+  if (!entry.node) { render(); return; }  // first mount goes through list render
+  const { id, name, status, ledOn } = entry;
+  const connected = status === "connected";
+  const connecting = status === "connecting";
+  const statusText = connecting ? "Connecting…" : status === "error" ? "Error" : "";
+  const dotClass = connected ? " connected" : status === "error" ? " error" : "";
+
+  entry.node.innerHTML = `
+    <div class="row">
+      <div>
+        <div class="label"><span class="dot${dotClass}"></span>${escapeHtml(name)}</div>
+        ${statusText ? `<div class="status">${statusText}</div>` : ""}
+      </div>
+      <div style="display: flex; gap: 4px;">
+        ${connected
+          ? `<button class="secondary sm" data-action="disconnect">Disconnect</button>`
+          : `<button class="sm" data-action="connect" ${connecting ? "disabled" : ""}>${connecting ? "…" : "Connect"}</button>`}
+        <button class="icon" data-action="menu" aria-label="More actions">⋯</button>
+      </div>
+    </div>
+    ${connected ? `
+      <div class="robot-controls row">
+        <div>
+          <div class="label">LED</div>
+          <div class="meta">${ledOn ? "on" : "off"}</div>
+        </div>
+        <button class="secondary sm" data-action="toggle-led">${ledOn ? "Turn off" : "Turn on"}</button>
+      </div>
+    ` : ""}
+    ${connected && entry.motorChar ? `
+      <div class="robot-controls row">
+        <div>
+          <div class="label">Motors</div>
+          <div class="meta">L: ${entry.motorLeft} · R: ${entry.motorRight}</div>
+        </div>
+        <button class="secondary sm" data-action="motors-stop">Stop</button>
+      </div>
+      <div class="motor-sliders">
+        <label>L <input type="range" min="-100" max="100" value="${entry.motorLeft}" data-action="motor-left"></label>
+        <label>R <input type="range" min="-100" max="100" value="${entry.motorRight}" data-action="motor-right"></label>
+      </div>
+    ` : ""}
+    ${connected && entry.wifiScanChar ? `
+      <div class="robot-controls row">
+        <div>
+          <div class="label">WiFi</div>
+          <div class="meta">${escapeHtml(wifiSummary(entry))}</div>
+        </div>
+        <button class="secondary sm" data-action="scan-wifi" ${entry.wifiScanning ? "disabled" : ""}>
+          ${entry.wifiScanning ? "Scanning…" : "Scan"}
+        </button>
+      </div>
+      ${entry.wifiNetworks && entry.wifiNetworks.length ? `
+        <div class="wifi-list">
+          ${entry.wifiNetworks.map(n => `
+            <div class="wifi-row">
+              <div>
+                <div>${escapeHtml(n.s)}</div>
+                <div class="meta">${n.r} · ${n.p ? "secured" : "open"}</div>
+              </div>
+              <button class="secondary sm" data-action="join-wifi" data-ssid="${escapeHtml(n.s)}" data-secured="${n.p ? 1 : 0}">Join</button>
+            </div>
+          `).join("")}
+        </div>
+      ` : ""}
+    ` : ""}
+    ${entry.lastEvent ? `
+      <div class="last-event">${escapeHtml(entry.lastEvent)}</div>
+    ` : ""}
+  `;
+  entry.node.querySelectorAll("[data-action]").forEach(btn => {
+    const action = btn.dataset.action;
+    if (action === "motor-left" || action === "motor-right") {
+      btn.addEventListener("input", () => {
+        const l = entry.node.querySelector('[data-action="motor-left"]').value;
+        const r = entry.node.querySelector('[data-action="motor-right"]').value;
+        sendMotors(id, l, r);
+      });
+      return;
+    }
+    btn.addEventListener("click", () => {
+      if (action === "connect") connect(id);
+      else if (action === "disconnect") disconnect(id);
+      else if (action === "menu") openMenu(btn, id);
+      else if (action === "toggle-led") toggleLed(id);
+      else if (action === "scan-wifi") scanWifi(id);
+      else if (action === "join-wifi") joinWifi(id, btn.dataset.ssid, btn.dataset.secured === "1");
+      else if (action === "motors-stop") {
+        entry.node.querySelector('[data-action="motor-left"]').value = 0;
+        entry.node.querySelector('[data-action="motor-right"]').value = 0;
+        sendMotors(id, 0, 0);
+      }
+    });
+  });
 }
 
 let menuTargetId = null;
@@ -699,14 +722,11 @@ function highlightKnownRobotFromUrl() {
   const hinted = new URLSearchParams(location.search).get("robot");
   if (!hinted) return;
   const entry = [...state.devices.values()].find(e => e.name === hinted);
-  if (!entry) return;
-  // Flash the card so the user sees which robot the URL refers to.
+  if (!entry || !entry.node) return;
   requestAnimationFrame(() => {
-    const card = [...$("robot-list").children].find(el => el.querySelector(".label")?.textContent === hinted);
-    if (!card) return;
-    card.classList.add("highlight");
-    card.scrollIntoView({ behavior: "smooth", block: "center" });
-    setTimeout(() => card.classList.remove("highlight"), 1500);
+    entry.node.classList.add("highlight");
+    entry.node.scrollIntoView({ behavior: "smooth", block: "center" });
+    setTimeout(() => entry.node.classList.remove("highlight"), 1500);
   });
 }
 
@@ -786,7 +806,12 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  loadPaired().then(highlightKnownRobotFromUrl);
+  loadPaired().then(() => {
+    // Fold setup once robots exist — setup is onboarding-phase, pairing is
+    // the everyday use. User can re-expand at any time; state isn't forced.
+    $("setup-section").open = state.devices.size === 0;
+    highlightKnownRobotFromUrl();
+  });
 });
 
 // ============================================================

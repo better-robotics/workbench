@@ -25,7 +25,7 @@ html, body {
 }
 
 main {
-  max-width: 480px;
+  max-width: 1200px;
   margin: 0 auto;
   padding: 64px 24px 48px;
 }
@@ -36,7 +36,7 @@ h1 {
   letter-spacing: -0.01em;
   margin: 0 0 8px;
 }
-p.lede { color: var(--ink-muted); margin: 0 0 32px; }
+p.lede { color: var(--ink-muted); margin: 0 0 32px; max-width: 640px; }
 
 .card {
   background: var(--surface);
@@ -45,16 +45,6 @@ p.lede { color: var(--ink-muted); margin: 0 0 32px; }
   padding: 24px;
   margin-bottom: 16px;
 }
-.card h2 { font-size: 15px; font-weight: 600; margin: 0 0 12px; }
-.card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 16px;
-}
-.card-header:last-child { margin-bottom: 0; }
-
 .row {
   display: flex;
   align-items: center;
@@ -62,7 +52,7 @@ p.lede { color: var(--ink-muted); margin: 0 0 32px; }
   justify-content: space-between;
 }
 
-.label { font-weight: 500; }
+.label { font-weight: 500; display: flex; align-items: center; gap: 8px; }
 .meta {
   color: var(--ink-muted);
   font-size: 13px;
@@ -193,7 +183,31 @@ button.icon:hover { background: var(--line); color: var(--ink); }
   padding: 0 4px;
   margin: 24px 0 8px;
 }
-#robot-list { display: flex; flex-direction: column; gap: 16px; }
+/* Collapsible setup section — folded by default once robots exist, so the
+   page privileges the control surface over the onboarding cards. */
+#setup-section > summary {
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+#setup-section > summary::-webkit-details-marker { display: none; }
+#setup-section > summary .label::after {
+  content: "›";
+  display: inline-block;
+  color: var(--ink-muted);
+  margin-left: 8px;
+  font-weight: 400;
+  transition: transform 0.2s;
+}
+#setup-section[open] > summary .label::after { transform: rotate(90deg); }
+#robot-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 16px;
+  align-items: start;  /* cards aren't forced to the tallest row-mate */
+  margin-bottom: 16px;
+}
+#robot-list > .card { margin-bottom: 0; }
 
 .robot-controls {
   margin-top: 12px;
@@ -201,6 +215,14 @@ button.icon:hover { background: var(--line); color: var(--ink); }
   border-top: 1px dashed var(--line);
 }
 .robot.highlight { background: #fff8e1; transition: background 1.5s; }
+.last-event {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+  font-family: "SF Mono", ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  color: var(--ink-muted);
+}
 
 .wifi-list {
   margin-top: 8px;
@@ -217,9 +239,14 @@ button.icon:hover { background: var(--line); color: var(--ink); }
 }
 .wifi-row:last-child { border-bottom: none; }
 
-.setup-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+.setup-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+  max-width: 800px;  /* don't stretch two setup cards across a 1200px page */
+}
 .setup-grid .card { margin-bottom: 0; }
-@media (max-width: 520px) { .setup-grid { grid-template-columns: 1fr; } }
 .setup-item { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 /* Primary CTA anchors to the bottom of each setup card so buttons align
    across cards regardless of how much description or helper text sits above. */
@@ -273,12 +300,28 @@ button.icon:hover { background: var(--line); color: var(--ink); }
   font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
   font-size: 12px;
   color: var(--ink-muted);
-  white-space: pre-wrap;
-  max-height: 160px;
+  max-height: 240px;
   overflow-y: auto;
 }
-.log .err { color: var(--danger); }
-.log .ok  { color: var(--success); }
+.log > div {
+  display: grid;
+  grid-template-columns: auto 14ch 1fr;
+  gap: 12px;
+  align-items: baseline;
+}
+.log > div.sys .log-msg { grid-column: 2 / -1; }  /* no name → message absorbs the slot */
+.log .log-time { opacity: 0.55; font-variant-numeric: tabular-nums; }
+.log .log-name {
+  color: var(--ink);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.log .log-name.dup { visibility: hidden; }
+.log .log-msg { white-space: pre-wrap; word-break: break-word; }
+.log .err .log-msg { color: var(--danger); }
+.log .ok  .log-msg { color: var(--success); }
 
 /* visible progress log (inside prepare dialog) */
 .progress-log {

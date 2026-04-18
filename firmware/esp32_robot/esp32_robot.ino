@@ -28,10 +28,8 @@
 #define FW_INFO_CHAR_UUID     "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d98"
 #define MOTOR_CHAR_UUID       "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d99"
 
-// Motors are safe-by-construction: every write resets a watchdog. If no write
-// lands within MOTOR_WATCHDOG_MS, the robot reverts to (0, 0) on its own.
-// This covers browser tab closes, operator out-of-range, anything that drops
-// the BLE link — the failure mode you actually want when driving hardware.
+// Motor watchdog: every write resets the timer; silence reverts to (0, 0).
+// Safe default on disconnect — no redundant channel required.
 const unsigned long MOTOR_WATCHDOG_MS = 500;
 
 // Shared BLE OTA protocol (matches firmware/pi_robot/pi_robot.py):
@@ -609,8 +607,6 @@ void loop() {
     ESP.restart();
   }
 
-  // Motor watchdog — safe-default on disconnect. Commanded to non-zero and
-  // silent for too long means the operator's gone; stop the hardware.
   if ((motorLeft != 0 || motorRight != 0)
       && motorLastWriteAt > 0
       && millis() - motorLastWriteAt > MOTOR_WATCHDOG_MS) {

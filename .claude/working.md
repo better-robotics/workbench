@@ -1,6 +1,6 @@
 # Current working model — better-robotics
 
-Last updated: 2026-04-18 (after ESP32 TLS tuning + README/vision refresh)
+Last updated: 2026-04-18 (per-card render, wider layout, setup collapse, scout findings folded in)
 
 ## Project shape (stable — don't re-question unless new evidence)
 
@@ -10,6 +10,7 @@ Last updated: 2026-04-18 (after ESP32 TLS tuning + README/vision refresh)
 - Actuator characteristics (motor, future servos/pumps/relays) ship with a built-in watchdog — every write resets a timer, silence reverts to safe default. That's the answer to "what happens when the channel drops?"
 - Dashboard is the brain; firmware lives on GH Pages and updates via OTA. No server in the critical path.
 - Browser-only SPA. Chrome/Edge required (Web Bluetooth, File System Access API).
+- **Dashboard render is per-entry.** `state.devices: Map<id, entry>`; each entry owns its DOM node via `entry.node`. `renderEntry(entry)` rebuilds one card; `render()` reconciles the list (add/remove/order). A characteristic notify for robot A never touches robot B's DOM. This is also the foundation for the future LLM-orchestrator direction — `get_robot_state(id)` and per-entry state-push map cleanly onto it.
 
 ## Pending, roughly ranked
 
@@ -19,10 +20,12 @@ Last updated: 2026-04-18 (after ESP32 TLS tuning + README/vision refresh)
 - **Shipped mitigations:** setFollowRedirects, 20s timeout, free-heap logging in the failure message so we can confirm memory pressure next attempt.
 - **Couldn't ship:** `setBufferSizes(rx, tx)` — the API went away in ESP32 Arduino 3.x (WiFiClientSecure → NetworkClientSecure).
 - **BLE-stream fallback still active** — dashboard auto-retries over BLE after 8s silence, so users aren't stuck.
-- **Next moves if heap logs confirm memory pressure:**
+- **Most promising next move (from scout):** migrate BLE stack to NimBLE. Default in arduino-esp32 3.3.0+ already; materially smaller RAM footprint than Bluedroid. Likely frees the headroom mbedTLS needs for the TLS handshake to complete on CAM-MB. Pin to 3.3.8+ for the signed-OTA fix.
+- **Heap logging stays** — load-bearing until the next on-device test confirms whether pressure is the cause.
+- **Other next moves if NimBLE doesn't resolve it:**
   1. Run the HTTPS fetch in a dedicated FreeRTOS task (separate stack, can allocate larger buffers without stealing from BLE).
   2. Alternative: signal/WebSocket transport (different tradeoff — still TLS).
-  3. Accept BLE fallback as good enough for CAM-MB (S3 is the recommended hardware; CAM-MB quirks may not be worth fighting indefinitely).
+  3. Accept BLE fallback as good enough for CAM-MB (S3/C6 are recommended hardware; CAM-MB quirks may not be worth fighting indefinitely).
 
 ### 2. Would a Service Worker improve the architecture? (open question)
 - **Yes for:** offline dashboard (cache static assets + firmware bins so pairing+basic use works without internet, OTA keeps working after a WiFi drop), PWA installability (Add to Home Screen for classroom/demo iPads and Android), faster repeat visits.
@@ -45,7 +48,26 @@ Last updated: 2026-04-18 (after ESP32 TLS tuning + README/vision refresh)
 - Adds WebSocket client lib to firmware (~50KB). Adds signal as critical-path infra.
 - **Reconsider when:** streaming video, multi-robot coordination, or another feature requires browser-as-source for bulk data that doesn't fit BLE.
 
+### 6. Scout-surfaced follow-ups (folded in 2026-04-18)
+- **`bluez-peripheral` 0.2.0a5 spike.** Modern BlueZ-native peripheral lib; if it works non-root and without `--experimental`, the Pi firstrun script gets materially simpler. Worth a time-boxed trial.
+- **Update `docs/hardware.md` to call out ESP32-C6** as the recommended board for new non-camera BLE-first builds. S3 is fine but C6 has native BLE 5.3 + more RAM headroom and matches the "BLE is the control plane" framing better than S3's dual-radio emphasis.
+- **Treat `getDevices()` persistence fallback as load-bearing, not transitional.** Web Bluetooth's `getDevices()` has stayed flag-gated for years with no movement. The localStorage+filter-by-name path in `loadPaired()` is the primary paired-device persistence story; don't plan to retire it.
+
+### 7. LLM-orchestrated dashboard (direction, not yet in flight)
+- Direction confirmed: eventually an LLM (webmcp-style) drives pairing, driving, OTA, etc. through a tool interface. Per-card render ships today specifically to set up this future — one state change mutates one card, a `get_robot_state(id)` tool returns one entry, a state-push channel notifies by entry-id rather than whole-page snapshots.
+- **Patterns worth stealing from `~/Github/organizations/hatch` when we get here:**
+  1. Domain-scoped tool adapters with per-context system prompts (one adapter per "mode" — pairing, debugging, classroom demo).
+  2. Tool results as JSON objects, not text. Errors too (`{error: "..."}`, not mixed strings).
+  3. Two-phase inspection: `list_robots()` → `get_robot_state(id)` → targeted actions. LLM learns to drill down.
+  4. Approval gates for learned tools + confidence scoring. Gate before auto-executing; refine-and-resubmit on drift.
+  5. SSE state push (optional, when state changes originate outside the LLM — e.g., a watchdog firing on a robot).
+- **Don't copy from hatch:** behavioral-trust ledger (overkill for single-user dashboard), multi-bridge primary/secondary election (only needed for multi-client orchestration).
+
 ## Recently landed (context for what's "done")
+- **Per-card render foundation.** `entry.node` owns the card DOM; `renderEntry(entry)` scopes innerHTML rebuild to one card; `render()` handles list-level changes only. Sets up the entry-addressable state shape the future LLM-orchestrator will drive tools against.
+- **Wider layout.** `main` max-width 1200px; `#robot-list` is `repeat(auto-fill, minmax(360px, 1fr))` — stacks on phone, side-by-side on laptop. Setup-grid capped at 800px so two onboarding cards don't stretch across a wide page. `h1`/`p.lede` capped at 640px for readability.
+- **Collapsible setup section.** `<details id="setup-section">` with "Set up new hardware" as the `<summary>`; folded by default when robots exist, expanded when the list is empty. Session's user toggle persists (render doesn't force-reset).
+- **Dashboard visual compression pass.** Log is now a three-column grid (time · name · msg) with name-dedup across bursts; system-level log lines (no robot name) span the message into the name slot; status dot moved left of the robot name; "Connected" / "Not connected" text dropped (dot + button carry it); redundant connecting/connected/disconnected log lines removed; dead `_debug_log` wifi-scan instrumentation in pi_robot.py removed; watchdog-rationale comments tightened to one sentence at each declaration; `makeEntry()` factory shared between `entryFor` and `loadPaired` hydration.
 - **Vision-led README + `docs/hardware.md` split.** Tagline matches the website; board-specific FQBNs / LED pins / kext notes moved out.
 - **New tagline:** "Pair any robot in a browser tab. No network, no accounts, no servers." Set on the website and GitHub About.
 - **Setup section split into two top-level cards** (ESP32 / Pi), label moved outside, CTA buttons anchored to the bottom so they align across cards.

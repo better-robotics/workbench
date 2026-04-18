@@ -22,27 +22,28 @@
     Bluetooth is off — turn it on to scan for robots.
   </div>
 
-  <div class="robots-heading">
-    <div class="label">Set up new hardware</div>
-  </div>
-
-  <div class="setup-grid">
-    <section class="card setup-item">
-      <div class="label">Flash an ESP32</div>
-      <div class="meta">Full firmware over USB — takes a blank chip to a working robot in one click.</div>
-      <button type="button" class="help-hint" popovertarget="esp32-drivers">Do I need a driver?</button>
-      <esp-web-install-button manifest="firmware/manifest.json">
-        <button slot="activate" class="secondary">Flash firmware</button>
-        <span slot="unsupported" class="meta">Web Serial required (Chrome or Edge desktop).</span>
-        <span slot="not-allowed" class="meta">HTTPS required to flash.</span>
-      </esp-web-install-button>
-    </section>
-    <section class="card setup-item">
-      <div class="label">Customize a Pi SD card</div>
-      <div class="meta">Pi OS already on the card (via Raspberry Pi Imager)? Stage firmware, wheels, SSH key on the boot partition.</div>
-      <button class="secondary" type="button" id="prepare-open-btn">Customize card</button>
-    </section>
-  </div>
+  <details id="setup-section" open>
+    <summary class="robots-heading">
+      <div class="label">Set up new hardware</div>
+    </summary>
+    <div class="setup-grid">
+      <section class="card setup-item">
+        <div class="label">Flash an ESP32</div>
+        <div class="meta">Full firmware over USB — takes a blank chip to a working robot in one click.</div>
+        <button type="button" class="help-hint" popovertarget="esp32-drivers">Do I need a driver?</button>
+        <esp-web-install-button manifest="firmware/manifest.json">
+          <button slot="activate" class="secondary">Flash firmware</button>
+          <span slot="unsupported" class="meta">Web Serial required (Chrome or Edge desktop).</span>
+          <span slot="not-allowed" class="meta">HTTPS required to flash.</span>
+        </esp-web-install-button>
+      </section>
+      <section class="card setup-item">
+        <div class="label">Customize a Pi SD card</div>
+        <div class="meta">Pi OS already on the card (via Raspberry Pi Imager)? Stage firmware, wheels, SSH key on the boot partition.</div>
+        <button class="secondary" type="button" id="prepare-open-btn">Customize card</button>
+      </section>
+    </div>
+  </details>
 
   <div class="robots-heading" id="robots-heading" hidden>
     <div class="label">Your robots</div>
@@ -59,7 +60,7 @@
 
   <section class="card">
     <div class="label" style="margin-bottom: 8px;">Log</div>
-    <div class="log" id="log">Ready.</div>
+    <div class="log" id="log"></div>
   </section>
 </main>
 
