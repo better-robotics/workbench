@@ -450,6 +450,10 @@
       el.textContent = `[${now}] ${msg}\n` + existing;
     }
   };
+  // Robot-scoped logging. Any event that belongs to a specific robot gets
+  // its name prefixed so multi-robot logs stay legible. System-wide events
+  // (scan errors, bluetooth off, paired-device listing) use bare log().
+  const logFor = (entry, msg) => log(`${entry.name}: ${msg}`);
 
   const STORAGE_KEY = "better-robotics:known";
 
@@ -570,14 +574,14 @@
         log(`Reconnecting ${entry.name}…`);
         await restoreDevice(entry);
       } catch (err) {
-        if (err.name !== "NotFoundError") log(`Reconnect cancelled: ${err.message}`);
+        if (err.name !== "NotFoundError") logFor(entry, `reconnect cancelled: ${err.message}`);
         return;
       }
     }
 
     entry.status = "connecting";
     render();
-    log(`Connecting to ${entry.name}…`);
+    logFor(entry, "connecting…");
 
     try {
       const server = await entry.device.gatt.connect();
@@ -592,11 +596,11 @@
       ch.addEventListener("characteristicvaluechanged", (e) => {
         entry.ledOn = e.target.value.getUint8(0) !== 0;
         render();
-        log(`LED → ${entry.ledOn ? "on" : "off"}`);
+        logFor(entry, `LED → ${entry.ledOn ? "on" : "off"}`);
       });
 
       entry.status = "connected";
-      log(`Connected to ${entry.name}`);
+      logFor(entry, "connected");
 
       // WiFi characteristics are optional — older firmwares may not expose them.
       try {
@@ -608,7 +612,7 @@
         entry.wifiStatusChar.addEventListener("characteristicvaluechanged", (e) => {
           entry.wifiStatus = decodeJson(e.target.value) || { st: "idle" };
           const { st, ssid, err: errMsg } = entry.wifiStatus;
-          log(`WiFi ${st}${ssid ? ` [${ssid}]` : ""}${errMsg ? ` — ${errMsg}` : ""}`);
+          logFor(entry, `WiFi ${st}${ssid ? ` [${ssid}]` : ""}${errMsg ? ` — ${errMsg}` : ""}`);
           render();
         });
         await entry.wifiScanChar.startNotifications();
@@ -635,7 +639,7 @@
           entry.otaStatus = decodeJson(e.target.value) || { st: "idle" };
           const { st, n = 0, total = 0, err: errMsg } = entry.otaStatus;
           const pct = total ? Math.round(100 * n / total) : 0;
-          log(`OTA ${st}${total ? ` ${pct}%` : ""}${errMsg ? ` — ${errMsg}` : ""}`);
+          logFor(entry, `OTA ${st}${total ? ` ${pct}%` : ""}${errMsg ? ` — ${errMsg}` : ""}`);
           render();
         });
       } catch {
@@ -669,7 +673,7 @@
       }
     } catch (err) {
       entry.status = "error";
-      log(`Connect failed: ${err.message}`);
+      logFor(entry, `connect failed: ${err.message}`);
     }
     render();
   }
@@ -692,7 +696,7 @@
     entry.fwInfo = null;
     entry.motorChar = null;
     entry.motorLeft = entry.motorRight = 0;
-    log(`Disconnected from ${entry.name}`);
+    logFor(entry, "disconnected");
     render();
   }
 
@@ -738,7 +742,7 @@
       // Fresh results arrive via the scan notification handler.
     } catch (err) {
       entry.wifiScanning = false;
-      log(`WiFi scan failed: ${err.message}`);
+      logFor(entry, `WiFi scan failed: ${err.message}`);
       render();
     }
   }
@@ -754,7 +758,7 @@
     try {
       await entry.wifiJoinChar.writeValueWithResponse(encodeJson({ s: ssid, p: password }));
     } catch (err) {
-      log(`WiFi join failed: ${err.message}`);
+      logFor(entry, `WiFi join failed: ${err.message}`);
     }
   }
 
@@ -799,14 +803,14 @@
       return;
     }
     const fetchUrl = entry.fwInfo?.url || "firmware/pi_robot/pi_robot.py";
-    log(`Fetching ${fetchUrl}…`);
+    logFor(entry, `fetching ${fetchUrl}…`);
     let bytes;
     try {
       const resp = await fetch(fetchUrl, { cache: "no-cache" });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       bytes = new Uint8Array(await resp.arrayBuffer());
     } catch (err) {
-      log(`Fetch failed: ${err.message}`);
+      logFor(entry, `fetch failed: ${err.message}`);
       return;
     }
     await acquireWakeLock();
@@ -827,13 +831,13 @@
         const frame = new Uint8Array(1 + payload.length);
         frame[0] = 0x04;
         frame.set(new TextEncoder().encode(payload), 1);
-        log(`OTA trigger → ${entry.name} will fetch ${bytes.length} B over WiFi`);
+        logFor(entry, `OTA trigger — will fetch ${bytes.length} B over WiFi`);
         let triggerSent = false;
         try {
           await entry.otaDataChar.writeValueWithResponse(frame);
           triggerSent = true;
         } catch (err) {
-          log(`OTA trigger failed: ${err.message} — falling back to BLE stream`);
+          logFor(entry, `OTA trigger failed: ${err.message} — falling back to BLE stream`);
         }
         if (triggerSent) {
           // Give the ESP32 ~8 seconds to start fetching. It should transition
@@ -842,18 +846,18 @@
           // DNS, connection refused, etc) and we fall back to BLE stream.
           await new Promise(r => setTimeout(r, 8000));
           if (entry.otaStatus?.st !== "failed") return;
-          log(`URL-trigger failed (${entry.otaStatus.err || "?"}) — falling back to BLE stream`);
+          logFor(entry, `URL-trigger failed (${entry.otaStatus.err || "?"}) — falling back to BLE stream`);
         }
         // fall through to BLE stream
       }
 
       // Fallback: stream the whole binary over BLE (Pi always, or ESP32 offline).
-      log(`OTA streaming ${bytes.length} B to ${entry.name}…`);
+      logFor(entry, `OTA streaming ${bytes.length} B…`);
       try {
         await streamOtaBytes(entry, bytes);
-        log("OTA commit sent — robot restarting");
+        logFor(entry, "OTA commit sent — robot restarting");
       } catch (err) {
-        log(`OTA failed: ${err.message}`);
+        logFor(entry, `OTA failed: ${err.message}`);
       }
     } finally {
       await releaseWakeLock();
@@ -875,13 +879,13 @@
       const bytes = new Uint8Array(await file.arrayBuffer());
       // Local file — always BLE-stream. URL-trigger needs a URL the robot
       // can reach, and a data:/blob: URL isn't useful to the ESP32.
-      log(`OTA streaming ${file.name} (${bytes.length} B) to ${entry.name}…`);
+      logFor(entry, `OTA streaming ${file.name} (${bytes.length} B)…`);
       await acquireWakeLock();
       try {
         await streamOtaBytes(entry, bytes);
-        log("OTA commit sent — robot restarting");
+        logFor(entry, "OTA commit sent — robot restarting");
       } catch (err) {
-        log(`OTA failed: ${err.message}`);
+        logFor(entry, `OTA failed: ${err.message}`);
       } finally {
         await releaseWakeLock();
       }
@@ -909,7 +913,7 @@
           await entry.motorChar.writeValueWithResponse(
             Uint8Array.of(l & 0xff, r & 0xff));
         } catch (err) {
-          log(`Motors write failed: ${err.message}`);
+          logFor(entry, `motors write failed: ${err.message}`);
           break;
         }
       }
@@ -927,7 +931,7 @@
       entry.ledOn = next;
       render();
     } catch (err) {
-      log(`Write failed: ${err.message}`);
+      logFor(entry, `LED write failed: ${err.message}`);
     }
   }
 
@@ -1165,7 +1169,9 @@
       if (!id) return;
       const entry = state.devices.get(id);
       if (!entry) return;
-      const name = entry.device.name || id;
+      // entry.device may be null for robots restored from localStorage that we
+      // haven't reconnected to in this session. entry.name is always set.
+      const name = entry.name;
       closeMenu();
       if (confirm(`Forget ${name}?\n\nYou'll need to pair it again to use it.`)) {
         forgetDevice(id);
