@@ -69,12 +69,17 @@ publish-firmware: compile
 	@echo "Firmware bins copied to $(PUBLISH_DIR). Commit and push to deploy."
 
 publish-pi-firmware:
-	@mkdir -p public/firmware/pi_robot
-	cp firmware/pi_robot/pi_robot.py       public/firmware/pi_robot/pi_robot.py
-	cp firmware/pi_robot/requirements.txt  public/firmware/pi_robot/requirements.txt
-	cp firmware/pi_robot/pi-robot.service  public/firmware/pi_robot/pi-robot.service
+	@mkdir -p public/firmware/pi_robot/wheels
+	cp firmware/pi_robot/pi_robot.py           public/firmware/pi_robot/pi_robot.py
+	cp firmware/pi_robot/requirements.txt      public/firmware/pi_robot/requirements.txt
+	cp firmware/pi_robot/pi-robot.service      public/firmware/pi_robot/pi-robot.service
+	cp firmware/pi_robot/firstrun.template.sh  public/firmware/pi_robot/firstrun.template.sh
+	rm -f public/firmware/pi_robot/wheels/*.whl
+	pip download --no-deps --platform manylinux2014_aarch64 --python-version 311 --implementation cp --only-binary=:all: -d public/firmware/pi_robot/wheels/ bless bleak dbus-fast dbus-next typing-extensions
+	pip download --no-deps --platform manylinux2014_aarch64 --python-version 313 --implementation cp --only-binary=:all: -d public/firmware/pi_robot/wheels/ bless bleak dbus-fast dbus-next typing-extensions
+	@python3 -c "import json, pathlib; d = pathlib.Path('public/firmware/pi_robot/wheels'); (d/'manifest.json').write_text(json.dumps({'wheels': sorted(p.name for p in d.glob('*.whl'))}, indent=2) + '\n')"
 	@echo ""
-	@echo "Pi firmware published to public/firmware/pi_robot/. Commit and push to deploy."
+	@echo "Pi firmware + wheels published. Commit and push to deploy."
 
 sd-prep:
 	@python3 firmware/pi_robot/prepare-sd.py

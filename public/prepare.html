@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Better Robotics — prepare SD card</title>
+  <style>
+    :root {
+      --bg: #f5f5f7;
+      --surface: #ffffff;
+      --ink: #1d1d1f;
+      --ink-muted: #6e6e73;
+      --line: #d2d2d7;
+      --accent: #012169;
+      --accent-ink: #ffffff;
+      --danger: #d70015;
+      --success: #30a46c;
+      --radius: 12px;
+      --shadow: 0 1px 2px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.06);
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: system-ui, -apple-system, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+      font-size: 15px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+    main {
+      max-width: 560px;
+      margin: 0 auto;
+      padding: 48px 24px;
+    }
+    h1 {
+      font-size: 26px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      margin: 0 0 8px;
+    }
+    p.lede { color: var(--ink-muted); margin: 0 0 24px; }
+    .card {
+      background: var(--surface);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    .card h2 {
+      font-size: 15px;
+      font-weight: 600;
+      margin: 0 0 12px;
+    }
+    .field { margin-bottom: 12px; }
+    .field:last-child { margin-bottom: 0; }
+    .field label {
+      display: block;
+      font-size: 13px;
+      color: var(--ink-muted);
+      margin-bottom: 4px;
+    }
+    .field input, .field textarea {
+      width: 100%;
+      font: inherit;
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      color: var(--ink);
+    }
+    .field textarea {
+      font-family: "SF Mono", ui-monospace, Menlo, monospace;
+      font-size: 13px;
+    }
+    .field input:focus, .field textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    button {
+      font: inherit;
+      border: none;
+      cursor: pointer;
+      padding: 10px 16px;
+      border-radius: 10px;
+      min-height: 44px;
+      background: var(--accent);
+      color: var(--accent-ink);
+      font-weight: 500;
+    }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    button.secondary {
+      background: transparent;
+      color: var(--ink);
+      border: 1px solid var(--line);
+    }
+    .meta {
+      color: var(--ink-muted);
+      font-size: 13px;
+      font-family: "SF Mono", ui-monospace, Menlo, monospace;
+    }
+    .log {
+      font-family: "SF Mono", ui-monospace, Menlo, monospace;
+      font-size: 12px;
+      color: var(--ink);
+      white-space: pre-wrap;
+      max-height: 300px;
+      overflow-y: auto;
+      background: #f9f9fb;
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+    }
+    .log .err { color: var(--danger); }
+    .log .ok  { color: var(--success); }
+    .unsupported {
+      padding: 16px;
+      border-radius: var(--radius);
+      background: #fff4e0;
+      color: #7a4a00;
+      font-size: 13px;
+      margin-bottom: 16px;
+    }
+    .row { display: flex; gap: 12px; align-items: center; }
+    .row .meta { flex: 1; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Prepare Pi SD card</h1>
+  <p class="lede">Flash Raspberry Pi OS first (use Raspberry Pi Imager). Then come back here to customize the boot partition.</p>
+
+  <div id="unsupported" class="unsupported" hidden>
+    This browser doesn't support the File System Access API. Use Chrome or Edge on desktop.
+  </div>
+
+  <section class="card">
+    <h2>Card details</h2>
+    <div class="field">
+      <label for="hostname">Hostname</label>
+      <input id="hostname" value="betterpi">
+    </div>
+    <div class="field">
+      <label for="username">Username</label>
+      <input id="username" value="pi">
+    </div>
+    <div class="field">
+      <label for="password">Sudo password</label>
+      <input id="password" type="password" autocomplete="new-password">
+    </div>
+    <div class="field">
+      <label for="sshkey">SSH public key</label>
+      <textarea id="sshkey" rows="2" placeholder="ssh-ed25519 AAAA..." autocomplete="off"></textarea>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>SD card</h2>
+    <p class="meta" style="margin: 0 0 12px; color: var(--ink-muted); font-family: inherit; font-size: 13px;">
+      Pick the boot partition of the inserted card. On macOS it mounts as <code>/Volumes/bootfs</code>.
+    </p>
+    <div class="row">
+      <button id="pick-btn" class="secondary">Pick SD card directory</button>
+      <span class="meta" id="pick-meta">not picked</span>
+    </div>
+  </section>
+
+  <div style="display: flex; justify-content: flex-end; margin-bottom: 16px;">
+    <button id="prepare-btn" disabled>Prepare card</button>
+  </div>
+
+  <section class="card" id="progress-card" hidden>
+    <h2>Progress</h2>
+    <div class="log" id="progress"></div>
+  </section>
+</main>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const FIRMWARE_URL = "firmware/pi_robot";  // same-origin path on GH Pages
+  const FIRMWARE_FILES = ["pi_robot.py", "requirements.txt", "pi-robot.service"];
+  const SYSTEMD_RUN =
+    " systemd.run=/boot/firmware/firstrun.sh" +
+    " systemd.run_success_action=reboot" +
+    " systemd.unit=kernel-command-line.target";
+
+  let dirHandle = null;
+
+  function log(msg, cls) {
+    const el = document.createElement("div");
+    if (cls) el.className = cls;
+    el.textContent = msg;
+    $("progress").prepend(el);
+  }
+
+  function shSingleQuote(s) {
+    return "'" + s.replace(/'/g, "'\\''") + "'";
+  }
+
+  async function ensureDir(parent, name) {
+    return parent.getDirectoryHandle(name, { create: true });
+  }
+
+  async function writeFile(dir, name, contents) {
+    const handle = await dir.getFileHandle(name, { create: true });
+    const writable = await handle.createWritable();
+    await writable.write(contents);
+    await writable.close();
+  }
+
+  async function readTextFile(dir, name) {
+    try {
+      const handle = await dir.getFileHandle(name);
+      const file = await handle.getFile();
+      return await file.text();
+    } catch {
+      return null;
+    }
+  }
+
+  async function fetchBlob(url) {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`${url} → ${resp.status}`);
+    return resp.blob();
+  }
+
+  async function patchCmdline(text) {
+    // Strip any prior systemd.run= we added, then append a clean copy.
+    let line = text.replace(/\n+$/, "").trim();
+    line = line.replace(/\s+systemd\.run=\S+/g, "");
+    line = line.replace(/\s+systemd\.run_success_action=\S+/g, "");
+    line = line.replace(/\s+systemd\.unit=\S+/g, "");
+    return line + SYSTEMD_RUN + "\n";
+  }
+
+  async function renderFirstrun(template, values) {
+    let out = template;
+    for (const [k, v] of Object.entries(values)) {
+      out = out.replaceAll(`__REPLACE_${k}__`, shSingleQuote(v));
+    }
+    return out;
+  }
+
+  async function prepare() {
+    $("prepare-btn").disabled = true;
+    $("progress-card").hidden = false;
+    $("progress").textContent = "";
+
+    const hostname = $("hostname").value.trim() || "betterpi";
+    const username = $("username").value.trim() || "pi";
+    const password = $("password").value;
+    const sshKey   = $("sshkey").value.trim();
+
+    if (!password || !sshKey) {
+      log("Need both sudo password and SSH key.", "err");
+      $("prepare-btn").disabled = false;
+      return;
+    }
+
+    try {
+      log("Validating SD card…");
+      const looksRight = await readTextFile(dirHandle, "config.txt");
+      if (looksRight === null || !looksRight.includes("[cm4]") && !looksRight.includes("arm_64bit")) {
+        log("Warning: picked directory doesn't look like a Pi boot partition.", "err");
+      }
+
+      log("Fetching firstrun template…");
+      const template = await (await fetch(`${FIRMWARE_URL}/firstrun.template.sh`)).text();
+
+      log("Fetching firmware files…");
+      const betterpi = await ensureDir(dirHandle, "betterpi");
+      for (const f of FIRMWARE_FILES) {
+        const blob = await fetchBlob(`${FIRMWARE_URL}/${f}`);
+        await writeFile(betterpi, f, blob);
+        log(`  ✓ ${f}`, "ok");
+      }
+
+      log("Fetching wheels manifest…");
+      const manifest = await (await fetch(`${FIRMWARE_URL}/wheels/manifest.json`)).json();
+      const wheels = await ensureDir(dirHandle, "wheels");
+      for await (const entry of wheels.values()) {
+        if (entry.kind === "file") {
+          await wheels.removeEntry(entry.name).catch(() => {});
+        }
+      }
+      for (const filename of manifest.wheels) {
+        const blob = await fetchBlob(`${FIRMWARE_URL}/wheels/${filename}`);
+        await writeFile(wheels, filename, blob);
+        log(`  ✓ ${filename}`, "ok");
+      }
+
+      log("Rendering firstrun.sh…");
+      const firstrun = await renderFirstrun(template, {
+        HOSTNAME:  hostname,
+        USER_NAME: username,
+        USER_PASS: password,
+        SSH_KEY:   sshKey,
+      });
+      await writeFile(dirHandle, "firstrun.sh", firstrun);
+
+      log("Patching cmdline.txt…");
+      const oldCmdline = await readTextFile(dirHandle, "cmdline.txt");
+      if (oldCmdline === null) throw new Error("cmdline.txt not found on card");
+      await writeFile(dirHandle, "cmdline.txt", await patchCmdline(oldCmdline));
+
+      log("Done. Eject the card and boot the Pi.", "ok");
+    } catch (err) {
+      log(`Error: ${err.message}`, "err");
+    } finally {
+      $("prepare-btn").disabled = false;
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    if (!window.showDirectoryPicker) {
+      $("unsupported").hidden = false;
+      $("pick-btn").disabled = true;
+      return;
+    }
+    $("pick-btn").addEventListener("click", async () => {
+      try {
+        dirHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+        $("pick-meta").textContent = dirHandle.name;
+        $("prepare-btn").disabled = false;
+      } catch { /* user cancelled */ }
+    });
+    $("prepare-btn").addEventListener("click", prepare);
+  });
+</script>
+</body>
+</html>

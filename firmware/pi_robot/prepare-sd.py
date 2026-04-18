@@ -38,7 +38,10 @@ SYSTEMD_RUN = (
 #             uses --system-site-packages so no pip copy is needed.
 WHEEL_PACKAGES = ["bless", "bleak", "dbus-fast", "dbus-next", "typing-extensions"]
 WHEEL_PLATFORM = "manylinux2014_aarch64"
-WHEEL_PY = "311"  # Pi OS Bookworm ships Python 3.11
+# Bundle wheels for multiple Pythons; Pi OS Bookworm ships 3.11, Trixie ships 3.13.
+# Pure-Python wheels are reused across versions; only compiled ones (dbus-fast)
+# end up duplicated — a few MB of overhead to stay image-agnostic.
+WHEEL_PYTHON_VERSIONS = ["311", "313"]
 
 
 def sh_single_quote(value: str) -> str:
@@ -47,20 +50,23 @@ def sh_single_quote(value: str) -> str:
 
 
 def stage_wheels(dest: Path) -> None:
-    """Download aarch64 Python wheels for the pi_robot deps into dest/."""
+    """Download aarch64 Python wheels for every supported Python version."""
     dest.mkdir(parents=True, exist_ok=True)
     for old in dest.glob("*.whl"):
-        old.unlink()
-    cmd = [
-        sys.executable, "-m", "pip", "download", "--no-deps",
-        "--platform", WHEEL_PLATFORM,
-        "--python-version", WHEEL_PY,
-        "--implementation", "cp",
-        "--only-binary=:all:",
-        "-d", str(dest),
-        *WHEEL_PACKAGES,
-    ]
-    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
+        if old.name.startswith("._"):
+            continue  # macOS AppleDouble, auto-removed when primary is
+        old.unlink(missing_ok=True)
+    for py in WHEEL_PYTHON_VERSIONS:
+        cmd = [
+            sys.executable, "-m", "pip", "download", "--no-deps",
+            "--platform", WHEEL_PLATFORM,
+            "--python-version", py,
+            "--implementation", "cp",
+            "--only-binary=:all:",
+            "-d", str(dest),
+            *WHEEL_PACKAGES,
+        ]
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
 
 
 def stage_firmware(dest: Path) -> None:
