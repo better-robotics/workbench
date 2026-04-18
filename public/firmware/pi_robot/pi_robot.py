@@ -62,6 +62,7 @@ FW_INFO = {"type": "pi", "url": "firmware/pi_robot/pi_robot.py"}
 LED_PIN = 17       # BCM pin — change to match your wiring.
 SCAN_MAX = 10      # Bounded so the full JSON fits in one ATT read.
 OTA_TARGET = "/home/pi/better-robotics/firmware/pi_robot/pi_robot.py"
+OTA_OP_ABORT = 0x00
 OTA_OP_BEGIN = 0x01
 OTA_OP_CHUNK = 0x02
 OTA_OP_COMMIT = 0x03
@@ -223,6 +224,11 @@ def _ota_handle_write(data: bytearray) -> None:
     if not data:
         return
     op = data[0]
+    if op == OTA_OP_ABORT:
+        _ota_buffer = bytearray()
+        _ota_size = 0
+        _set_ota_status("idle")
+        return
     if op == OTA_OP_BEGIN:
         if len(data) < 5:
             _set_ota_status("failed", err="bad begin frame")

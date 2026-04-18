@@ -667,9 +667,38 @@
       log(`Fetch failed: ${err.message}`);
       return;
     }
+
+    const ch = entry.otaDataChar;
+    // Clear any lingering OTA session before we start a fresh one (opcode 0x00).
+    try { await ch.writeValueWithResponse(new Uint8Array([0x00])); } catch {}
+
+    // Route to the right data plane: if the robot has WiFi joined and advertises
+    // a URL-trigger-capable firmware, send a small BLE command and let the robot
+    // pull the binary itself over WiFi. 10 min → 10 sec on the ESP32's 1.6 MB bin.
+    const canUrlTrigger =
+      entry.fwInfo?.type === "esp32" && entry.wifiStatus?.st === "joined";
+
+    if (canUrlTrigger) {
+      const hashBuf = await crypto.subtle.digest("SHA-256", bytes);
+      const sha256 = [...new Uint8Array(hashBuf)]
+        .map(b => b.toString(16).padStart(2, "0")).join("");
+      const absoluteUrl = new URL(fetchUrl, location.href).toString();
+      const payload = JSON.stringify({ url: absoluteUrl, size: bytes.length, sha256 });
+      const frame = new Uint8Array(1 + payload.length);
+      frame[0] = 0x04;
+      frame.set(new TextEncoder().encode(payload), 1);
+      log(`OTA trigger → ${entry.name} will fetch ${bytes.length} B over WiFi`);
+      try {
+        await ch.writeValueWithResponse(frame);
+      } catch (err) {
+        log(`OTA trigger failed: ${err.message}`);
+      }
+      return;
+    }
+
+    // Fallback: stream the whole binary over BLE (Pi always, or ESP32 offline).
     log(`OTA streaming ${bytes.length} B to ${entry.name}…`);
     try {
-      const ch = entry.otaDataChar;
       const begin = new Uint8Array(5);
       begin[0] = 0x01;
       new DataView(begin.buffer).setUint32(1, bytes.length, false);
