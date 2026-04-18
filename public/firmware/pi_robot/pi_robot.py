@@ -554,9 +554,13 @@ async def _cam_install() -> None:
         rc, tail = await _run_install_cmd(
             "apt install",
             ["apt-get", "install", "-y",
-             # Build deps too — aiortc pulls in cffi, cryptography, pylibsrtp
-             # which can fall back to source build on some Pi OS images.
+             # Core: camera + webrtc runtime deps.
              "python3-picamera2", "ffmpeg", "libsrtp2-dev",
+             # pip itself — some Pi OS images ship without it, and the pip
+             # install step below would fail with "No module named pip".
+             "python3-pip",
+             # Build deps — aiortc pulls in cffi, cryptography, pylibsrtp
+             # which can fall back to source build on some images.
              "python3-dev", "libffi-dev", "libssl-dev", "build-essential"],
         )
         if rc != 0:
