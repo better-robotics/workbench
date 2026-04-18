@@ -312,6 +312,17 @@ button.icon:hover { background: var(--line); color: var(--ink); }
   word-break: break-all;
 }
 
+.recovery-term {
+  background: #1e1e1e;
+  border-radius: 8px;
+  padding: 8px;
+  min-height: 360px;
+}
+/* xterm.js owns the canvas; give it room to breathe. */
+.recovery-term .xterm,
+.recovery-term .xterm-viewport,
+.recovery-term .xterm-screen { height: 100% !important; }
+
 .robot-camera {
   display: block;
   width: 100%;

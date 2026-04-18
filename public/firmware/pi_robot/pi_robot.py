@@ -20,6 +20,7 @@ import os
 import shlex
 import socket
 import subprocess
+import sys
 
 from bless import (
     BlessServer,
@@ -565,13 +566,16 @@ async def _cam_install() -> None:
         )
         if rc != 0:
             fail("apt install", rc, tail); return
-        # `python3 -m pip` beats `pip` for portability — service PATH may not
-        # have a bare `pip` entry. Run inside the venv's python so packages
-        # land where pi_robot.py can import them.
+        # Use sys.executable (the running interpreter, i.e., the venv's
+        # python) rather than a PATH lookup for "python3". On Pi OS the
+        # system python is externally-managed (PEP 668); pip refuses to
+        # modify packages owned by Debian. The service runs under the venv
+        # at .venv/bin/python, which pip treats as unmanaged — packages
+        # install into the venv cleanly and pi_robot.py imports them on
+        # the next run.
         rc, tail = await _run_install_cmd(
             "pip install",
-            ["python3", "-m", "pip", "install",
-             "--break-system-packages", "aiortc", "av"],
+            [sys.executable, "-m", "pip", "install", "aiortc", "av"],
         )
         if rc != 0:
             fail("pip install", rc, tail); return
