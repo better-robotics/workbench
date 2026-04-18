@@ -40,11 +40,8 @@ MOTOR_CHAR_UUID       = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d99"
 
 FW_INFO = {"type": "pi", "url": "firmware/pi_robot/pi_robot.py"}
 
-# Motors are safe-by-construction: every write resets a 500ms watchdog. If no
-# write lands within the window, the robot reverts to (0, 0) on its own. This
-# is the failure mode you actually want when a browser tab closes or the
-# operator walks out of BLE range — not a redundant channel, just a safe
-# default behavior on disconnect.
+# Motor watchdog: every write resets the timer; silence reverts to (0, 0).
+# Safe default on disconnect — no redundant channel required.
 MOTOR_WATCHDOG_MS = 500
 
 # BLE OTA protocol:
@@ -133,19 +130,6 @@ def _set_status(st: str, ssid: str | None = None, err: str | None = None) -> Non
     log.info("wifi-status → %s", _wifi_status)
 
 
-WIFI_DEBUG_LOG = "/boot/firmware/wifi-scan.log"
-
-
-def _debug_log(section: str, content: str) -> None:
-    """Append a diagnostic dump to the boot partition so we can read scan
-    failures from macOS without SSH access to the Pi."""
-    try:
-        with open(WIFI_DEBUG_LOG, "a") as f:
-            f.write(f"=== {section} ===\n{content}\n")
-    except OSError:
-        pass
-
-
 async def _wifi_scan_task() -> None:
     # nmcli SIGNAL is 0..100 already; we pass it through as our unified "strength".
     # Doesn't touch wifi-status — scan activity is orthogonal to connection state.
@@ -160,10 +144,6 @@ async def _wifi_scan_task() -> None:
         out, err = await proc.communicate()
         out_str = out.decode(errors="replace")
         err_str = err.decode(errors="replace")
-        _debug_log(
-            f"scan @ rc={proc.returncode}",
-            f"STDOUT:\n{out_str}\nSTDERR:\n{err_str}",
-        )
         if proc.returncode != 0:
             log.warning("wifi scan failed: %s", err_str.strip())
             return
@@ -189,7 +169,6 @@ async def _wifi_scan_task() -> None:
         _publish(WIFI_SCAN_CHAR_UUID, _json_bytes(_wifi_scan))
     except Exception as e:
         log.warning("wifi scan error: %s", e)
-        _debug_log("scan exception", repr(e))
 
 
 def _set_ota_status(st: str, n: int = 0, total: int = 0, err: str | None = None) -> None:
@@ -277,9 +256,6 @@ def _motor_handle_write(data: bytearray) -> None:
 
 
 async def _motor_watchdog_task() -> None:
-    """If motors are non-zero and we haven't heard from the operator in
-    MOTOR_WATCHDOG_MS, cut them. This is the "make the failure mode safe"
-    story — not a redundant channel, just a sane default on disconnect."""
     interval_s = 0.1
     window_s = MOTOR_WATCHDOG_MS / 1000.0
     while True:
