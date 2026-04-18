@@ -49,7 +49,18 @@ jobs:
           git add public/firmware/
           if git diff --staged --quiet; then
             echo 'No artifact changes — nothing to publish.'
-          else
-            git commit -m 'CI: publish firmware [skip ci]'
-            git push
+            exit 0
           fi
+          git commit -m 'CI: publish firmware [skip ci]'
+          # main may have moved while we were building; rebase-and-push
+          # with a few retries so a concurrent human push doesn't kill us.
+          for attempt in 1 2 3 4 5; do
+            git pull --rebase origin main || true
+            if git push; then
+              exit 0
+            fi
+            echo "Push attempt $attempt failed; retrying after sleep…"
+            sleep $((attempt * 3))
+          done
+          echo 'Giving up after 5 retries.'
+          exit 1
