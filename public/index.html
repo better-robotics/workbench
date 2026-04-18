@@ -184,6 +184,21 @@
       border-bottom: 1px solid var(--line);
     }
     .wifi-row:last-child { border-bottom: none; }
+    .setup-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    @media (max-width: 520px) {
+      .setup-grid { grid-template-columns: 1fr; }
+    }
+    .setup-item {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      align-items: flex-start;
+    }
+    .setup-item button { margin-top: 4px; }
     .motor-sliders {
       display: flex;
       gap: 16px;
@@ -302,23 +317,22 @@
   </div>
 
   <section class="card">
-    <div class="row">
-      <div>
+    <div class="label" style="margin-bottom: 12px;">Set up new hardware</div>
+    <div class="setup-grid">
+      <div class="setup-item">
         <div class="label">Flash an ESP32</div>
         <div class="meta">Over USB — no Arduino IDE needed</div>
+        <esp-web-install-button manifest="firmware/manifest.json">
+          <button slot="activate" class="secondary">Flash firmware</button>
+          <span slot="unsupported" class="meta">Web Serial required (Chrome or Edge desktop).</span>
+          <span slot="not-allowed" class="meta">HTTPS required to flash.</span>
+        </esp-web-install-button>
       </div>
-      <esp-web-install-button manifest="firmware/manifest.json">
-        <button slot="activate" class="secondary">Flash firmware</button>
-        <span slot="unsupported" class="meta">Web Serial required (Chrome or Edge desktop).</span>
-        <span slot="not-allowed" class="meta">HTTPS required to flash.</span>
-      </esp-web-install-button>
-    </div>
-    <div class="row" style="margin-top: 16px;">
-      <div>
+      <div class="setup-item">
         <div class="label">Prepare a Pi SD card</div>
         <div class="meta">Customize the boot partition — wheels + firstrun + SSH key</div>
+        <a href="prepare.html"><button class="secondary" type="button">Prepare card</button></a>
       </div>
-      <a href="prepare.html"><button class="secondary" type="button">Prepare card</button></a>
     </div>
   </section>
 
