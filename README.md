@@ -51,22 +51,23 @@ Each robot's capabilities grow by adding characteristics to the shared service. 
 
 ## Quickstart
 
-### 1. Install host dependencies (once per machine)
+### Using the project (no install)
+
+1. Open [neevs.io/better-robotics](https://neevs.io/better-robotics/) in Chrome or Edge.
+2. Flash or prepare hardware:
+   - **ESP32 on USB:** click **Flash firmware** — bins come from GitHub Pages, no local toolchain.
+   - **Pi 4 with a flashed SD card:** open [prepare.html](https://neevs.io/better-robotics/prepare.html) and point it at the mounted boot partition.
+3. Click **Scan for new**, pair a robot, toggle LED, onboard WiFi, drive motors. Future updates go over BLE via **Update firmware**.
+
+### Editing firmware (contributors)
+
 ```bash
-make setup
+make setup          # one-time — arduino-cli + ESP32 core (macOS)
+make flash          # compile local source, upload over USB — fast iteration
+make preview        # serve the dashboard locally while you iterate
 ```
 
-### 2. Flash the firmware
-Plug an ESP32 in over USB:
-```bash
-make flash
-```
-
-### 3. Open the dashboard
-```bash
-make preview
-```
-Chrome opens at `http://localhost:8080`. Click **Scan**, pick your ESP32, toggle the LED.
+Commit + push when ready. CI rebuilds firmware artifacts on every change under `firmware/**` and commits them back; devices pick up the new version via OTA. No need to run `make publish-*` locally unless you want to preview before pushing.
 
 ## Hardware
 
@@ -87,7 +88,7 @@ Two variables need to match your board:
 
 `min_spiffs` is load-bearing across both: its dual 1.9 MB app partitions are what OTA needs to stage an update without wiping the running image.
 
-After changing either, `make publish-firmware` rebuilds and stages the new binary.
+After changing either, push to `main` — CI rebuilds and publishes the new binary automatically. (Run `make publish-firmware` locally only to preview before pushing.)
 
 ## Browser support
 

@@ -27,9 +27,7 @@ jobs:
           python-version: '3.13'
 
       - name: Install arduino-cli
-        run: |
-          curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh \
-            | BINDIR=/usr/local/bin sudo sh
+        uses: arduino/setup-arduino-cli@v2
 
       - name: Install ESP32 Arduino core
         run: |
