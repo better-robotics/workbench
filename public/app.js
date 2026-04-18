@@ -13,6 +13,7 @@ import {
 import { ALL as CAPABILITIES, setCapabilityRenderer } from "./capabilities/index.js";
 import { updateFirmware, updateFromFile } from "./capabilities/ota.js";
 import { restartService } from "./capabilities/admin.js";
+import { initRecovery, openRecoveryDialog } from "./recovery.js";
 import { initGamepad } from "./gamepad.js";
 import { initVoice } from "./voice.js";
 import { initPrepare } from "./prepare.js";
@@ -445,6 +446,10 @@ document.addEventListener("DOMContentLoaded", () => {
     closeMenu();
     if (id) restartService(id);
   });
+  $("menu-recovery").addEventListener("click", () => {
+    closeMenu();
+    openRecoveryDialog();
+  });
   $("label-close").addEventListener("click", () => $("label-modal").close());
   $("label-copy").addEventListener("click", async () => {
     try {
@@ -487,6 +492,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initGamepad();
   initVoice({ connectAll });
   initPrepare();
+  initRecovery();
 
   loadPaired().then(() => {
     // Fold setup once robots exist — setup is onboarding-phase, pairing is

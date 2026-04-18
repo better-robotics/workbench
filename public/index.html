@@ -85,6 +85,7 @@
   <button class="menu-item" id="menu-update">Update firmware</button>
   <button class="menu-item" id="menu-update-file">Update from file…</button>
   <button class="menu-item" id="menu-restart">Restart service</button>
+  <button class="menu-item" id="menu-recovery">Recovery console (USB)</button>
   <button class="menu-item destructive" id="menu-forget">Forget this robot</button>
 </div>
 
@@ -106,6 +107,25 @@
       <div class="settings-title">Voice commands (experimental)</div>
       <div class="meta" id="setting-voice-status"></div>
     </label>
+  </div>
+</dialog>
+
+<dialog id="recovery-modal" class="prepare-dialog">
+  <div class="modal-header">
+    <div class="label">Recovery console</div>
+    <button class="icon" id="recovery-close" aria-label="Close">×</button>
+  </div>
+  <p class="meta" style="margin: 0 0 12px;">
+    USB-C serial console to a Pi running Better Robotics. Works even when BLE is dead or the firmware is crashing — the USB gadget runs independently of pi-robot.service. Plug the Pi into this Mac, click Connect, pick the "BetterPi" serial port.
+  </p>
+  <div class="row" style="margin: 0 0 12px;">
+    <button class="secondary sm" id="recovery-connect">Connect via USB serial</button>
+    <span class="meta" id="recovery-status">disconnected</span>
+  </div>
+  <div class="progress-log" id="recovery-output" style="min-height: 240px;"></div>
+  <div style="display: flex; gap: 8px; margin-top: 8px;">
+    <input id="recovery-input" placeholder="command" style="flex: 1;">
+    <button id="recovery-send">Send</button>
   </div>
 </dialog>
 

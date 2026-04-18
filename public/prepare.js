@@ -5,9 +5,15 @@
 import { $ } from "./dom.js";
 
 const FIRMWARE_URL    = "firmware/pi_robot";
-const FIRMWARE_FILES  = ["pi_robot.py", "requirements.txt", "pi-robot.service"];
+const FIRMWARE_FILES  = [
+  "pi_robot.py", "requirements.txt", "pi-robot.service",
+  "usb-gadget-setup.sh", "usb-gadget.service",
+];
 const SSH_KEY_STORE   = "better-robotics:ssh-pub";
-const CMDLINE_USB     = " modules-load=dwc2,g_ether";
+// libcomposite is the generic USB-gadget driver; the actual composite
+// (ECM ethernet + ACM serial) is configured via configfs at boot by
+// usb-gadget.service. Replaces the old `g_ether` one-function gadget.
+const CMDLINE_USB     = " modules-load=dwc2,libcomposite";
 const CONFIG_USB_MARKER = "# Better Robotics: USB gadget mode";
 const CONFIG_USB_LINES  = `\n${CONFIG_USB_MARKER}\n[all]\ndtoverlay=dwc2\n`;
 const SYSTEMD_RUN =

@@ -71,10 +71,23 @@ else
   note ssh_skipped
 fi
 
-# --- USB gadget network (durable SSH-over-USB debug channel) ---
-# usb0 comes up when the Pi is plugged into a host via USB-C. NM assigns it
-# 10.55.0.1/24 and runs a shared-mode DHCP server so the Mac gets an IP in
-# the same subnet without any Mac-side config. `ssh pi@10.55.0.1` then works.
+# --- USB composite gadget (ECM ethernet + ACM serial) ---
+# Independent of pi-robot: if the firmware crashes, plugging USB-C still
+# gives the user BOTH `ssh pi@10.55.0.1` (over usb0) AND a raw serial login
+# at /dev/ttyGS0 (over /dev/cu.usbmodem* on the host, reachable via the
+# dashboard's Recovery console using Web Serial). One physical cable, two
+# escape hatches.
+if [ -f "$STAGED/usb-gadget-setup.sh" ]; then
+  install -m 755 "$STAGED/usb-gadget-setup.sh" /usr/local/bin/usb-gadget-setup.sh
+fi
+if [ -f "$STAGED/usb-gadget.service" ]; then
+  install -m 644 "$STAGED/usb-gadget.service" /etc/systemd/system/usb-gadget.service
+  systemctl enable usb-gadget.service
+fi
+# Enable the login prompt on the ACM serial side. Host sees /dev/cu.usbmodem*
+# and can attach via `screen` or the dashboard's Recovery console.
+systemctl enable serial-getty@ttyGS0.service
+
 install -d -m 700 /etc/NetworkManager/system-connections
 cat > /etc/NetworkManager/system-connections/usb-gadget.nmconnection <<'NMEOF'
 [connection]
