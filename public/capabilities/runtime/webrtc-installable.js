@@ -1,17 +1,9 @@
-// Generic typed-characteristic runtime for `webrtc-installable` capabilities.
-// WebRTC over BLE-signaled SDP/ICE, plus an install-on-demand workflow for
-// the native stack the robot needs (picamera2 + aiortc on Pi). Two chars,
-// same chunked opcode protocol on both directions (browser → robot via
-// signal, robot → browser via status notify).
-//
 // Expected schema shape:
 //   { name: "camera", type: "webrtc-installable",
 //     chars: { signal: "…d9a", status: "…d9b" },
 //     install?: { pkg: "camera", confirm: "..." } }
-//
-// When the robot reports status "uninstalled", the UI offers an Install
-// button that routes through the `command` capability (install-pkg op).
-// When the stack is ready, Start/Stop control the WebRTC session.
+// Chunked opcode protocol used on both directions (browser→robot via signal,
+// robot→browser via status notify). Install routes through the `command` cap.
 import { escapeHtml } from "../../dom.js";
 import { logFor } from "../../log.js";
 import { state } from "../../state.js";

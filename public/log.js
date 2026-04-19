@@ -1,7 +1,3 @@
-// Log is a three-column grid (time · name · msg). Name is suppressed on older
-// lines in a burst from the same robot so a stream of events reads as one
-// group with a single anchor. Adjacent-duplicate coalescing rewrites the
-// newest line with a (xN) counter instead of stacking.
 import { $ } from "./dom.js";
 
 let _lastLogNode = null;
@@ -41,8 +37,7 @@ export const log = (msg, name = "") => {
   msgSpan.textContent = msg;
   line.append(timeSpan, nameSpan, msgSpan);
   el.prepend(line);
-  // Suppress the previous line's name when this burst continues from it —
-  // anchor name stays on the newest line, older siblings go anonymous.
+  // Burst continuation: anchor name on newest line, older siblings go anonymous.
   if (name && name === _lastLogName && _lastLogNameNode) {
     _lastLogNameNode.classList.add("dup");
   }
@@ -52,10 +47,7 @@ export const log = (msg, name = "") => {
   _lastLogName = name;
 };
 
-// Robot-scoped logging. Stores the message as the entry's last-activity line
-// so each card shows its most recent event inline without scrolling the global
-// log. Note: the render() re-trigger is injected by the caller (see render.js)
-// to avoid log.js depending on render.js.
+// Render re-trigger is injected by the caller to avoid log.js → render.js dep.
 let _renderEntry = () => {};
 export function setLogRenderer(fn) { _renderEntry = fn; }
 

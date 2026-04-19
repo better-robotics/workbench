@@ -1,7 +1,4 @@
-// Physical gamepad → motor control. Not a BLE capability; a browser-side
-// input driver that routes through motors.sendMotors on every RAF tick while
-// a pad is attached. Polling stops when the last pad disconnects so idle
-// cost is zero.
+// Polling stops when the last pad disconnects so idle cost is zero.
 import { $ } from "./dom.js";
 import { log } from "./log.js";
 import { state } from "./state.js";

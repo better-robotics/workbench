@@ -1,11 +1,5 @@
-// Better Robotics — robot firmware
-//
-// Advertises a single BLE service. Each capability (LED, WiFi, motors,
-// sensors, ...) is a characteristic within that service. The dashboard
-// connects to Pi and ESP32 robots identically.
-//
-// LED_PIN is the red LED on ESP32-CAM-MB (GPIO 33, active-low). Adjust
-// for other boards.
+// Better Robotics — robot firmware. Mirrors firmware/pi_robot/pi_robot.py.
+// LED_PIN defaults to the red LED on ESP32-CAM-MB (GPIO 33, active-low).
 
 #include <BLEDevice.h>
 #include <BLEServer.h>
@@ -18,6 +12,7 @@
 #include <Update.h>
 #include <mbedtls/sha256.h>
 
+// UUIDs — must match firmware/pi_robot/pi_robot.py exactly.
 #define SERVICE_UUID          "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d91"
 #define LED_CHAR_UUID         "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d92"
 #define WIFI_SCAN_CHAR_UUID   "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d93"
@@ -72,14 +67,13 @@ int8_t motorLeft = 0;
 int8_t motorRight = 0;
 unsigned long motorLastWriteAt = 0;
 
-// OTA state — Update class handles flash writes into the inactive OTA slot.
 bool otaInProgress = false;
 size_t otaExpected = 0;
 size_t otaReceived = 0;
 // Restart is deferred out of the BLE write callback so the ATT response
-// for the commit opcode (0x03) can actually be sent before we reboot.
-// Restarting inline makes the client see "GATT operation failed" even
-// though the flash commit succeeded.
+// for the commit opcode (0x03) can be sent before we reboot. Restarting
+// inline makes the client see "GATT operation failed" even though the
+// flash commit succeeded.
 volatile bool otaRestartPending = false;
 
 Preferences prefs;
@@ -108,7 +102,7 @@ static String jsonEscape(const String& s) {
 }
 
 static int rssiToStrength(int rssi) {
-  // Clamp -100..-50 dBm → 0..100.
+  // Map -100..-50 dBm → 0..100.
   int s = (rssi + 100) * 2;
   if (s < 0) s = 0;
   if (s > 100) s = 100;
@@ -131,7 +125,6 @@ static void publishScan() {
   int n = WiFi.scanComplete();
   if (n < 0) n = 0;
 
-  // Sort indices by RSSI (strongest first), cap at SCAN_MAX, dedupe by SSID.
   int idx[32];
   int count = min(n, 32);
   for (int i = 0; i < count; i++) idx[i] = i;
@@ -208,7 +201,6 @@ static void publishOta(const char* st, size_t n = 0, size_t total = 0, const cha
   Serial.printf("ota-status → %s\n", payload.c_str());
 }
 
-// Parse 64-char hex SHA-256 digest into a 32-byte buffer. Returns false on bad input.
 static bool parseHex32(const char* hex, size_t len, uint8_t out[32]) {
   if (len != 64) return false;
   for (int i = 0; i < 32; i++) {
@@ -226,7 +218,6 @@ static bool parseHex32(const char* hex, size_t len, uint8_t out[32]) {
   return true;
 }
 
-// Quick-and-dirty JSON field extractor — same lightweight approach as wifi-join.
 static String extractJsonString(const String& doc, const char* key) {
   String needle = "\""; needle += key; needle += "\"";
   int k = doc.indexOf(needle);
@@ -259,8 +250,6 @@ static long extractJsonNumber(const String& doc, const char* key) {
   return any ? n : -1;
 }
 
-// Fetch the binary over WiFi, verify sha256 while streaming it into the OTA slot.
-// Runs the whole download + verify + commit + restart inline.
 static void otaFetchUrl(const String& url, size_t expectedSize, const uint8_t expectedHash[32]) {
   if (WiFi.status() != WL_CONNECTED) {
     publishOta("failed", 0, expectedSize, "wifi not connected");
@@ -331,7 +320,7 @@ static void otaFetchUrl(const String& url, size_t expectedSize, const uint8_t ex
     }
     mbedtls_sha256_update(&sha, buf, got);
     total += got;
-    // Rate-limit status notifies — every 32 KB is plenty for a seconds-long download.
+    // Rate-limit status notifies — the BLE link chokes under one-per-chunk.
     if (total - lastReported > 32768 || millis() - lastProgress > 250) {
       publishOta("receiving", total, expectedSize);
       lastReported = total;
@@ -422,11 +411,10 @@ class OtaDataCallbacks : public BLECharacteristicCallbacks {
   }
 };
 
-// ESP32's Arduino BLE library stops advertising when a central connects and
-// doesn't auto-resume on disconnect — a 1:1-session default that makes the
-// robot un-pair-able without a reboot. Restart advertising here so the
-// behavior matches the Pi (BlueZ keeps advertising by default) and the
-// operator can reconnect any time without power-cycling the device.
+// Arduino BLE stops advertising when a central connects and doesn't
+// auto-resume on disconnect — restart it here so behavior matches the Pi
+// (BlueZ keeps advertising by default) and the operator can reconnect
+// without power-cycling the device.
 class ServerCallbacks : public BLEServerCallbacks {
   void onDisconnect(BLEServer* /*srv*/) override {
     BLEDevice::startAdvertising();
@@ -444,9 +432,8 @@ class LedCallbacks : public BLECharacteristicCallbacks {
 static void applyMotors(int8_t left, int8_t right) {
   motorLeft = left;
   motorRight = right;
-  // Stub motor driver — wire your H-bridge / ledc PWM pins here. For now,
-  // just reflect the commanded state over BLE and serial so the watchdog
-  // behavior is visible end-to-end before any mechanical parts are wired.
+  // Stub — wire your H-bridge / ledc PWM here. Current body just echoes
+  // state over BLE so watchdog behavior is visible without hardware.
   uint8_t buf[2] = { (uint8_t)left, (uint8_t)right };
   if (motorChar) {
     motorChar->setValue(buf, 2);
@@ -471,7 +458,7 @@ class WifiScanCallbacks : public BLECharacteristicCallbacks {
 class WifiJoinCallbacks : public BLECharacteristicCallbacks {
   void onWrite(BLECharacteristic* ch) override {
     String value = ch->getValue();
-    // Minimal JSON parse — spec is {"s":"...","p":"..."}. Anything else → failed.
+    // Payload spec: {"s":"...","p":"..."}.
     int sIdx = value.indexOf("\"s\"");
     int pIdx = value.indexOf("\"p\"");
     if (sIdx < 0) { publishStatus("failed", "", "missing ssid"); return; }
@@ -481,7 +468,6 @@ class WifiJoinCallbacks : public BLECharacteristicCallbacks {
       int q1 = value.indexOf('"', colon);
       if (q1 < 0) return "";
       int q2 = value.indexOf('"', q1 + 1);
-      // Walk past escaped quotes.
       while (q2 > 0 && value[q2 - 1] == '\\') q2 = value.indexOf('"', q2 + 1);
       if (q2 < 0) return "";
       return value.substring(q1 + 1, q2);
@@ -498,23 +484,21 @@ void setup() {
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, HIGH);  // off
 
-  // Unique suffix from the chip's WiFi MAC (low 16 bits) — stable per device.
+  // Stable per-chip suffix — low 16 bits of the WiFi MAC.
   uint64_t chipid = ESP.getEfuseMac();
   char name[32];
   snprintf(name, sizeof(name), "BetterRobot-%04X", (uint16_t)(chipid & 0xFFFF));
 
-  // Put WiFi in STA mode but don't connect yet — we want BLE advertising up first.
+  // STA mode without connecting — we want BLE advertising up first.
   WiFi.mode(WIFI_STA);
   WiFi.disconnect(true, false);
 
   BLEDevice::init(name);
   BLEServer* server = BLEDevice::createServer();
   server->setCallbacks(new ServerCallbacks());
-  // Default numHandles is 15; every characteristic eats 2 handles (decl + val)
-  // and every CCCD (2902) eats 1 more. This service needs 19 with current
-  // characteristics — 32 leaves room for future ones without another silent
-  // truncation. Exceeding the budget just drops chars past the cap without
-  // reporting an error.
+  // Default numHandles (15) silently drops characteristics past the cap.
+  // Each characteristic = 2 handles (decl + val); each CCCD (2902) = 1 more.
+  // 32 leaves room; exceeding the budget gives no error.
   BLEService* service = server->createService(BLEUUID(SERVICE_UUID), 32, 0);
 
   ledChar = service->createCharacteristic(
@@ -588,7 +572,6 @@ void setup() {
 
   Serial.printf("\nAdvertising as %s\n", name);
 
-  // If we previously joined a network, try it again silently in the background.
   prefs.begin("wifi", true);
   String savedSsid = prefs.getString("ssid", "");
   String savedPass = prefs.getString("pass", "");
@@ -599,9 +582,6 @@ void setup() {
 }
 
 void loop() {
-  // Deferred OTA restart — runs after the BLE write callback has returned
-  // and the ATT response for opcode 0x03 has had a chance to go out. Restarting
-  // inside the callback eats the response and the client thinks OTA failed.
   if (otaRestartPending) {
     delay(500);  // let the last notify + ATT response land
     ESP.restart();

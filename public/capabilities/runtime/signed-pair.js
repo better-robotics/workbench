@@ -1,15 +1,8 @@
-// Generic typed-characteristic runtime for `signed-pair` capabilities.
-// Two signed int8 values (left, right) in a declared range. Motors are the
-// canonical instance; any future 2-axis input with a symmetric ± range
-// (differential-drive, pan/tilt, stereo gain) uses this same runtime.
-//
 // Expected schema shape:
 //   { name: "motors", char: "…d99", type: "signed-pair",
 //     range: [-100, 100], unit?: "pct", labels?: {left: "L", right: "R"} }
-//
-// State lives on entry as `<name>Char`, `<name>Left`, `<name>Right`,
-// `<name>Sending`, `<name>Pending`. Write path is drop-intermediate-values
-// (latest-intent-wins) because sliders fire faster than BLE can process.
+// Write path is drop-intermediate-values (latest-intent-wins) because sliders
+// fire faster than BLE writes can complete.
 import { escapeHtml } from "../../dom.js";
 import { log, logFor } from "../../log.js";
 import { state } from "../../state.js";
@@ -17,9 +10,7 @@ import { state } from "../../state.js";
 let renderEntry = () => {};
 export function setRender(fn) { renderEntry = fn; }
 
-// Generic per-cap-name writer. Voice, gamepad, and future LLM tool calls
-// all route through this. clamp-on-write means callers don't have to care
-// about the declared range.
+// Clamp-on-write so callers don't have to check the declared range.
 export async function setPairValue(entry, capName, left, right) {
   const ch = entry[`${capName}Char`];
   if (!ch) return;
@@ -78,8 +69,7 @@ export function makeSignedPairCap(schema) {
           const l = e.target.value.getInt8(0);
           const r = e.target.value.getInt8(1);
           if (l !== entry[leftField] || r !== entry[rightField]) {
-            // Log the watchdog-cut transition specifically — it's the
-            // safety behavior operators most want visible.
+            // Log the watchdog-cut transition — safety behavior operators want visible.
             if (l === 0 && r === 0 && (entry[leftField] || entry[rightField])) {
               log(`${name} stopped (watchdog)`, entry.name);
             }
@@ -135,9 +125,7 @@ export function makeSignedPairCap(schema) {
   };
 }
 
-// Per-id convenience — matches the old sendMotors(id, l, r) shape that
-// gamepad.js calls. Kept so input drivers don't need to resolve entries
-// themselves.
+// Matches the old sendMotors(id, l, r) shape that gamepad.js calls.
 export async function sendPairById(id, capName, left, right) {
   const entry = state.devices.get(id);
   if (entry) await setPairValue(entry, capName, left, right);

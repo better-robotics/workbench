@@ -1,15 +1,12 @@
 #!/bin/bash
 # Better Robotics — offline first-boot provisioning for the Pi.
 # Rendered from firstrun.template.sh by the Customize-card dialog in
-# the dashboard (public/index.html). Don't edit the copy on the SD
-# card directly — regenerate it from the dialog.
+# the dashboard. Don't edit the copy on the SD card directly — regenerate
+# it from the dialog.
 #
-# Everything the Pi needs is staged on the boot partition:
+# Boot-partition layout this script expects:
 #   /boot/firmware/betterpi/   pi_robot.py + requirements.txt + service unit
 #   /boot/firmware/wheels/     aarch64 Python wheels (bless + bleak + etc.)
-# So firstrun needs no network — no WiFi, no pip index, no GH Pages
-# roundtrip. After it finishes, pi_robot advertises BLE and the
-# dashboard onboards WiFi from there.
 
 set +e  # Never abort — Pi must stay rebootable and SSH-reachable on any failure.
 
@@ -28,7 +25,7 @@ USER_PASS=__REPLACE_USER_PASS__
 SSH_KEY=__REPLACE_SSH_KEY__
 
 # note STEP [MSG] — append a breadcrumb to firstrun.status on the boot
-# partition. Readable by popping the card back into another machine.
+# partition, readable by popping the card back into another machine.
 note() {
     local step="$1"; shift
     local msg="${*:-}"
@@ -39,26 +36,26 @@ note() {
 : > "$STATUS_FILE"
 note start
 
-# --- Hostname ---
 CURRENT_HOSTNAME=$(tr -d " \t\n\r" < /etc/hostname)
 echo "$HOSTNAME" > /etc/hostname
 sed -i "s/127.0.1.1.*$CURRENT_HOSTNAME/127.0.1.1\t$HOSTNAME/g" /etc/hosts
 note hostname_set "$HOSTNAME"
 
-# --- User + password ---
 if ! id -u "$USER_NAME" >/dev/null 2>&1; then
     adduser --disabled-password --gecos "" "$USER_NAME"
 fi
 echo "${USER_NAME}:${USER_PASS}" | chpasswd
+# Pi OS imager's pre-built firstboot can leave the user with /usr/sbin/nologin
+# as shell — login then prints the banner and "This account is currently not
+# available." Force /bin/bash explicitly so the recovery console is usable.
+usermod -s /bin/bash "$USER_NAME"
 for g in sudo adm dialout cdrom audio video plugdev games users input render netdev spi i2c gpio bluetooth lpadmin; do
     getent group "$g" >/dev/null 2>&1 && usermod -aG "$g" "$USER_NAME"
 done
 note user_created "$USER_NAME"
 
-# --- SSH ---
-# SSH key is optional. When skipped, the Pi has no external shell-recovery
-# path — all debug/control goes through BLE + the dashboard. If something
-# goes wrong beyond BLE's reach, recovery means re-imaging the card.
+# When SSH_KEY is empty, the Pi has no external shell-recovery path —
+# anything beyond BLE's reach means re-imaging the card.
 if [ -n "$SSH_KEY" ]; then
   install -d -m 700 -o "$USER_NAME" -g "$USER_NAME" "/home/$USER_NAME/.ssh"
   printf '%s\n' "$SSH_KEY" > "/home/$USER_NAME/.ssh/authorized_keys"
@@ -71,12 +68,10 @@ else
   note ssh_skipped
 fi
 
-# --- USB composite gadget (ECM ethernet + ACM serial) ---
-# Independent of pi-robot: if the firmware crashes, plugging USB-C still
-# gives the user BOTH `ssh pi@10.55.0.1` (over usb0) AND a raw serial login
-# at /dev/ttyGS0 (over /dev/cu.usbmodem* on the host, reachable via the
-# dashboard's Recovery console using Web Serial). One physical cable, two
-# escape hatches.
+# USB composite gadget (ECM ethernet + ACM serial). Independent of
+# pi-robot: a crashed firmware still exposes `ssh pi@10.55.0.1` over usb0
+# AND a raw serial login at /dev/ttyGS0 reachable via the dashboard's
+# Recovery console using Web Serial.
 if [ -f "$STAGED/usb-gadget-setup.sh" ]; then
   install -m 755 "$STAGED/usb-gadget-setup.sh" /usr/local/bin/usb-gadget-setup.sh
 fi
@@ -84,8 +79,6 @@ if [ -f "$STAGED/usb-gadget.service" ]; then
   install -m 644 "$STAGED/usb-gadget.service" /etc/systemd/system/usb-gadget.service
   systemctl enable usb-gadget.service
 fi
-# Enable the login prompt on the ACM serial side. Host sees /dev/cu.usbmodem*
-# and can attach via `screen` or the dashboard's Recovery console.
 systemctl enable serial-getty@ttyGS0.service
 
 install -d -m 700 /etc/NetworkManager/system-connections
@@ -109,7 +102,6 @@ chmod 600 /etc/NetworkManager/system-connections/usb-gadget.nmconnection
 nmcli connection reload 2>/dev/null || true
 note usb_gadget_configured
 
-# --- Firmware install (from staged files, no network) ---
 INSTALL_OK=0
 DEST="/home/$USER_NAME/better-robotics/firmware/pi_robot"
 install -d -o "$USER_NAME" -g "$USER_NAME" "$DEST"
@@ -133,9 +125,9 @@ PIP_RC=$?
 if [ $PIP_RC -eq 0 ]; then
     note pip_installed
 
-    # bless needs BlueZ's experimental LE advertising API. Pi OS's default
-    # bluetoothd doesn't enable it, so we enable it both ways (systemd flag
-    # and main.conf) because different BlueZ versions honor different paths.
+    # bless needs BlueZ's experimental LE advertising API (--experimental).
+    # Enable it both ways (systemd flag AND main.conf) — different BlueZ
+    # versions honor different paths.
     mkdir -p /etc/systemd/system/bluetooth.service.d
     cat > /etc/systemd/system/bluetooth.service.d/override.conf <<'BTEOF'
 [Service]
@@ -156,7 +148,6 @@ BTEOF
     hciconfig hci0 up >/dev/null 2>&1 || true
     bluetoothctl power on >/dev/null 2>&1 || true
     sleep 1
-    # Diagnostic dump so we can see adapter state without SSH.
     {
         echo "=== hciconfig -a ==="; hciconfig -a 2>&1
         echo "=== rfkill list ==="; rfkill list 2>&1
@@ -173,8 +164,8 @@ BTEOF
     systemctl enable pi-robot.service
     note service_enabled
 
-    # Probe the service here so we can see issues without SSH access: start it,
-    # wait, capture status + journal to the boot partition for offline reading.
+    # Probe the service + dump journal to the boot partition so issues are
+    # diagnosable without SSH.
     note service_probe_start
     systemctl start pi-robot.service
     sleep 15
@@ -191,7 +182,7 @@ else
     note pip_install_failed "full log in /boot/firmware/pip.log (exit $PIP_RC)"
 fi
 
-# --- Cleanup: always clear the systemd.run trigger so we never re-run. ---
+# Always clear the systemd.run trigger from cmdline.txt so we never re-run.
 sed -i 's| systemd\.run=[^ ]*||g; s| systemd\.run_success_action=[^ ]*||g; s| systemd\.unit=[^ ]*||g' "$BOOTFS/cmdline.txt"
 if [ "$INSTALL_OK" = "1" ]; then
     rm -f "$BOOTFS/firstrun.sh"

@@ -1,16 +1,11 @@
-// Pi 40-pin header pinout — visual wiring reference. Reads claimed pins
-// from the active robot's capability schema (entry.capSchema) and
-// highlights them on a labeled layout. Power/ground pins are fixed and
-// always shown for reference.
 import { $, escapeHtml, wireDialogOutsideClick } from "./dom.js";
 import { state } from "./state.js";
 
-// Standard Raspberry Pi 40-pin header. Row pairs map physical pin → role.
 // BCM GPIO numbers are what capability config and firmware use; the physical
 // pin number is what the header silkscreen shows. Users wire against physical
 // pins, so we lead with those.
+// [phys, label, kind] — kind ∈ {"3v3", "5v", "gnd", "gpio", "i2c-id"}
 const PINS = [
-  // [phys, label, kind] — kind ∈ {"3v3", "5v", "gnd", "gpio", "i2c-id"}
   [ 1, "3V3",   "3v3"], [ 2, "5V",    "5v"],
   [ 3, "GPIO2", "gpio"],[ 4, "5V",    "5v"],
   [ 5, "GPIO3", "gpio"],[ 6, "GND",   "gnd"],
@@ -33,15 +28,12 @@ const PINS = [
   [39, "GND",   "gnd"], [40, "GPIO21","gpio"],
 ];
 
-// Map a BCM GPIO number (as stored in capability schema) → physical pin.
 const GPIO_TO_PHYS = new Map(
   PINS.filter(([, lbl]) => lbl.startsWith("GPIO"))
       .map(([phys, lbl]) => [parseInt(lbl.slice(4), 10), phys]),
 );
 
-// Flatten a pins-dict of any depth to [["a b c", gpio], …]. Supports both
-// flat {role: gpio} and nested {left: {in1: 17, in2: 27}, …} shapes so the
-// map renders regardless of how a capability organizes its pin vocabulary.
+// Supports both flat {role: gpio} and nested {left: {in1: 17, in2: 27}} shapes.
 function flattenPins(obj, prefix = "") {
   const out = [];
   for (const [k, v] of Object.entries(obj || {})) {
@@ -52,7 +44,6 @@ function flattenPins(obj, prefix = "") {
   return out;
 }
 
-// Walk entry.capSchema and return { phys: {cap, role} } for claimed pins.
 function claimsFromEntry(entry) {
   const claims = {};
   for (const cap of entry?.capSchema || []) {

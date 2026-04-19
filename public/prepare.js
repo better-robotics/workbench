@@ -1,7 +1,3 @@
-// Customize-card dialog. Writes firmware + wheels + firstrun.sh + capability
-// config onto the boot partition of a Pi SD card. Self-contained module — no
-// BLE state, no dashboard state; just File System Access API over the picked
-// directory handle.
 import { $, wireDialogOutsideClick } from "./dom.js";
 
 const FIRMWARE_URL    = "firmware/pi_robot";
@@ -133,9 +129,7 @@ async function runPrepare() {
     });
     await writeFile(dirHandle, "firstrun.sh", firstrun);
 
-    // Capability config — firmware reads this at boot to know which hardware
-    // the user declared. Absent → defaults all-on for backward compat with
-    // pre-config Pis.
+    // Absent → firmware defaults all-on for backward compat with pre-config Pis.
     prepLog("Writing pi-robot.conf…");
     const piConfig = {
       led_enabled: $("prep-cap-led").checked,
@@ -206,7 +200,7 @@ export function initPrepare() {
 
   $("prep-go-btn").addEventListener("click", runPrepare);
 
-  // Bookmark / QR-code support: ?prepare auto-opens the dialog.
+  // ?prepare auto-opens the dialog (bookmark / QR-code support).
   if (new URLSearchParams(location.search).get("prepare") !== null) {
     openDialog();
   }

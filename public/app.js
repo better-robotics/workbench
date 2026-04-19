@@ -1,7 +1,3 @@
-// Dashboard entry point. Orchestrates capability modules, connection
-// lifecycle, and top-level UI (menus, modals, header actions). Per-card
-// rendering is driven by the capability registry — adding a capability
-// doesn't require editing this file.
 import { SERVICE_UUID, FW_INFO_CHAR_UUID, decodeJson } from "./ble.js";
 import { $, escapeHtml, wireDialogOutsideClick } from "./dom.js";
 import { log, logFor, setLogRenderer } from "./log.js";
@@ -20,14 +16,9 @@ import { initGamepad } from "./gamepad.js";
 import { initVoice } from "./voice.js";
 import { initPrepare } from "./prepare.js";
 
-// Wire back-edges so modules can trigger renders without importing render.
 setLogRenderer((entry) => renderEntry(entry));
 setDisconnectHandler((id) => onDisconnected(id));
 setCapabilityRenderer((entry) => renderEntry(entry));
-
-// ─────────────────────────────────────────────────────────────────────────
-// Connection lifecycle
-// ─────────────────────────────────────────────────────────────────────────
 
 async function loadPaired() {
   // Restore remembered robots first — works even when getDevices() is missing.
@@ -69,11 +60,9 @@ async function scanForNew() {
   }
 }
 
-// Passive BLE scan (experimental). Uses requestLEScan behind Chrome's
-// --enable-experimental-web-platform-features flag. Emits advertisement
-// events for every matching device; user sees robots appear in real time.
-// Pairing still needs requestDevice, but with a name filter it's a one-
-// entry chooser.
+// Passive BLE scan uses requestLEScan behind Chrome's
+// --enable-experimental-web-platform-features flag. Pairing still needs
+// requestDevice, but with a name filter it's a one-entry chooser.
 let _discoverState = { scanning: false, found: new Map(), scanHandle: null };
 
 async function scanForNewPassive() {
@@ -158,8 +147,7 @@ function renderDiscovered() {
 }
 
 async function restoreDevice(entry) {
-  // Ask the user to pick this robot again — chooser shows, filtered to the
-  // saved name. Required on browsers without getDevices().
+  // Required on browsers without getDevices(): chooser filtered to the saved name.
   const device = await navigator.bluetooth.requestDevice({
     filters: [{ name: entry.name, services: [SERVICE_UUID] }],
   });
@@ -183,13 +171,11 @@ async function connect(id) {
   try {
     const server = await entry.device.gatt.connect();
     const service = await server.getPrimaryService(SERVICE_UUID);
-    // A robot advertising only the service (no chars) is still "connected" —
-    // the card shows the header only. Every capability is optional.
+    // A robot advertising only the service (no chars) is still "connected".
+    // Every capability is optional.
     entry.status = "connected";
 
-    // Read fw-info once, before cap probes — it carries the capability
-    // schema the robot declares. Stored on the entry so every capability
-    // (and future LLM-orchestrator tools) sees the same structured view.
+    // Read fw-info before cap probes — it carries the capability schema.
     try {
       const info = await service.getCharacteristic(FW_INFO_CHAR_UUID);
       entry.fwInfo = decodeJson(await info.readValue());
@@ -199,17 +185,11 @@ async function connect(id) {
       entry.capSchema = null;
     }
 
-    // Runtime-instantiated caps: for every schema entry whose type has a
-    // generic constructor in RUNTIMES, build a capability instance from the
-    // schema alone. Zero hand-written JS per capability of migrated types.
-    // Legacy hand-written caps in CAPABILITIES cover the types still to be
-    // migrated (motors, wifi, ota, camera, ops).
     entry.runtimeCaps = [];
     for (const capSchema of entry.capSchema || []) {
       const make = RUNTIMES[capSchema.type];
       if (!make) continue;
       const cap = make(capSchema);
-      // Capability may need fields on entry; initEntry returns the shape.
       Object.assign(entry, cap.initEntry());
       entry.runtimeCaps.push(cap);
     }
@@ -246,9 +226,8 @@ function onDisconnected(id) {
 async function forgetDevice(id) {
   const entry = state.devices.get(id);
   if (!entry) return;
-  // Resolve a BluetoothDevice handle if not already attached. Without it,
-  // Forget clears localStorage but Chrome keeps the per-origin paired list —
-  // next requestDevice would show the robot as already paired.
+  // Without a BluetoothDevice handle, forget() can't run and Chrome keeps the
+  // per-origin paired list — next requestDevice would show it as already paired.
   let device = entry.device;
   if (!device && navigator.bluetooth.getDevices) {
     try {
@@ -269,13 +248,9 @@ async function forgetDevice(id) {
   render();
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// Header actions
-// ─────────────────────────────────────────────────────────────────────────
-
-// Connect all shows when ≥1 idle robot has a BluetoothDevice handle already
-// attached (silent reconnect possible). Robots needing pairing carry their
-// own per-card "Pair" button that's explicit about opening the chooser.
+// Connect-all shows when ≥1 idle robot has a BluetoothDevice handle already
+// attached (silent reconnect possible). Robots needing pairing have their own
+// per-card "Pair" button.
 function updateHeaderActions() {
   const readyIdle = [...state.devices.values()]
     .filter(e => e.status === "idle" && e.device).length;
@@ -292,14 +267,8 @@ function connectAll() {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// Rendering
-// ─────────────────────────────────────────────────────────────────────────
-
-// render() reconciles the robot-list DOM with state.devices. renderEntry()
-// rebuilds one card's innards by composing capability renderSection outputs.
-// A notify for robot A never touches robot B's DOM — slider drags on one
-// card survive sibling state changes.
+// Per-entry node ownership: a notify for robot A never touches robot B's DOM,
+// so slider drags on one card survive sibling state changes.
 function render() {
   const list = $("robot-list");
   const empty = $("empty-state");
@@ -341,7 +310,6 @@ function renderEntry(entry) {
   const { id, name, status } = entry;
   const connected = status === "connected";
   const connecting = status === "connecting";
-  // Text only for states the dot can't communicate: transitional and error.
   const statusText = connecting ? "Connecting…" : status === "error" ? "Error" : "";
   const dotClass = connected ? " connected" : status === "error" ? " error" : "";
 
@@ -372,8 +340,6 @@ function renderEntry(entry) {
   for (const cap of CAPABILITIES) cap.postRender?.(entry);
   for (const cap of entry.runtimeCaps || []) cap.postRender?.(entry);
 
-  // Header-level actions (connect / disconnect / menu). Capability-level
-  // actions are wired by the respective capability modules above.
   const connectBtn = entry.node.querySelector('[data-action="connect"]');
   if (connectBtn) connectBtn.addEventListener("click", () => connect(id));
   const disconnectBtn = entry.node.querySelector('[data-action="disconnect"]');
@@ -383,10 +349,6 @@ function renderEntry(entry) {
 
   updateHeaderActions();
 }
-
-// ─────────────────────────────────────────────────────────────────────────
-// Menu + label
-// ─────────────────────────────────────────────────────────────────────────
 
 let menuTargetId = null;
 
@@ -437,10 +399,6 @@ function highlightKnownRobotFromUrl() {
   });
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// Boot
-// ─────────────────────────────────────────────────────────────────────────
-
 function setBluetoothAvailable(available) {
   $("bluetooth-off").hidden = !!available;
   const btn = $("scan-btn");
@@ -466,15 +424,11 @@ document.addEventListener("DOMContentLoaded", () => {
   $("empty-scan-btn").addEventListener("click", scanForNew);
   $("connect-all-btn").addEventListener("click", connectAll);
 
-  // Consistent close-on-outside-click for every modal dialog. Escape is
-  // already native on <dialog> opened via showModal(). Dialogs owned by
-  // other modules (prepare.js, recovery.js) wire themselves at their init.
   wireDialogOutsideClick($("settings-modal"));
   wireDialogOutsideClick($("label-modal"));
 
   // robot-menu is popover="manual" so neither Escape nor outside-click are
-  // native — both need explicit listeners. Keep these at document level so
-  // the menu can be closed regardless of what the user clicked on.
+  // native — both need explicit listeners at document level.
   document.addEventListener("click", (e) => {
     const menu = $("robot-menu");
     if (!menu.matches(":popover-open")) return;
@@ -516,10 +470,9 @@ document.addEventListener("DOMContentLoaded", () => {
     closeMenu();
     if (id) openPinoutDialog(id);
   });
-  // Recovery console lives at page-header level, not in the per-robot menu.
-  // It's the escape hatch for "BLE is dead" — gating it behind a paired
-  // robot (which requires BLE to work) was the exact catch-22 it exists
-  // to break.
+  // Recovery lives at page-header level, not the per-robot menu: gating the
+  // "BLE is dead" escape hatch behind a paired robot is the exact catch-22
+  // it exists to break.
   $("recovery-btn").addEventListener("click", openRecoveryDialog);
   $("label-close").addEventListener("click", () => $("label-modal").close());
   $("label-copy").addEventListener("click", async () => {
@@ -530,7 +483,6 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch {}
   });
   $("label-print").addEventListener("click", () => window.print());
-
   $("menu-forget").addEventListener("click", () => {
     const id = menuTargetId;
     if (!id) return;
@@ -543,8 +495,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Settings modal — passive-scan + voice. Voice is wired via its own module
-  // init so the recognition state + mic button stay encapsulated there.
   const passiveCheckbox = $("setting-passive-scan");
   const passiveStatus = $("setting-passive-scan-status");
   const passiveAvailable = !!navigator.bluetooth?.requestLEScan;
@@ -567,8 +517,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initPinout();
 
   loadPaired().then(() => {
-    // Fold setup once robots exist — setup is onboarding-phase, pairing is
-    // the everyday use. User can re-expand; state isn't forced on re-render.
+    // Fold setup once robots exist — setup is onboarding-phase.
     $("setup-section").open = state.devices.size === 0;
     highlightKnownRobotFromUrl();
   });

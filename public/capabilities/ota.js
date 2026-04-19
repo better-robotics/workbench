@@ -1,9 +1,6 @@
-// OTA capability. Two characteristics for the transfer (ota-data, ota-status)
-// plus one read-only (fw-info) that declares the firmware's type and where to
-// fetch its binary. Updates route to the right data plane: ESP32 + WiFi
-// joined → BLE-signaled URL-trigger (robot pulls over WiFi, 20-60x faster);
-// otherwise full BLE stream. OTA has no card section — the actions sit in
-// the ⋯ menu, exposed as updateFirmware / updateFromFile exports.
+// Routes updates to the right data plane: ESP32 + WiFi joined →
+// BLE-signaled URL-trigger (robot pulls over WiFi, 20-60x faster); otherwise
+// full BLE stream.
 import {
   OTA_DATA_CHAR_UUID, OTA_STATUS_CHAR_UUID,
   decodeJson,
@@ -14,9 +11,8 @@ import { state } from "../state.js";
 let renderEntry = () => {};
 export function setRender(fn) { renderEntry = fn; }
 
-// Keep the screen (and thus BLE radio's task scheduling) awake during a
-// potentially-long OTA. macOS putting the display to sleep has been observed
-// to throttle the BLE write loop enough to stall a 10-minute stream.
+// macOS putting the display to sleep throttles the BLE write loop enough to
+// stall a 10-minute stream; hold a wake lock for the duration of the OTA.
 let wakeLock = null;
 async function acquireWakeLock() {
   if (!("wakeLock" in navigator)) return;
@@ -46,10 +42,6 @@ async function streamOtaBytes(entry, bytes) {
   await ch.writeValueWithResponse(new Uint8Array([0x03]));
 }
 
-// Build a bundle blob for multi-file OTA. Reads the robot's manifest,
-// fetches each file under firmware/pi_robot/, base64-encodes contents, and
-// returns a JSON-serialized object the Pi's _apply_bundle knows how to
-// extract. One-trip fetches + one BLE stream covers the whole update.
 async function buildBundle(entry) {
   const manifestUrl = entry.fwInfo.bundle_url;
   const manifest = await (await fetch(manifestUrl, { cache: "no-cache" })).json();
@@ -58,8 +50,7 @@ async function buildBundle(entry) {
     const src = spec.src;
     const url = `firmware/pi_robot/${src}`;
     const buf = await (await fetch(url, { cache: "no-cache" })).arrayBuffer();
-    // Base64 without spreading the whole array into String.fromCharCode
-    // (avoids stack overflow on larger files).
+    // Chunked to avoid stack overflow from spreading into String.fromCharCode.
     const bytes = new Uint8Array(buf);
     let bin = "";
     for (let i = 0; i < bytes.length; i += 0x8000) {
@@ -77,8 +68,7 @@ export async function updateFirmware(id) {
     return;
   }
 
-  // Pi path: bundle-only OTA. Fetches the manifest, base64-bundles all
-  // declared files, streams one JSON blob.
+  // Pi path: bundle-only OTA.
   if (entry.fwInfo?.bundle_url) {
     logFor(entry, `fetching bundle (${entry.fwInfo.bundle_url})…`);
     let bytes;
@@ -105,8 +95,7 @@ export async function updateFirmware(id) {
     return;
   }
 
-  // ESP32 path: single-binary OTA via URL-trigger (when WiFi is joined) or
-  // BLE-stream fallback. Pis no longer expose `url` — only ESP32 does.
+  // ESP32 path: single-binary OTA. Pis no longer expose `url` — only ESP32 does.
   const fetchUrl = entry.fwInfo?.url;
   if (!fetchUrl) {
     logFor(entry, "no firmware source (fw-info missing url / bundle_url)");
@@ -124,8 +113,8 @@ export async function updateFirmware(id) {
   }
   await acquireWakeLock();
   try {
-    // URL-trigger path: ESP32 with WiFi joined can pull the binary itself
-    // over WiFi — 10 min → 10 sec on a 1.6 MB bin.
+    // URL-trigger: ESP32 pulls the binary itself over WiFi — 10 min → 10 sec
+    // on a 1.6 MB bin.
     const canUrlTrigger =
       entry.fwInfo?.type === "esp32" && entry.wifiStatus?.st === "joined";
     if (canUrlTrigger) {
@@ -146,16 +135,14 @@ export async function updateFirmware(id) {
         logFor(entry, `OTA trigger failed: ${err.message} — falling back to BLE stream`);
       }
       if (triggerSent) {
-        // Give the ESP32 ~8 s to start fetching. If status is "failed" in
-        // that window the URL-trigger path didn't work (TLS handshake, DNS,
-        // connection refused) and we fall back to BLE stream.
+        // ~8 s grace window: if status is "failed" by then (TLS/DNS/refused),
+        // fall back to BLE stream.
         await new Promise(r => setTimeout(r, 8000));
         if (entry.otaStatus?.st !== "failed") return;
         logFor(entry, `URL-trigger failed (${entry.otaStatus.err || "?"}) — falling back to BLE stream`);
       }
     }
 
-    // Fallback: stream the whole binary over BLE.
     logFor(entry, `OTA streaming ${bytes.length} B…`);
     try {
       await streamOtaBytes(entry, bytes);
@@ -181,8 +168,7 @@ export async function updateFromFile(id) {
     const file = input.files && input.files[0];
     if (!file) return;
     const bytes = new Uint8Array(await file.arrayBuffer());
-    // Local file — always BLE-stream. URL-trigger needs a URL the robot can
-    // reach, and a data:/blob: URL isn't useful to the ESP32.
+    // Local file — always BLE-stream. data:/blob: URLs aren't reachable from the ESP32.
     logFor(entry, `OTA streaming ${file.name} (${bytes.length} B)…`);
     await acquireWakeLock();
     try {
@@ -209,9 +195,7 @@ export const ota = {
     try {
       entry.otaDataChar   = await service.getCharacteristic(OTA_DATA_CHAR_UUID);
       entry.otaStatusChar = await service.getCharacteristic(OTA_STATUS_CHAR_UUID);
-      // fw-info (and the cap schema it carries) is read once by the
-      // orchestrator in connect() before any capability probe — see
-      // app.js. No need to re-read it here.
+      // fw-info is read once in app.js connect() before any capability probe.
       entry.otaStatus = decodeJson(await entry.otaStatusChar.readValue()) || { st: "idle" };
       await entry.otaStatusChar.startNotifications();
       entry.otaStatusChar.addEventListener("characteristicvaluechanged", (e) => {
@@ -231,8 +215,7 @@ export const ota = {
     entry.fwInfo = null;
   },
 
-  // OTA controls live in the ⋯ menu, not the card body. Nothing to render
-  // inline; app.js wires the menu to updateFirmware/updateFromFile directly.
+  // OTA controls live in the ⋯ menu; app.js wires them to updateFirmware/updateFromFile.
   renderSection() { return ""; },
   wireActions() {},
 };

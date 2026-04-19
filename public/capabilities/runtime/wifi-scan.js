@@ -1,19 +1,8 @@
-// Generic typed-characteristic runtime for `wifi-scan` capabilities.
-// Three-char pattern: scan (read + notify list), join (write {s,p}),
-// status (read + notify {st, ssid, err}). Field names on the entry
-// derive from the schema's `name` so a second radio-scan type (Bluetooth
-// scan, LoRa scan) could reuse the whole runtime if it followed the
-// same protocol.
-//
 // Expected schema shape:
 //   { name: "wifi", type: "wifi-scan",
 //     chars: { scan: "…d93", join: "…d94", status: "…d95" } }
-//
-// State on entry (for name="wifi"):
-//   wifiScanChar, wifiJoinChar, wifiStatusChar  — BLE handles
-//   wifiStatus   — last decoded {st, ssid, err}
-//   wifiNetworks — last decoded scan result array
-//   wifiScanning — true while a scan is in flight
+// Three-char protocol: scan (read + notify list), join (write {s,p}),
+// status (read + notify {st, ssid, err}).
 import { decodeJson, encodeJson } from "../../ble.js";
 import { escapeHtml } from "../../dom.js";
 import { logFor } from "../../log.js";

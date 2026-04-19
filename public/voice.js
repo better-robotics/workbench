@@ -1,9 +1,5 @@
-// Voice commands (experimental). webkitSpeechRecognition → intent parser →
-// capability dispatches. Grammar is intentionally tiny so we can match with
-// case-insensitive string tests instead of building a parser; scales poorly
-// past a dozen commands, fits the current verbs. Chrome's speech-to-text
-// routes through Google's cloud, which bends the "no network" story — the
-// toggle's status line flags that explicitly.
+// Chrome's webkitSpeechRecognition routes through Google's cloud — bends the
+// "no network" story; the settings toggle's status line flags that explicitly.
 import { $ } from "./dom.js";
 import { log } from "./log.js";
 import { settings, saveSettings } from "./settings.js";
@@ -12,7 +8,7 @@ import { sendPairById } from "./capabilities/runtime/signed-pair.js";
 import { setToggleValue, toggleCapValue } from "./capabilities/runtime/toggle.js";
 
 let _recognition = null;
-let _connectAll = () => {};  // injected by app.js init
+let _connectAll = () => {};  // injected by app.js
 
 function resolveRobotByName(fragment) {
   const norm = (s) => s.toLowerCase().replace(/[\s-]/g, "");

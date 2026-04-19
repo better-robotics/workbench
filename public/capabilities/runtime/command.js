@@ -1,16 +1,6 @@
-// Generic typed-characteristic runtime for `command` capabilities.
-// One write-only char that accepts JSON commands like {op, args}. No UI
-// section (commands are surfaced by callers wherever they make sense —
-// menu items, settings, voice, future LLM tool calls).
-//
 // Expected schema shape:
 //   { name: "ops", char: "…d9c", type: "command" }
-//
-// Generic writer: `sendCommand(entry, capName, msg)`. Named wrappers at
-// the bottom (restartService, rebootRobot, installPackage) encode the
-// specific op-name vocabulary the Pi's `_ops_handle_write` dispatcher
-// understands. Adding a new op is one new wrapper here + one new branch
-// on the firmware side — still zero chars, zero opcodes.
+// Op-name vocabulary must match the Pi's `_ops_handle_write` dispatcher.
 import { logFor } from "../../log.js";
 import { state } from "../../state.js";
 
@@ -29,9 +19,6 @@ export async function sendCommand(entry, capName, msg) {
     return false;
   }
 }
-
-// Named op wrappers — keep the caller-side vocabulary stable while the
-// underlying transport migrates. Each wrapper encodes exactly one op name.
 
 export async function restartService(id) {
   const entry = state.devices.get(id);

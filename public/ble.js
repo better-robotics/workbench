@@ -1,6 +1,4 @@
-// BLE service + characteristic UUIDs. Must match firmware/pi_robot/pi_robot.py
-// and firmware/esp32_robot/esp32_robot.ino exactly. All characteristics live
-// inside one service; each represents one capability.
+// UUIDs must match firmware/pi_robot/pi_robot.py and firmware/esp32_robot/esp32_robot.ino exactly.
 export const SERVICE_UUID          = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d91";
 export const LED_CHAR_UUID         = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d92";
 export const WIFI_SCAN_CHAR_UUID   = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d93";
@@ -14,7 +12,7 @@ export const CAMERA_SIGNAL_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9a";
 export const CAMERA_STATUS_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9b";
 export const OPS_CHAR_UUID            = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9c";
 
-// Chunked-frame protocol shared by OTA and camera signaling. Begin carries a
+// Chunked-frame protocol shared by OTA and camera signaling: begin carries a
 // u32 big-endian length, chunks append, commit parses + acts, stop tears down.
 export const CHUNK_BYTES = 180;  // safe under ATT MTU on macOS/Chrome.
 

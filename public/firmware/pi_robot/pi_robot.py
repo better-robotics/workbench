@@ -40,27 +40,19 @@ OTA_DATA_CHAR_UUID    = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d96"
 OTA_STATUS_CHAR_UUID  = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d97"
 FW_INFO_CHAR_UUID     = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d98"
 MOTOR_CHAR_UUID       = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d99"
-# Camera signaling (optional — only registered if picamera2 + aiortc are
-# importable). Two chars, same chunked protocol as OTA:
+# Camera signaling chars use the same chunked protocol as OTA:
 #   camera-signal (write)   — SDP offer / ICE candidate / stop from the browser
 #   camera-status (notify)  — status + outbound SDP answer / ICE back to browser
 CAMERA_SIGNAL_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9a"
 CAMERA_STATUS_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9b"
-# Ops channel — one JSON-command chan for every out-of-band action the
-# dashboard needs to run on the Pi. Format: single write of utf-8 JSON like
+# Ops channel — JSON-command surface. Format: single write of utf-8 JSON like
 # {"op": "restart-service"} or {"op": "install-pkg", "args": {"name":"camera"}}.
-# Each op routes to its own status flow (e.g. install-pkg streams progress
-# via camera-status notify). Consolidates what used to be scattered opcodes
-# across ADMIN_CHAR and CAMERA_SIGNAL into one surface; adding a new admin
-# action means one new op name in _ops_dispatch, no new characteristic.
 OPS_CHAR_UUID           = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9c"
 
-# Capability schema — built at startup from config so the dashboard sees
-# only what's actually enabled on this Pi, with live pin assignments.
-# Types name a UI/data shape (toggle, signed-pair, wifi-scan, bundle-ota,
-# webrtc-installable, command). `pin` / `pins` declare the physical GPIO
-# header positions so the dashboard's pinout view can show what's wired
-# where. Add a new capability → one new entry here.
+# Capability schema — built at startup from config. Types name a UI/data
+# shape (toggle, signed-pair, wifi-scan, bundle-ota, webrtc-installable,
+# command). `pin` / `pins` declare physical GPIO header positions for the
+# dashboard's pinout view.
 def _build_caps() -> list:
     caps: list[dict] = []
     if LED_ENABLED:
@@ -120,9 +112,12 @@ MOTOR_WATCHDOG_MS = 500
 
 SCAN_MAX = 10      # Bounded so the full JSON fits in one ATT read.
 
-# Capability config. Written by the browser's Customize-card flow onto the
-# boot partition. Declares which capabilities this physical robot actually has —
-# don't advertise LED if no LED is wired, don't advertise motors if no H-bridge.
+# Capability config keys (written by the Customize-card flow to the boot partition):
+#   led_enabled     bool — advertise the LED char
+#   led_pin         int  — BCM pin for the LED
+#   motors_enabled  bool — advertise the motor char
+#   motors_pins     {left:{in1,in2}, right:{in1,in2}} — H-bridge direction pins
+#   camera_enabled  "auto" | true | false
 # Missing or unreadable file → default to all capabilities on, so existing Pis
 # OTA'd from pre-config versions keep working.
 CONFIG_PATH = "/boot/firmware/pi-robot.conf"
@@ -136,11 +131,8 @@ _config = _load_config()
 LED_ENABLED    = bool(_config.get("led_enabled", True))
 LED_PIN        = int(_config.get("led_pin", 17))
 MOTORS_ENABLED = bool(_config.get("motors_enabled", True))
-# motors_pins shape is H-bridge-agnostic: {left: {in1, in2}, right: {in1, in2}}.
-# Direction = sign of commanded value; magnitude = PWM duty on whichever pin
-# is driven. Works with L298N, DRV8833, TB6612, and similar 2-pin-per-motor
-# direction-controlled drivers. Defaults map to a common L298N wiring used
-# by the reference build.
+# H-bridge-agnostic: works with L298N, DRV8833, TB6612, etc. Defaults map to
+# a common L298N wiring used by the reference build.
 MOTORS_PINS    = _config.get("motors_pins", {
     "left":  {"in1": 17, "in2": 27},
     "right": {"in1": 23, "in2": 24},
@@ -152,22 +144,15 @@ OTA_OP_CHUNK = 0x02
 OTA_OP_COMMIT = 0x03
 
 # Camera opcodes share the OTA pattern: begin-stream, chunk, commit, stop.
-# Plus install — a single-byte op that triggers an in-process apt+pip fetch
-# of the camera stack on a Pi that declared camera support but doesn't yet
-# have picamera2/aiortc installed. One-click camera enable from the dashboard.
 CAM_OP_BEGIN   = 0x01
 CAM_OP_CHUNK   = 0x02
 CAM_OP_COMMIT  = 0x03
 CAM_OP_STOP    = 0x04
 
-# Optional camera stack. Gated on config: if CAMERA_ENABLED is False we skip
-# the imports entirely. "auto" attempts import and tolerates failure — a Pi
-# without aiortc or without picamera2 installed simply doesn't advertise the
-# camera chars. Catch broadly: a broken av/aiortc install can raise OSError,
-# AttributeError, or partial-module-loaded errors that aren't ImportError.
-# Silently degrading to "no camera" is always preferable to crashing BLE —
-# the dashboard stays reachable, user can SSH / re-install / pick a different
-# image.
+# Catch broadly: a broken av/aiortc install can raise OSError, AttributeError,
+# or partial-module-loaded errors that aren't ImportError. Silently degrading
+# to "no camera" is preferable to crashing BLE — the dashboard stays reachable
+# so the user can SSH / re-install / pick a different image.
 _camera_available = False
 _camera_import_err = None
 if CAMERA_ENABLED is not False:
@@ -189,10 +174,8 @@ log = logging.getLogger("pi_robot")
 
 led = LED(LED_PIN) if LED_ENABLED else None
 
-# gpiozero's Motor(forward, backward) handles 2-pin-direction H-bridges
-# (L298N, DRV8833, TB6612 in in/in mode). motor.forward(0..1) / backward(0..1)
-# drive one pin HIGH (via PWM for magnitude) and the other LOW. motor.stop()
-# drives both LOW (coast) — matches the watchdog's safe default.
+# gpiozero's Motor.stop() drives both pins LOW (coast) — matches the
+# watchdog's safe default.
 _motor_left_drv: Motor | None = None
 _motor_right_drv: Motor | None = None
 if MOTORS_ENABLED:
@@ -216,15 +199,14 @@ _motor_left: int = 0
 _motor_right: int = 0
 _motor_last_write_at: float = 0.0
 
-# Camera state. _cam_pc is the current RTCPeerConnection; _cam_buf accumulates
-# inbound signaling chunks; _cam_expected is the size announced by CAM_OP_BEGIN.
 _cam_pc = None
 _cam_track = None
 _cam_buf: bytearray = bytearray()
 _cam_expected: int = 0
-# "uninstalled" → stack absent, dashboard offers install.
-# "installing"  → in-progress (step + log fields).
-# "idle"        → stack loaded, ready for an offer.
+# Camera status states:
+#   "uninstalled" → stack absent, dashboard offers install.
+#   "installing"  → in-progress (step + log fields).
+#   "idle"        → stack loaded, ready for an offer.
 _cam_status: dict = {"st": "idle" if _camera_available else "uninstalled"}
 _cam_installing: bool = False
 
@@ -250,7 +232,6 @@ def _json_bytes(obj) -> bytearray:
 
 
 def _publish(char_uuid: str, value: bytearray) -> None:
-    """Set a characteristic's current value and notify subscribers."""
     if _server is None:
         return
     ch = _server.get_characteristic(char_uuid)
@@ -271,7 +252,6 @@ def _set_status(st: str, ssid: str | None = None, err: str | None = None) -> Non
 
 
 async def _wifi_scan_task() -> None:
-    # nmcli SIGNAL is 0..100 already; we pass it through as our unified "strength".
     # Doesn't touch wifi-status — scan activity is orthogonal to connection state.
     global _wifi_scan
     try:
@@ -323,10 +303,8 @@ def _set_ota_status(st: str, n: int = 0, total: int = 0, err: str | None = None)
     log.info("ota-status → %s", _ota_status)
 
 
-# Destination prefixes a bundle-OTA may write to. Anything outside these
-# is rejected — malicious manifests can't overwrite /etc/passwd or similar.
-# The threat model is "anyone paired to the robot", which already implies
-# user consent, but defense-in-depth is cheap here.
+# Destinations a bundle-OTA may write to. Anything outside is rejected so
+# a malicious manifest can't overwrite /etc/passwd or similar.
 _OTA_ALLOWED_DEST_PREFIXES = (
     "/home/pi/better-robotics/firmware/",
     "/etc/systemd/system/",
@@ -344,8 +322,6 @@ async def _apply_bundle(bundle: dict) -> None:
     """Multi-file OTA. bundle shape:
         {"manifest": {"files": [...], "post_install": [...], "restart": "..."},
          "files":    {"<src>": "<base64>", ...}}
-    Write all files to staging paths, validate each, then atomically rename.
-    Run post_install commands, optionally restart a service at the end.
     Atomicity across files is best-effort — there's a small window between
     renames; good enough for our update cadence."""
     global _ota_buffer
@@ -356,7 +332,6 @@ async def _apply_bundle(bundle: dict) -> None:
         _set_ota_status("failed", err="bundle has no files")
         return
 
-    # Phase 1: validate and stage all files to *.new paths.
     staged: list[tuple[str, str, int]] = []  # (dest, tmp, mode)
     for spec in files:
         src  = spec.get("src")
@@ -390,11 +365,9 @@ async def _apply_bundle(bundle: dict) -> None:
         os.chmod(tmp, mode)
         staged.append((dest, tmp, mode))
 
-    # Phase 2: atomic-rename each staged file.
     for dest, tmp, _ in staged:
         os.replace(tmp, dest)
 
-    # Phase 3: post_install hooks (daemon-reload, enables, etc.).
     for cmd in manifest.get("post_install") or []:
         argv = shlex.split(cmd)
         rc = subprocess.run(argv, check=False, capture_output=True).returncode
@@ -406,10 +379,8 @@ async def _apply_bundle(bundle: dict) -> None:
     _ota_buffer = bytearray()
     await asyncio.sleep(0.5)  # let the notify flush
     if manifest.get("reboot"):
-        # Kernel module changes (cmdline.txt swaps) only take effect on
-        # reboot. systemd user-session changes don't. "reboot: true" in the
-        # manifest is the explicit signal that the user's expectation is
-        # "after OTA, fully restart the Pi."
+        # Kernel module changes (cmdline.txt swaps) only take effect on reboot.
+        # A service restart won't pick them up.
         subprocess.Popen(["systemctl", "reboot"])
     elif manifest.get("restart"):
         subprocess.Popen(["systemctl", "restart", f"{manifest['restart']}.service"])
@@ -461,9 +432,7 @@ def _ota_handle_write(data: bytearray) -> None:
 
 
 def _drive(motor: Motor | None, value: int) -> None:
-    """Map signed [-100, 100] → gpiozero Motor. Sign selects direction;
-    magnitude is PWM duty. Zero = stop (both pins low = coast). Gpiozero
-    handles the PWM on whichever in-pin corresponds to the direction."""
+    """Map signed [-100, 100] → gpiozero Motor. Sign = direction, magnitude = PWM duty."""
     if motor is None:
         return
     speed = max(-100, min(100, value)) / 100.0
@@ -495,9 +464,7 @@ def _motor_handle_write(data: bytearray) -> None:
 
 
 def _cam_send(obj: dict) -> None:
-    """Outbound signaling / status to the dashboard via notify on camera-status.
-    Chunks with the same opcode shape as inbound so the browser assembler is
-    symmetric. 180 B per chunk sits under typical ATT MTU."""
+    """Chunked notify on camera-status. 180 B per chunk sits under typical ATT MTU."""
     if _server is None:
         return
     data = json.dumps(obj, separators=(",", ":")).encode("utf-8")
@@ -519,9 +486,7 @@ def _set_cam_status(**fields) -> None:
 
 
 class _PiCameraTrack(MediaStreamTrack if _camera_available else object):  # type: ignore
-    """aiortc video track pulling RGB frames from Picamera2. 640x480 @ 15fps
-    keeps CPU reasonable on a Pi 4 and bandwidth under BLE-signaled WebRTC's
-    default WiFi path limits."""
+    """640x480 @ 15fps — CPU-reasonable on a Pi 4, bandwidth-safe for WebRTC over WiFi."""
     kind = "video"
 
     def __init__(self) -> None:
@@ -544,11 +509,9 @@ class _PiCameraTrack(MediaStreamTrack if _camera_available else object):  # type
         return frame
 
     def stop(self) -> None:
-        # stop() halts capture but doesn't release the camera HAL — close()
-        # fully releases so a subsequent Picamera2() can claim it cleanly.
-        # Skipping close() leaves the kernel's CSI allocation live; a quick
-        # re-Start on the dashboard then fails with "Camera __init__
-        # sequence did not complete." until reboot.
+        # close() after stop() releases the CSI allocation; without it, a
+        # re-Start fails with "Camera __init__ sequence did not complete."
+        # until reboot.
         try: self.camera.stop()
         except Exception: pass
         try: self.camera.close()
@@ -578,9 +541,7 @@ async def _run_install_cmd(label: str, argv: list[str]) -> tuple[int, list[str]]
 
 
 async def _cam_install() -> None:
-    """Install picamera2 + aiortc + av on demand. Triggered by CAM_OP_INSTALL
-    write from the dashboard. On success, restart the service so the new
-    imports load and the camera chars become functional."""
+    """On success, restart the service so the new imports load."""
     global _cam_installing
     if _camera_available:
         _set_cam_status(st="idle")
@@ -604,10 +565,9 @@ async def _cam_install() -> None:
         rc, tail = await _run_install_cmd(
             "apt install",
             ["apt-get", "install", "-y",
-             # Core: camera + webrtc runtime deps.
              "python3-picamera2", "ffmpeg", "libsrtp2-dev",
-             # pip itself — some Pi OS images ship without it, and the pip
-             # install step below would fail with "No module named pip".
+             # Some Pi OS images ship without pip; the pip step below fails
+             # with "No module named pip" otherwise.
              "python3-pip",
              # Build deps — aiortc pulls in cffi, cryptography, pylibsrtp
              # which can fall back to source build on some images.
@@ -615,13 +575,9 @@ async def _cam_install() -> None:
         )
         if rc != 0:
             fail("apt install", rc, tail); return
-        # Use sys.executable (the running interpreter, i.e., the venv's
-        # python) rather than a PATH lookup for "python3". On Pi OS the
-        # system python is externally-managed (PEP 668); pip refuses to
-        # modify packages owned by Debian. The service runs under the venv
-        # at .venv/bin/python, which pip treats as unmanaged — packages
-        # install into the venv cleanly and pi_robot.py imports them on
-        # the next run.
+        # sys.executable targets the venv's python. Pi OS's system python is
+        # externally-managed (PEP 668) — pip refuses to touch it. The venv
+        # is unmanaged, so packages install cleanly.
         rc, tail = await _run_install_cmd(
             "pip install",
             [sys.executable, "-m", "pip", "install", "aiortc", "av"],
@@ -639,10 +595,11 @@ async def _cam_install() -> None:
 
 def _ops_handle_write(data: bytearray) -> None:
     """Single-write JSON command channel. Message: {"op": "...", "args":{}}.
-    Each op routes to its own side-effect + status flow — install-pkg streams
-    progress via camera-status; restart-service has no status (BLE just drops
-    when systemd kills the process). Tiny messages fit in one ATT MTU; no
-    chunking needed at this surface. Add a new op here to expose it."""
+    Ops:
+      restart-service — systemctl restart pi-robot.service (BLE drops).
+      reboot          — systemctl reboot (BLE drops for ~30-60 s).
+      install-pkg     — args.name: "camera" → run _cam_install; progress
+                        streams via camera-status."""
     try:
         msg = json.loads(bytes(data).decode("utf-8"))
     except Exception as e:
@@ -654,9 +611,8 @@ def _ops_handle_write(data: bytearray) -> None:
         log.info("ops: restart-service")
         subprocess.Popen(["systemctl", "restart", "pi-robot.service"])
     elif op == "reboot":
-        # Full system reboot — needed when a kernel-owned resource is stuck
-        # (camera CSI allocation, wedged USB gadget, etc.) and a plain
-        # service restart can't clear it. BLE drops for ~30-60 s.
+        # Needed when a kernel-owned resource is stuck (camera CSI, wedged
+        # USB gadget) and a service restart can't clear it.
         log.info("ops: reboot")
         subprocess.Popen(["systemctl", "reboot"])
     elif op == "install-pkg":
@@ -670,9 +626,7 @@ def _ops_handle_write(data: bytearray) -> None:
 
 
 async def _cam_handle_message(msg: dict) -> None:
-    """Signaling messages from the browser. t=offer creates a new pc; answer
-    is sent back via camera-status notify. t=ice adds a candidate. t=stop
-    tears down. All branches tolerant of malformed input."""
+    """Signaling messages from the browser. t=offer | ice | stop."""
     if not _camera_available:
         if msg.get("t") != "stop":
             _set_cam_status(st="uninstalled", err="camera stack not installed")
@@ -705,7 +659,6 @@ async def _cam_handle_message(msg: dict) -> None:
             }})
             _set_cam_status(st="answered")
         elif t == "ice" and _cam_pc is not None:
-            # aiortc's addIceCandidate accepts a dict-derived candidate.
             cand = RTCIceCandidate(
                 sdpMid=d.get("sdpMid"),
                 sdpMLineIndex=d.get("sdpMLineIndex"),
@@ -843,8 +796,8 @@ def on_read(characteristic: BlessGATTCharacteristic, **_) -> bytearray:
     if uuid == MOTOR_CHAR_UUID:
         return bytearray([_motor_left & 0xff, _motor_right & 0xff])
     if uuid == CAMERA_STATUS_CHAR_UUID:
-        # Initial read: return empty (the chunked protocol means no single
-        # value makes sense here). Status lands via notify on state changes.
+        # Chunked protocol — no single value for a direct read. Status
+        # lands via notify on state changes.
         return bytearray()
     return characteristic.value
 
@@ -888,11 +841,8 @@ def on_write(characteristic: BlessGATTCharacteristic, value: bytearray, **_) -> 
 
 
 def _init_wifi_radio() -> None:
-    """Get wlan0 to a state where nmcli scans return networks.
-
-    Idempotent sequence: unblock rfkill → make sure NetworkManager is running →
-    turn on the WiFi radio. Any step failing is logged but not fatal — we want
-    pi_robot to come up for BLE even if WiFi is unavailable."""
+    """Idempotent. Step failures are logged but not fatal — pi_robot must
+    come up for BLE even if WiFi is unavailable."""
     steps = [
         ["rfkill", "unblock", "wifi"],
         ["rfkill", "unblock", "all"],
@@ -974,10 +924,9 @@ async def main() -> None:
         )
 
     if CAMERA_ENABLED is not False:
-        # Register whenever camera is allowed by config — even without the
-        # stack installed. That way the dashboard can send CAM_OP_INSTALL to
-        # trigger on-demand install; after install the service restarts, the
-        # imports succeed, and WebRTC signaling becomes functional.
+        # Register even without the stack installed, so the dashboard can
+        # trigger install-on-demand; after install the service restarts,
+        # imports succeed, signaling becomes functional.
         await _server.add_new_characteristic(
             SERVICE_UUID, CAMERA_SIGNAL_CHAR_UUID,
             GATTCharacteristicProperties.write,
@@ -996,8 +945,6 @@ async def main() -> None:
     else:
         log.info("camera: disabled in pi-robot.conf")
 
-    # Ops channel — always registered. Generic JSON command surface for
-    # restart, install, and future admin actions.
     await _server.add_new_characteristic(
         SERVICE_UUID, OPS_CHAR_UUID,
         GATTCharacteristicProperties.write,
