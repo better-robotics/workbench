@@ -103,6 +103,7 @@ Preferences prefs;
 bool ledOn = false;
 
 static bool cameraReady = false;
+static int  cameraInitError = 0;  // 0 if no init attempted or success
 static httpd_handle_t streamHttpd = nullptr;
 
 // WiFi state machine — non-blocking, polled from loop().
@@ -229,7 +230,8 @@ static bool initCamera() {
   config.grab_mode    = CAMERA_GRAB_LATEST;
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
-    Serial.printf("camera init failed: 0x%x\n", err);
+    cameraInitError = (int)err;
+    Serial.printf("camera init failed: 0x%x (psram=%d)\n", err, psramFound());
     return false;
   }
   Serial.printf("camera ok, psram=%d\n", psramFound());
@@ -274,9 +276,22 @@ static void startCameraServer() {
 
 static void publishFwInfo() {
   if (!fwInfoChar) return;
+  // Always advertise the non-camera caps so the dashboard renders LED /
+  // motors / wifi UI even when the camera failed to init. Each cap maps to
+  // an existing BLE characteristic via the dashboard's UUIDS_BY_CAP table.
   String info = "{\"type\":\"esp32\",\"url\":\"firmware/bins/esp32_robot.bin\"";
+  info += ",\"build\":\"" __DATE__ " " __TIME__ "\"";  // diagnostic stamp
+  info += ",\"caps\":[";
+  info += "{\"name\":\"led\",\"type\":\"toggle\"}";
+  info += ",{\"name\":\"wifi\",\"type\":\"wifi-scan\"}";
+  info += ",{\"name\":\"motors\",\"type\":\"signed-pair\",\"range\":[-100,100]}";
   if (cameraReady) {
-    info += ",\"caps\":[{\"name\":\"camera\",\"type\":\"mjpeg-stream\",\"port\":81,\"path\":\"/stream\"}]";
+    info += ",{\"name\":\"camera\",\"type\":\"mjpeg-stream\",\"port\":81,\"path\":\"/stream\"}";
+  }
+  info += "]";
+  if (!cameraReady && cameraInitError) {
+    info += ",\"camera_err\":";
+    info += String(cameraInitError);
   }
   info += "}";
   fwInfoChar->setValue(info.c_str());
