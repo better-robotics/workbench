@@ -80,11 +80,9 @@ def _build_caps() -> list:
     return caps
 
 
-FW_INFO = {
-    "type": "pi",
-    "bundle_url": "firmware/pi_robot/ota-manifest.json",
-    "caps": _build_caps(),
-}
+# FW_INFO is constructed further down, after pi-robot.conf has loaded —
+# _build_caps() reads LED_ENABLED/MOTORS_ENABLED/CAMERA_ENABLED which come
+# from the config. Don't move this back up above config loading.
 
 # Motor watchdog: every write resets the timer; silence reverts to (0, 0).
 # Safe default on disconnect — no redundant channel required.
@@ -138,6 +136,13 @@ MOTORS_PINS    = _config.get("motors_pins", {
     "right": {"in1": 23, "in2": 24},
 })
 CAMERA_ENABLED = _config.get("camera_enabled", "auto")  # "auto" | True | False
+
+FW_INFO = {
+    "type": "pi",
+    "bundle_url": "firmware/pi_robot/ota-manifest.json",
+    "caps": _build_caps(),
+}
+
 OTA_OP_ABORT = 0x00
 OTA_OP_BEGIN = 0x01
 OTA_OP_CHUNK = 0x02
