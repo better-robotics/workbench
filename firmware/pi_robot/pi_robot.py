@@ -55,43 +55,43 @@ CAMERA_STATUS_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9b"
 # action means one new op name in _ops_dispatch, no new characteristic.
 OPS_CHAR_UUID           = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9c"
 
+# Capability schema — built at startup from config so the dashboard sees
+# only what's actually enabled on this Pi, with live pin assignments.
+# Types name a UI/data shape (toggle, signed-pair, wifi-scan, bundle-ota,
+# webrtc-installable, command). `pin` / `pins` declare the physical GPIO
+# header positions so the dashboard's pinout view can show what's wired
+# where. Add a new capability → one new entry here.
+def _build_caps() -> list:
+    caps: list[dict] = []
+    if LED_ENABLED:
+        caps.append({"name": "led", "char": LED_CHAR_UUID, "type": "toggle",
+                     "pin": LED_PIN, "pin_mode": "out"})
+    if MOTORS_ENABLED:
+        caps.append({"name": "motors", "char": MOTOR_CHAR_UUID,
+                     "type": "signed-pair", "range": [-100, 100], "unit": "pct",
+                     "pins": MOTORS_PINS, "pin_mode": "pwm"})
+    caps.append({"name": "wifi",
+                 "chars": {"scan": WIFI_SCAN_CHAR_UUID,
+                           "join": WIFI_JOIN_CHAR_UUID,
+                           "status": WIFI_STATUS_CHAR_UUID},
+                 "type": "wifi-scan"})
+    caps.append({"name": "ota",
+                 "chars": {"data": OTA_DATA_CHAR_UUID,
+                           "status": OTA_STATUS_CHAR_UUID},
+                 "type": "bundle-ota"})
+    if CAMERA_ENABLED is not False:
+        caps.append({"name": "camera",
+                     "chars": {"signal": CAMERA_SIGNAL_CHAR_UUID,
+                               "status": CAMERA_STATUS_CHAR_UUID},
+                     "type": "webrtc-installable"})
+    caps.append({"name": "ops", "char": OPS_CHAR_UUID, "type": "command"})
+    return caps
+
+
 FW_INFO = {
     "type": "pi",
     "bundle_url": "firmware/pi_robot/ota-manifest.json",
-    # Typed capability schema — one entry per capability the robot exposes.
-    # The dashboard stores this on the entry for introspection and future
-    # tool schemas (LLM-orchestrator work). Types name a UI/data shape:
-    #   "toggle"            single bool char (LED, future enable switches)
-    #   "signed-pair"       two signed int8 in [min,max] (tank-drive motors)
-    #   "wifi-scan"         scan/join/status over 3 chars (custom UI)
-    #   "bundle-ota"        multi-file OTA via one staged JSON bundle
-    #   "webrtc-installable"video track via BLE signaling, install-on-demand
-    #   "command"           JSON op channel (ops: restart, install, …)
-    # Each entry is filtered against what this Pi actually advertises at
-    # runtime — capability-config may omit LED/motors/camera; those entries
-    # are still declared so the dashboard knows what TYPE a future robot
-    # with the same UUID would expose.
-    "caps": [
-        {"name": "led",    "char": LED_CHAR_UUID,
-         "type": "toggle"},
-        {"name": "motors", "char": MOTOR_CHAR_UUID,
-         "type": "signed-pair", "range": [-100, 100], "unit": "pct"},
-        {"name": "wifi",
-         "chars": {"scan": WIFI_SCAN_CHAR_UUID,
-                   "join": WIFI_JOIN_CHAR_UUID,
-                   "status": WIFI_STATUS_CHAR_UUID},
-         "type": "wifi-scan"},
-        {"name": "ota",
-         "chars": {"data": OTA_DATA_CHAR_UUID,
-                   "status": OTA_STATUS_CHAR_UUID},
-         "type": "bundle-ota"},
-        {"name": "camera",
-         "chars": {"signal": CAMERA_SIGNAL_CHAR_UUID,
-                   "status": CAMERA_STATUS_CHAR_UUID},
-         "type": "webrtc-installable"},
-        {"name": "ops",    "char": OPS_CHAR_UUID,
-         "type": "command"},
-    ],
+    "caps": _build_caps(),
 }
 
 # Motor watchdog: every write resets the timer; silence reverts to (0, 0).
@@ -136,6 +136,7 @@ _config = _load_config()
 LED_ENABLED    = bool(_config.get("led_enabled", True))
 LED_PIN        = int(_config.get("led_pin", 17))
 MOTORS_ENABLED = bool(_config.get("motors_enabled", True))
+MOTORS_PINS    = _config.get("motors_pins", {"left": 18, "right": 19})
 CAMERA_ENABLED = _config.get("camera_enabled", "auto")  # "auto" | True | False
 OTA_OP_ABORT = 0x00
 OTA_OP_BEGIN = 0x01

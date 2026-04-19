@@ -85,6 +85,7 @@
   <button class="menu-item" id="menu-update">Update firmware</button>
   <button class="menu-item" id="menu-update-file">Update from file…</button>
   <button class="menu-item" id="menu-restart">Restart service</button>
+  <button class="menu-item" id="menu-pinout">Pinout (GPIO)</button>
   <button class="menu-item" id="menu-recovery">Recovery console (USB)</button>
   <button class="menu-item destructive" id="menu-forget">Forget this robot</button>
 </div>
@@ -108,6 +109,14 @@
       <div class="meta" id="setting-voice-status"></div>
     </label>
   </div>
+</dialog>
+
+<dialog id="pinout-modal" class="prepare-dialog">
+  <div class="modal-header">
+    <div class="label" id="pinout-title">Pinout</div>
+    <button class="icon" id="pinout-close" aria-label="Close">×</button>
+  </div>
+  <div id="pinout-body"></div>
 </dialog>
 
 <dialog id="recovery-modal" class="prepare-dialog">

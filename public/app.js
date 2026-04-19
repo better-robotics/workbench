@@ -14,6 +14,7 @@ import { ALL as CAPABILITIES, setCapabilityRenderer } from "./capabilities/index
 import { updateFirmware, updateFromFile } from "./capabilities/ota.js";
 import { restartService } from "./capabilities/ops.js";
 import { initRecovery, openRecoveryDialog } from "./recovery.js";
+import { initPinout, openPinoutDialog } from "./pinout.js";
 import { initGamepad } from "./gamepad.js";
 import { initVoice } from "./voice.js";
 import { initPrepare } from "./prepare.js";
@@ -479,6 +480,11 @@ document.addEventListener("DOMContentLoaded", () => {
     closeMenu();
     if (id) restartService(id);
   });
+  $("menu-pinout").addEventListener("click", () => {
+    const id = menuTargetId;
+    closeMenu();
+    if (id) openPinoutDialog(id);
+  });
   $("menu-recovery").addEventListener("click", () => {
     closeMenu();
     openRecoveryDialog();
@@ -526,6 +532,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initVoice({ connectAll });
   initPrepare();
   initRecovery();
+  initPinout();
 
   loadPaired().then(() => {
     // Fold setup once robots exist — setup is onboarding-phase, pairing is
