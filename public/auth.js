@@ -11,6 +11,18 @@ const COMMENT = "better-robotics";
 
 let _cached = null;
 
+// Notify subscribers when the stored keypair is generated, imported, or
+// regenerated — app.js uses this to refresh its cached fingerprint and
+// re-render enrollment banners on every connected robot.
+const _keyChangeListeners = new Set();
+export function onKeyChange(fn) {
+  _keyChangeListeners.add(fn);
+  return () => _keyChangeListeners.delete(fn);
+}
+function _notifyKeyChange() {
+  for (const fn of _keyChangeListeners) { try { fn(); } catch {} }
+}
+
 function idbOpen() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, 1);
@@ -39,13 +51,19 @@ async function idbPut(id, value) {
 export async function loadOrGenerate() {
   if (_cached) return _cached;
   const existing = await idbGet(KEY_ID);
-  if (existing) return (_cached = existing);
+  if (existing) {
+    _cached = existing;
+    _notifyKeyChange();
+    return _cached;
+  }
   const kp = await crypto.subtle.generateKey(
     { name: "Ed25519" }, true, ["sign", "verify"],
   );
   const record = { publicKey: kp.publicKey, privateKey: kp.privateKey, createdAt: Date.now() };
   await idbPut(KEY_ID, record);
-  return (_cached = record);
+  _cached = record;
+  _notifyKeyChange();
+  return _cached;
 }
 
 const te = (s) => new TextEncoder().encode(s);
@@ -202,6 +220,7 @@ async function importFromOpenSsh(pem) {
   const record = { publicKey, privateKey, createdAt: Date.now() };
   await idbPut(KEY_ID, record);
   _cached = record;
+  _notifyKeyChange();
   return record;
 }
 
@@ -210,6 +229,7 @@ async function regenerate() {
   const record = { publicKey: kp.publicKey, privateKey: kp.privateKey, createdAt: Date.now() };
   await idbPut(KEY_ID, record);
   _cached = record;
+  _notifyKeyChange();
   return record;
 }
 

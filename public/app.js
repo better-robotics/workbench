@@ -9,17 +9,29 @@ import {
 import { ALL as CAPABILITIES, setCapabilityRenderer } from "./capabilities/index.js";
 import { RUNTIMES } from "./capabilities/runtime/index.js";
 import { updateFirmware, updateFromFile } from "./capabilities/ota.js";
-import { restartService, rebootRobot } from "./capabilities/runtime/command.js";
+import { restartService, rebootRobot, enrollKey } from "./capabilities/runtime/command.js";
 import { initRecovery, openRecoveryDialog } from "./recovery.js";
 import { initPinout, openPinoutDialog } from "./pinout.js";
 import { initGamepad } from "./gamepad.js";
 import { initVoice } from "./voice.js";
 import { initPrepare } from "./prepare.js";
-import { initAuthUI } from "./auth.js";
+import { initAuthUI, fingerprint as dashFingerprint, pubkeySsh, onKeyChange } from "./auth.js";
 
 setLogRenderer((entry) => renderEntry(entry));
 setDisconnectHandler((id) => onDisconnected(id));
 setCapabilityRenderer((entry) => renderEntry(entry));
+
+// Dashboard's own fingerprint. Cached sync so renderEntry can compare
+// against fw-info.authorized without awaiting. Refreshed whenever the
+// keypair changes (generate / import / regenerate).
+let myFingerprint = null;
+async function refreshMyFingerprint() {
+  myFingerprint = await dashFingerprint();
+  for (const e of state.devices.values()) {
+    if (e.status === "connected") renderEntry(e);
+  }
+}
+onKeyChange(refreshMyFingerprint);
 
 async function loadPaired() {
   // Restore remembered robots first — works even when getDevices() is missing.
@@ -380,6 +392,22 @@ function renderEntry(entry) {
     const text = s.msg ? `${prefix}${s.st} — ${s.msg}` : `${prefix}${s.st}`;
     return `<div class="robot-state${sticky ? " sticky" : ""}">${escapeHtml(text)}</div>`;
   })();
+  // Enroll prompt: shown when the robot publishes an `authorized` list and
+  // this dashboard's fingerprint isn't in it. Empty list = TOFU, one click.
+  // Non-empty without us = "someone else's robot" — silent muted note.
+  const enrollHtml = (() => {
+    if (!connected || !entry.opsChar) return "";
+    const auth = entry.fwInfo?.authorized;
+    if (!Array.isArray(auth) || !myFingerprint || auth.includes(myFingerprint)) return "";
+    if (auth.length === 0) {
+      return `
+        <div class="enroll-prompt">
+          <span>Dashboard not enrolled on this robot.</span>
+          <button class="secondary sm" data-action="enroll">Enroll</button>
+        </div>`;
+    }
+    return `<div class="enroll-prompt muted"><span>Enrolled to another dashboard.</span></div>`;
+  })();
   entry.node.innerHTML = `
     <div class="row">
       <div>
@@ -396,6 +424,7 @@ function renderEntry(entry) {
       </div>
     </div>
     ${stateHtml}
+    ${enrollHtml}
     ${sections}
     ${entry.lastEvent ? `<div class="last-event">${escapeHtml(entry.lastEvent)}</div>` : ""}
   `;
@@ -410,6 +439,18 @@ function renderEntry(entry) {
   if (disconnectBtn) disconnectBtn.addEventListener("click", () => disconnect(id));
   const menuBtn = entry.node.querySelector('[data-action="menu"]');
   if (menuBtn) menuBtn.addEventListener("click", () => openMenu(menuBtn, id));
+  const enrollBtn = entry.node.querySelector('[data-action="enroll"]');
+  if (enrollBtn) enrollBtn.addEventListener("click", async () => {
+    const pub = await pubkeySsh();
+    if (await enrollKey(id, pub) && myFingerprint) {
+      // Optimistic: assume the Pi accepted. fw-info is re-published by the
+      // firmware after enroll, but we also update locally so the prompt
+      // disappears immediately.
+      if (!entry.fwInfo) entry.fwInfo = {};
+      entry.fwInfo.authorized = [...(entry.fwInfo.authorized || []), myFingerprint];
+      renderEntry(entry);
+    }
+  });
 
   updateHeaderActions();
 }

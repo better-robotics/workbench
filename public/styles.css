@@ -367,6 +367,21 @@ details.tray[open] > :not(summary) { margin-top: 12px; }
 }
 .robot-state.sticky::before { animation: none; background: var(--ink-muted); }
 @keyframes robot-state-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+/* Enroll prompt — appears on a connected robot whose authorized list
+   doesn't contain this dashboard's fingerprint. Empty list = TOFU invite. */
+.enroll-prompt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--border-subtle);
+  font-size: 13px;
+}
+.enroll-prompt.muted { color: var(--ink-muted); }
 .last-event {
   margin-top: 12px;
   padding-top: 8px;

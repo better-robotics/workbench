@@ -61,6 +61,16 @@ export async function installPackage(id, name, opts = {}) {
   }
 }
 
+export async function enrollKey(id, pubkeyLine) {
+  const entry = state.devices.get(id);
+  if (!entry?.opsChar) return false;
+  if (await sendCommand(entry, "ops", { op: "enroll-key", args: { pubkey: pubkeyLine } })) {
+    logFor(entry, "enroll requested");
+    return true;
+  }
+  return false;
+}
+
 export function makeCommandCap(schema) {
   const { name } = schema;
   const char = schema.char || UUIDS_BY_CAP[name];
