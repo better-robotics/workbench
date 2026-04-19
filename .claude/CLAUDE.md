@@ -26,10 +26,5 @@ This is an AI-edited codebase. Every line of comment is context cost. The global
 
 # Dialog vs menu dismiss behavior
 
-Outside-click and Escape dismiss are not universal. Apply by class:
-
-- **Menus + popovers** (`robot-menu`, help popovers): dismiss on both outside-click and Escape. That's the expected affordance; users reach for "click away" to close a menu.
-- **Quick-view dialogs** (`label-modal`, `settings-modal`, `pinout-modal`): dismiss on outside-click via `wireDialogOutsideClick()` and on Escape (native `<dialog>`). Low cost to reopen, zero session state to lose.
-- **Session dialogs** (`recovery-modal`, `prepare-dialog`): **do NOT wire `wireDialogOutsideClick`.** These carry live work — terminal session with scrollback, multi-step SD write. An accidental click outside silently kills the connection or aborts mid-flight. Users close them with the explicit × button or Cancel button. Escape behavior stays native (closes), because that's an intentional keystroke.
-
-If you're adding a new dialog, ask: "does closing this by accident destroy something the user was doing?" If yes, session dialog rules. If no, quick-view rules.
+- **Menus + popovers** (`robot-menu`, `avatar-menu`, help popovers): dismiss on both outside-click and Escape. Users reach for "click away" to close a menu; that's the expected affordance.
+- **Dialogs (all of them)**: close only via the explicit × button or Escape (native `<dialog>` default). Outside-click dismiss is NOT wired — same rule for quick-views and session dialogs alike, because the cost of accidentally nuking a session dialog (recovery terminal, SD prep) outweighs the tiny convenience win for reopening a quick-view. `wireDialogOutsideClick()` exists in `dom.js` but isn't used; keep it out unless there's a clear reason.

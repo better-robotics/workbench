@@ -1,5 +1,5 @@
 import { SERVICE_UUID, FW_INFO_CHAR_UUID, decodeJson } from "./ble.js";
-import { $, escapeHtml, wireDialogOutsideClick } from "./dom.js";
+import { $, escapeHtml } from "./dom.js";
 import { log, logFor, setLogRenderer } from "./log.js";
 import { settings, saveSettings } from "./settings.js";
 import {
@@ -439,8 +439,6 @@ document.addEventListener("DOMContentLoaded", () => {
   $("empty-scan-btn").addEventListener("click", scanForNew);
   $("connect-all-btn").addEventListener("click", connectAll);
 
-  wireDialogOutsideClick($("settings-modal"));
-  wireDialogOutsideClick($("label-modal"));
 
   // robot-menu is popover="manual" so neither Escape nor outside-click are
   // native — both need explicit listeners at document level.
@@ -606,7 +604,6 @@ document.addEventListener("DOMContentLoaded", () => {
   $("add-robot-btn").addEventListener("click", openSetup);
   $("empty-add-robot-btn").addEventListener("click", openSetup);
   $("setup-close").addEventListener("click", () => $("setup-dialog").close());
-  wireDialogOutsideClick($("setup-dialog"));
 
   // Assistant mascot stays visible at all times; clicking it toggles the speech-bubble panel.
   $("assistant-bubble").addEventListener("click", () => {

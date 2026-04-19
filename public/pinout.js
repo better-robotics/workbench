@@ -1,4 +1,4 @@
-import { $, escapeHtml, wireDialogOutsideClick } from "./dom.js";
+import { $, escapeHtml } from "./dom.js";
 import { state } from "./state.js";
 
 // BCM GPIO numbers are what capability config and firmware use; the physical
@@ -101,5 +101,4 @@ export function openPinoutDialog(id) {
 
 export function initPinout() {
   $("pinout-close").addEventListener("click", () => $("pinout-modal").close());
-  wireDialogOutsideClick($("pinout-modal"));
 }

@@ -48,6 +48,8 @@
 
 html, body {
   margin: 0;
+  height: 100%;
+  overflow: hidden;  /* app-shell: scrolling happens inside <main>, not the page */
   background: var(--bg);
   color: var(--ink);
   font-family: system-ui, -apple-system, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
@@ -481,16 +483,22 @@ details.tray[open] > :not(summary) { margin-top: 12px; }
 .pin-cell.claimed .pin-label { color: #1d4ed8; }
 .pin-cell.claimed .pin-claim { color: #1d4ed8; font-weight: 500; }
 
+/* Recovery console — widened to fit 80 cols at 13px, flex-column so the
+   term container has a measurable size for FitAddon to read. */
+#recovery-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(820px, calc(100vw - 32px));
+  height: min(640px, calc(100vh - 64px));
+}
 .recovery-term {
   background: #1e1e1e;
   border-radius: 8px;
   padding: 8px;
-  min-height: 360px;
+  flex: 1;
+  min-height: 0;  /* default `min-height: auto` on flex items prevents shrinking below content */
+  overflow: hidden;
 }
-/* xterm.js owns the canvas; give it room to breathe. */
-.recovery-term .xterm,
-.recovery-term .xterm-viewport,
-.recovery-term .xterm-screen { height: 100% !important; }
 
 .robot-camera {
   display: block;

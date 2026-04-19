@@ -8,9 +8,11 @@ let _port = null;
 let _reader = null;
 let _writer = null;
 let _term = null;
+let _fit = null;
 let _xtermModule = null;
 
 function setStatus(msg) { $("recovery-status").textContent = msg; }
+function refitTerm() { try { _fit?.fit(); } catch {} }
 
 async function ensureXtermLoaded() {
   if (_xtermModule) return _xtermModule;
@@ -21,7 +23,11 @@ async function ensureXtermLoaded() {
     link.dataset.xtermCss = "1";
     document.head.appendChild(link);
   }
-  _xtermModule = await import("https://cdn.jsdelivr.net/npm/@xterm/xterm@5/+esm");
+  const [core, fit] = await Promise.all([
+    import("https://cdn.jsdelivr.net/npm/@xterm/xterm@5/+esm"),
+    import("https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10/+esm"),
+  ]);
+  _xtermModule = { Terminal: core.Terminal, FitAddon: fit.FitAddon };
   return _xtermModule;
 }
 
@@ -42,7 +48,7 @@ async function connect() {
   setStatus("connected");
   $("recovery-connect").textContent = "Disconnect";
 
-  const { Terminal } = await ensureXtermLoaded();
+  const { Terminal, FitAddon } = await ensureXtermLoaded();
   const container = $("recovery-term");
   container.innerHTML = "";
   _term = new Terminal({
@@ -52,7 +58,11 @@ async function connect() {
     convertEol: false,
     theme: { background: "#1e1e1e", foreground: "#e4e4e4", cursor: "#e4e4e4" },
   });
+  _fit = new FitAddon();
+  _term.loadAddon(_fit);
   _term.open(container);
+  _fit.fit();
+  window.addEventListener("resize", refitTerm);
   _term.focus();
 
   _term.onData(async (data) => {
@@ -81,6 +91,9 @@ async function disconnect() {
   try { _writer?.releaseLock(); } catch {}
   try { await _port?.close(); } catch {}
   _reader = _writer = _port = null;
+  window.removeEventListener("resize", refitTerm);
+  _fit?.dispose();
+  _fit = null;
   _term?.dispose();
   _term = null;
   setStatus("disconnected");
