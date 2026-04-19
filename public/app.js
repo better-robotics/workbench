@@ -18,6 +18,7 @@ import { initVoice } from "./voice.js";
 import { initPrepare } from "./prepare.js";
 import { initAuthUI, fingerprint as dashFingerprint, pubkeySsh, onKeyChange } from "./auth.js";
 import { initPasswordsUI } from "./passwords.js";
+import { initAssistant } from "./assistant.js";
 
 setLogRenderer((entry) => renderEntry(entry));
 setDisconnectHandler((id) => onDisconnected(id));
@@ -809,17 +810,6 @@ document.addEventListener("DOMContentLoaded", () => {
   $("empty-add-robot-btn").addEventListener("click", openSetup);
   $("setup-close").addEventListener("click", () => $("setup-dialog").close());
 
-  // Assistant mascot stays visible at all times; clicking it toggles the speech-bubble panel.
-  // While the panel is open its content is a message from the bot, so mirror onto `.speaking`.
-  const bubble = $("assistant-bubble");
-  const panel = $("assistant-panel");
-  const setSpeaking = (on) => bubble.classList.toggle("speaking", on);
-  bubble.addEventListener("click", () => {
-    if (panel.open) { panel.close(); setSpeaking(false); }
-    else { panel.show(); setSpeaking(true); }
-  });
-  $("assistant-close").addEventListener("click", () => { panel.close(); setSpeaking(false); });
-
   initGamepad();
   initVoice({ connectAll });
   initPrepare();
@@ -827,6 +817,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initPinout();
   initAuthUI();
   initPasswordsUI();
+  initAssistant();
 
   loadPaired().then(() => {
     highlightKnownRobotFromUrl();
