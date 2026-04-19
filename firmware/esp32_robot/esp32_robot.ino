@@ -12,7 +12,6 @@
 #include <Update.h>
 #include <mbedtls/sha256.h>
 #include "esp_camera.h"
-#include "esp_http_server.h"
 
 // AI-Thinker ESP32-CAM pin map. Matches the OV2640/OV3660/OV5640 socket on
 // the standard AI-Thinker board (the one paired with CAM-MB). If a future
@@ -104,7 +103,7 @@ bool ledOn = false;
 
 static bool cameraReady = false;
 static int  cameraInitError = 0;  // 0 if no init attempted or success
-static httpd_handle_t streamHttpd = nullptr;
+static TaskHandle_t streamTaskHandle = nullptr;
 
 // WiFi state machine — non-blocking, polled from loop().
 enum WifiPhase { PHASE_IDLE, PHASE_SCANNING, PHASE_JOINING };
@@ -238,40 +237,46 @@ static bool initCamera() {
   return true;
 }
 
-// MJPEG over HTTP — data plane rides joined WiFi; dashboard loads the stream
-// with a plain <img src="http://<ip>:81/stream">. CORS open so the dashboard
-// origin (GitHub Pages) can pull from this LAN-local server.
-static esp_err_t streamHandler(httpd_req_t *req) {
-  httpd_resp_set_type(req, "multipart/x-mixed-replace;boundary=frame");
-  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-  char hdr[96];
+// MJPEG over HTTP — raw WiFiServer in a FreeRTOS task. Picked over
+// esp_http_server because the latter's IRAM footprint pushed us 1952 B over
+// iram0_0_seg. This variant only pulls in LwIP + JPEG dataflow (camera
+// driver already resident) and holds up fine for classroom-distance streams.
+static void streamTask(void* param) {
+  WiFiServer server(81);
+  server.begin();
+  Serial.println("MJPEG task ready on :81/stream");
   while (true) {
-    camera_fb_t *fb = esp_camera_fb_get();
-    if (!fb) return ESP_FAIL;
-    if (httpd_resp_send_chunk(req, "\r\n--frame\r\n", 11) != ESP_OK) { esp_camera_fb_return(fb); return ESP_FAIL; }
-    int hlen = snprintf(hdr, sizeof(hdr),
-      "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n", fb->len);
-    if (httpd_resp_send_chunk(req, hdr, hlen) != ESP_OK) { esp_camera_fb_return(fb); return ESP_FAIL; }
-    if (httpd_resp_send_chunk(req, (const char*)fb->buf, fb->len) != ESP_OK) { esp_camera_fb_return(fb); return ESP_FAIL; }
-    esp_camera_fb_return(fb);
+    WiFiClient client = server.accept();
+    if (!client) { vTaskDelay(50 / portTICK_PERIOD_MS); continue; }
+    client.setNoDelay(true);
+    // Drain request headers — we only serve /stream, so any GET is fine.
+    unsigned long headerStart = millis();
+    while (client.connected() && millis() - headerStart < 2000) {
+      String line = client.readStringUntil('\n');
+      if (line.length() <= 1) break;  // end of headers (blank line)
+    }
+    // CORS open so the dashboard on GitHub Pages can load the stream as <img>.
+    client.print("HTTP/1.1 200 OK\r\n"
+                 "Content-Type: multipart/x-mixed-replace;boundary=frame\r\n"
+                 "Access-Control-Allow-Origin: *\r\n"
+                 "Connection: close\r\n\r\n");
+    while (client.connected()) {
+      camera_fb_t *fb = esp_camera_fb_get();
+      if (!fb) break;
+      client.printf("\r\n--frame\r\nContent-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n", fb->len);
+      size_t written = client.write(fb->buf, fb->len);
+      esp_camera_fb_return(fb);
+      if (written != fb->len) break;  // client disconnected mid-frame
+      vTaskDelay(1 / portTICK_PERIOD_MS);  // yield the core briefly
+    }
+    client.stop();
   }
-  return ESP_OK;
 }
 
 static void startCameraServer() {
-  if (streamHttpd) return;
-  httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-  config.server_port = 81;
-  // Default ctrl_port 32768 collides with WiFi's SNTP client on some builds;
-  // bump it off the beaten path.
-  config.ctrl_port = 32769;
-  httpd_uri_t stream_uri = { "/stream", HTTP_GET, streamHandler, nullptr };
-  if (httpd_start(&streamHttpd, &config) == ESP_OK) {
-    httpd_register_uri_handler(streamHttpd, &stream_uri);
-    Serial.println("MJPEG stream on :81/stream");
-  } else {
-    Serial.println("httpd_start failed");
-  }
+  if (streamTaskHandle) return;
+  // Pin to core 1 — core 0 runs WiFi + BLE stacks; keep them uncontested.
+  xTaskCreatePinnedToCore(streamTask, "mjpeg", 4096, nullptr, 1, &streamTaskHandle, 1);
 }
 
 static void publishFwInfo() {
