@@ -1,4 +1,4 @@
-import { $, wireDialogOutsideClick } from "./dom.js";
+import { $ } from "./dom.js";
 
 const FIRMWARE_URL    = "firmware/pi_robot";
 const FIRMWARE_FILES  = [
@@ -176,7 +176,9 @@ export function initPrepare() {
   $("prepare-open-btn").addEventListener("click", openDialog);
   $("prepare-close").addEventListener("click", closeDialog);
   $("prep-cancel-btn").addEventListener("click", closeDialog);
-  wireDialogOutsideClick($("prepare-dialog"));
+  // No outside-click dismiss — SD-prep is a multi-step write to the card.
+  // Accidental close mid-flight leaves a partially-prepped card. Use × or
+  // Cancel explicitly.
 
   $("prep-sshkey-load").addEventListener("click", () => {
     const input = document.createElement("input");

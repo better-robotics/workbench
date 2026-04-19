@@ -1,7 +1,7 @@
 // Works even when BLE is dead: the USB gadget runs under its own systemd unit
 // (usb-gadget.service) independently of pi-robot. xterm.js is dynamic-imported
 // on first Connect so the ~250KB library only downloads when actually used.
-import { $, wireDialogOutsideClick } from "./dom.js";
+import { $ } from "./dom.js";
 import { log } from "./log.js";
 
 let _port = null;
@@ -94,7 +94,8 @@ export function openRecoveryDialog() {
 export function initRecovery() {
   $("recovery-close").addEventListener("click", () => $("recovery-modal").close());
   $("recovery-connect").addEventListener("click", () => _port ? disconnect() : connect());
-  wireDialogOutsideClick($("recovery-modal"));
-  // Tear down the serial session on any close path so we don't leak the port.
+  // No outside-click dismiss — terminal session is real work; accidental
+  // clicks outside the modal used to kill the connection and scrollback.
+  // Explicit × button is the only way out.
   $("recovery-modal").addEventListener("close", () => { if (_port) disconnect(); });
 }

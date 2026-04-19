@@ -23,3 +23,13 @@ This is an AI-edited codebase. Every line of comment is context cost. The global
 **Heuristic:** if a comment explains why a line LOOKS wrong or surprising, keep it. If it only says what the code does, cut it.
 
 **Commit comments + docstrings follow the same rule.** `working.md`, `direction.md`, and architecture docs are prose by design — those stay discursive. Source code is not.
+
+# Dialog vs menu dismiss behavior
+
+Outside-click and Escape dismiss are not universal. Apply by class:
+
+- **Menus + popovers** (`robot-menu`, help popovers): dismiss on both outside-click and Escape. That's the expected affordance; users reach for "click away" to close a menu.
+- **Quick-view dialogs** (`label-modal`, `settings-modal`, `pinout-modal`): dismiss on outside-click via `wireDialogOutsideClick()` and on Escape (native `<dialog>`). Low cost to reopen, zero session state to lose.
+- **Session dialogs** (`recovery-modal`, `prepare-dialog`): **do NOT wire `wireDialogOutsideClick`.** These carry live work — terminal session with scrollback, multi-step SD write. An accidental click outside silently kills the connection or aborts mid-flight. Users close them with the explicit × button or Cancel button. Escape behavior stays native (closes), because that's an intentional keystroke.
+
+If you're adding a new dialog, ask: "does closing this by accident destroy something the user was doing?" If yes, session dialog rules. If no, quick-view rules.
