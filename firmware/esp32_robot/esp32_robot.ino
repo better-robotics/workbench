@@ -280,7 +280,10 @@ static void publishFwInfo() {
   // motors / wifi UI even when the camera failed to init. Each cap maps to
   // an existing BLE characteristic via the dashboard's UUIDS_BY_CAP table.
   String info = "{\"type\":\"esp32\",\"url\":\"firmware/bins/esp32_robot.bin\"";
-  info += ",\"build\":\"" __DATE__ " " __TIME__ "\"";  // diagnostic stamp
+  // `version` field matches the Pi's fw-info shape so the dashboard's menu
+  // header renders it the same way for both platforms. Pi stamps a git SHA
+  // in CI; ESP32 uses compile-time timestamp until CI learns to stamp.
+  info += ",\"version\":\"" __DATE__ " " __TIME__ "\"";
   info += ",\"caps\":[";
   info += "{\"name\":\"led\",\"type\":\"toggle\"}";
   info += ",{\"name\":\"wifi\",\"type\":\"wifi-scan\"}";
