@@ -61,6 +61,28 @@ function handleOpsResponse(entry, msg) {
   }
 }
 
+// Per-robot expand/collapse preference. Persisted so a user's choice sticks
+// across sessions. Absence of a key = fall back to smart default (see
+// computeExpanded). Live-busy state (installing, rebooting) always forces
+// expanded so progress is visible regardless of preference.
+const EXPANSION_KEY = "robot-expansion-v1";
+function loadExpansionPrefs() {
+  try { return JSON.parse(localStorage.getItem(EXPANSION_KEY) || "{}"); }
+  catch { return {}; }
+}
+function setExpansionPref(id, expanded) {
+  const prefs = loadExpansionPrefs();
+  prefs[id] = expanded;
+  try { localStorage.setItem(EXPANSION_KEY, JSON.stringify(prefs)); } catch {}
+}
+function computeExpanded(entry) {
+  const live = entry.robotStatus;
+  if (live && live.st && live.st !== "ready") return true;  // mid-flight work wins
+  const prefs = loadExpansionPrefs();
+  if (entry.id in prefs) return prefs[entry.id];
+  return state.devices.size === 1;  // solo robot → expand; crowd → let user pick
+}
+
 // Dashboard's own fingerprint. Cached sync so renderEntry can compare
 // against fw-info.authorized without awaiting. Refreshed whenever the
 // keypair changes (generate / import / regenerate).
@@ -497,26 +519,36 @@ function renderEntry(entry) {
   const typeBadge = entry.fwType
     ? `<span class="type-badge type-${escapeHtml(entry.fwType)}">${escapeHtml(entry.fwType === "esp32" ? "ESP32" : entry.fwType.toUpperCase())}</span>`
     : "";
+  // WiFi pill earns its slot on the collapsed view: tells the user at a glance
+  // whether fast-lane OTA is available without expanding.
+  const wifiChip = connected && entry.wifiStatus?.ip
+    ? `<span class="transport-chip">WiFi</span>` : "";
+  const expanded = computeExpanded(entry);
+  entry.node.classList.toggle("expanded", expanded);
+  const chevronTitle = expanded ? "Collapse" : "Expand";
   entry.node.innerHTML = `
     <div class="row">
       <div>
-        <div class="label"><span class="dot${dotClass}"></span>${escapeHtml(name)}${typeBadge}</div>
+        <div class="label"><span class="dot${dotClass}"></span>${escapeHtml(name)}${typeBadge}${wifiChip}</div>
         ${statusText ? `<div class="status">${statusText}</div>` : ""}
       </div>
-      <div style="display: flex; gap: 4px;">
+      <div style="display: flex; gap: 4px; align-items: center;">
         ${connected
           ? `<button class="secondary sm" data-action="disconnect">Disconnect</button>`
           : `<button class="sm" data-action="connect" ${connecting ? "disabled" : ""}>${
               connecting ? "Connecting…" : (entry.device ? "Connect" : "Pair")
             }</button>`}
+        <button class="icon chevron" data-action="toggle-expand" aria-label="${chevronTitle}" title="${chevronTitle}"><svg class="icon-svg"><use href="icons.svg#icon-chevron-down"/></svg></button>
         <button class="icon" data-action="menu" aria-label="More actions"><svg class="icon-svg"><use href="icons.svg#icon-more"/></svg></button>
       </div>
     </div>
     ${stateHtml}
-    ${telemetryHtml(entry)}
-    ${enrollHtml}
-    ${sections}
-    ${entry.lastEvent ? `<div class="last-event">${escapeHtml(entry.lastEvent)}</div>` : ""}
+    <div class="robot-body"${expanded ? "" : " hidden"}>
+      ${telemetryHtml(entry)}
+      ${enrollHtml}
+      ${sections}
+      ${entry.lastEvent ? `<div class="last-event">${escapeHtml(entry.lastEvent)}</div>` : ""}
+    </div>
   `;
   for (const cap of CAPABILITIES) cap.wireActions(entry, entry.node);
   for (const cap of entry.runtimeCaps || []) cap.wireActions(entry, entry.node);
@@ -529,6 +561,11 @@ function renderEntry(entry) {
   if (disconnectBtn) disconnectBtn.addEventListener("click", () => disconnect(id));
   const menuBtn = entry.node.querySelector('[data-action="menu"]');
   if (menuBtn) menuBtn.addEventListener("click", () => openMenu(menuBtn, id));
+  const expandBtn = entry.node.querySelector('[data-action="toggle-expand"]');
+  if (expandBtn) expandBtn.addEventListener("click", () => {
+    setExpansionPref(id, !entry.node.classList.contains("expanded"));
+    renderEntry(entry);
+  });
   const enrollBtn = entry.node.querySelector('[data-action="enroll"]');
   if (enrollBtn) enrollBtn.addEventListener("click", async () => {
     const pub = await pubkeySsh();
