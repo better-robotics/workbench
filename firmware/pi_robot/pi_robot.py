@@ -562,14 +562,13 @@ async def _cam_install() -> None:
             fail("apt update", rc, tail); return
         rc, tail = await _run_install_cmd(
             "apt install",
-            ["apt-get", "install", "-y",
-             "python3-picamera2", "ffmpeg", "libsrtp2-dev",
-             # Some Pi OS images ship without pip; the pip step below fails
-             # with "No module named pip" otherwise.
-             "python3-pip",
-             # Build deps — aiortc pulls in cffi, cryptography, pylibsrtp
-             # which can fall back to source build on some images.
-             "python3-dev", "libffi-dev", "libssl-dev", "build-essential"],
+            # Runtime-only: aiortc / av / cryptography / cffi / pylibsrtp
+            # ship aarch64 manylinux wheels on PyPI, so pip doesn't need
+            # source build tools. libssl-dev was previously in this list
+            # but hit Trixie's t64 transition (unsatisfiable libssl3t64 pin)
+            # and killed the install. python3-pip covers "no pip" images.
+            ["apt-get", "install", "-y", "--no-install-recommends",
+             "python3-picamera2", "ffmpeg", "python3-pip"],
         )
         if rc != 0:
             fail("apt install", rc, tail); return
