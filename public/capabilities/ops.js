@@ -40,6 +40,19 @@ export async function restartService(id) {
   }
 }
 
+export async function rebootRobot(id) {
+  const entry = state.devices.get(id);
+  if (!entry?.opsChar) return;
+  if (!confirm(
+    `Reboot the robot?\n\nFull system reboot — needed when a kernel-owned ` +
+    `resource is stuck (camera, USB gadget, etc.) and a service restart ` +
+    `can't clear it. BLE drops for 30–60 s.`
+  )) return;
+  if (await sendOp(entry, { op: "reboot" })) {
+    logFor(entry, "reboot requested");
+  }
+}
+
 export async function installPackage(id, name, opts = {}) {
   const entry = state.devices.get(id);
   if (!entry?.opsChar) {

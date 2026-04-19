@@ -505,10 +505,15 @@ class _PiCameraTrack(MediaStreamTrack if _camera_available else object):  # type
         return frame
 
     def stop(self) -> None:
-        try:
-            self.camera.stop()
-        except Exception:
-            pass
+        # stop() halts capture but doesn't release the camera HAL — close()
+        # fully releases so a subsequent Picamera2() can claim it cleanly.
+        # Skipping close() leaves the kernel's CSI allocation live; a quick
+        # re-Start on the dashboard then fails with "Camera __init__
+        # sequence did not complete." until reboot.
+        try: self.camera.stop()
+        except Exception: pass
+        try: self.camera.close()
+        except Exception: pass
         super().stop()
 
 
@@ -609,6 +614,12 @@ def _ops_handle_write(data: bytearray) -> None:
     if op == "restart-service":
         log.info("ops: restart-service")
         subprocess.Popen(["systemctl", "restart", "pi-robot.service"])
+    elif op == "reboot":
+        # Full system reboot — needed when a kernel-owned resource is stuck
+        # (camera CSI allocation, wedged USB gadget, etc.) and a plain
+        # service restart can't clear it. BLE drops for ~30-60 s.
+        log.info("ops: reboot")
+        subprocess.Popen(["systemctl", "reboot"])
     elif op == "install-pkg":
         name = args.get("name")
         if name == "camera":

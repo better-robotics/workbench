@@ -12,7 +12,7 @@ import {
 } from "./state.js";
 import { ALL as CAPABILITIES, setCapabilityRenderer } from "./capabilities/index.js";
 import { updateFirmware, updateFromFile } from "./capabilities/ota.js";
-import { restartService } from "./capabilities/ops.js";
+import { restartService, rebootRobot } from "./capabilities/ops.js";
 import { initRecovery, openRecoveryDialog } from "./recovery.js";
 import { initPinout, openPinoutDialog } from "./pinout.js";
 import { initGamepad } from "./gamepad.js";
@@ -479,6 +479,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const id = menuTargetId;
     closeMenu();
     if (id) restartService(id);
+  });
+  $("menu-reboot").addEventListener("click", () => {
+    const id = menuTargetId;
+    closeMenu();
+    if (id) rebootRobot(id);
   });
   $("menu-pinout").addEventListener("click", () => {
     const id = menuTargetId;
