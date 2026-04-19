@@ -5,7 +5,7 @@
 import { $ } from "./dom.js";
 import { log } from "./log.js";
 import { state } from "./state.js";
-import { sendMotors } from "./capabilities/motors.js";
+import { sendPairById } from "./capabilities/runtime/signed-pair.js";
 
 const GAMEPAD_DEADZONE = 0.10;
 let _gamepadTargetId = null;
@@ -14,10 +14,10 @@ let _gamepadRafHandle = null;
 function pickGamepadTarget() {
   if (_gamepadTargetId) {
     const e = state.devices.get(_gamepadTargetId);
-    if (e && e.motorChar && e.status === "connected") return _gamepadTargetId;
+    if (e && e.motorsChar && e.status === "connected") return _gamepadTargetId;
   }
   for (const e of state.devices.values()) {
-    if (e.motorChar && e.status === "connected") return e.id;
+    if (e.motorsChar && e.status === "connected") return e.id;
   }
   return null;
 }
@@ -47,7 +47,7 @@ function gamepadTick() {
       const dz = Math.abs(v) < GAMEPAD_DEADZONE ? 0 : v;
       return Math.round(-dz * 100);  // invert so stick-up = forward
     };
-    sendMotors(id, toMotor(ly), toMotor(ry));
+    sendPairById(id, "motors", toMotor(ly), toMotor(ry));
   }
   renderGamepadBadge(id, pad.id);
   _gamepadRafHandle = requestAnimationFrame(gamepadTick);

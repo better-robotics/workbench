@@ -5,12 +5,15 @@
 // As more types migrate (signed-pair, wifi-scan, bundle-ota, …), add them
 // here. Capabilities not yet migrated stay in capabilities/*.js as
 // hand-written modules; both run side-by-side during the transition.
-import { makeToggleCap, setRender as setToggleRender } from "./toggle.js";
+import { makeToggleCap,     setRender as setToggleRender     } from "./toggle.js";
+import { makeSignedPairCap, setRender as setSignedPairRender } from "./signed-pair.js";
 
 export const RUNTIMES = {
-  toggle: makeToggleCap,
+  toggle:        makeToggleCap,
+  "signed-pair": makeSignedPairCap,
 };
 
 export function setRuntimeRenderer(fn) {
   setToggleRender(fn);
+  setSignedPairRender(fn);
 }

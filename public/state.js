@@ -1,5 +1,5 @@
 // Entry is the unit of state. One per paired robot. Each capability stores
-// its live references directly on the entry (ledChar, motorChar, wifiStatus,
+// its live references directly on the entry (ledChar, motorsChar, wifiStatus,
 // cameraPc, etc.) — flat for ergonomics; a capability's section in the card
 // is the only place that reads/writes its own fields.
 const STORAGE_KEY = "better-robotics:known";
@@ -37,8 +37,9 @@ export function makeEntry(id, name) {
     wifiScanChar: null, wifiJoinChar: null, wifiStatusChar: null,
     wifiStatus: { st: "idle" }, wifiNetworks: null, wifiScanning: false,
     otaDataChar: null, otaStatusChar: null, otaStatus: { st: "idle" }, fwInfo: null,
-    motorChar: null, motorLeft: 0, motorRight: 0,
-    motorSending: false, motorPending: null,
+    // Motors moved to the generic signed-pair runtime — fields come in
+    // via cap.initEntry() on connect as `motorsChar`, `motorsLeft`,
+    // `motorsRight`, `motorsSending`, `motorsPending`.
     cameraSignalChar: null, cameraStatusChar: null,
     cameraPc: null, cameraStream: null,
     cameraRecvBuf: null, cameraStatus: null,

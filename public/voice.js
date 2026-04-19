@@ -8,7 +8,7 @@ import { $ } from "./dom.js";
 import { log } from "./log.js";
 import { settings, saveSettings } from "./settings.js";
 import { state } from "./state.js";
-import { sendMotors } from "./capabilities/motors.js";
+import { sendPairById } from "./capabilities/runtime/signed-pair.js";
 import { setToggleValue, toggleCapValue } from "./capabilities/runtime/toggle.js";
 
 let _recognition = null;
@@ -27,7 +27,7 @@ function dispatchVoice(transcript) {
   if (/\b(connect all|join all)\b/.test(t)) return _connectAll();
   if (/\b(stop|halt|emergency|e.?stop)\b/.test(t)) {
     for (const e of state.devices.values()) {
-      if (e.motorChar && e.status === "connected") sendMotors(e.id, 0, 0);
+      if (e.motorsChar && e.status === "connected") sendPairById(e.id, "motors", 0, 0);
     }
     return;
   }
