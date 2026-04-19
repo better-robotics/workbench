@@ -416,10 +416,13 @@ function renderEntry(entry) {
   const typeBadge = entry.fwType
     ? `<span class="type-badge type-${escapeHtml(entry.fwType)}">${escapeHtml(entry.fwType === "esp32" ? "ESP32" : entry.fwType.toUpperCase())}</span>`
     : "";
+  const versionBadge = entry.fwInfo?.version
+    ? `<span class="version-badge" title="Firmware commit">${escapeHtml(entry.fwInfo.version)}</span>`
+    : "";
   entry.node.innerHTML = `
     <div class="row">
       <div>
-        <div class="label"><span class="dot${dotClass}"></span>${escapeHtml(name)}${typeBadge}</div>
+        <div class="label"><span class="dot${dotClass}"></span>${escapeHtml(name)}${typeBadge}${versionBadge}</div>
         ${statusText ? `<div class="status">${statusText}</div>` : ""}
       </div>
       <div style="display: flex; gap: 4px;">

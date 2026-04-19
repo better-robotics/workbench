@@ -308,6 +308,18 @@ button.icon:hover { background: var(--line); color: var(--ink); }
 .type-badge.type-pi    { color: var(--success); }
 .type-badge.type-esp32 { color: var(--accent); }
 
+/* Version badge — short commit SHA from fw-info.version. Monospace +
+   muted so it reads as a diagnostic detail, not a primary label. */
+.version-badge {
+  font-size: 10px;
+  font-family: "SF Mono", ui-monospace, Menlo, monospace;
+  color: var(--ink-muted);
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--border-subtle);
+  letter-spacing: 0;
+}
+
 .robots-heading {
   display: flex;
   align-items: center;

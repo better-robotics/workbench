@@ -56,7 +56,7 @@ export function initPasswordsUI() {
   const render = () => {
     const items = listPasswords();
     if (items.length === 0) {
-      host.innerHTML = `<div class="meta">None yet — generated when you leave the password blank in Customize card.</div>`;
+      host.innerHTML = `<div class="meta">None yet — generated during Pi setup when you leave the password blank.</div>`;
       return;
     }
     host.innerHTML = items.map(i => `

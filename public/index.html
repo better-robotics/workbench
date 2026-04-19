@@ -114,7 +114,7 @@
   </div>
   <div class="settings-item passwords-row">
     <div class="settings-title">Robot passwords</div>
-    <div class="meta">Auto-generated during Customize card when you leave the password blank. SSH uses the key; these are here for sudo / terminal login.</div>
+    <div class="meta">Auto-generated during Pi setup when you leave the password blank. SSH uses the key; these are here for sudo / terminal login.</div>
     <div id="passwords-list"></div>
   </div>
   <div class="settings-item">
@@ -171,7 +171,7 @@
 
 <dialog id="prepare-dialog" class="prepare-dialog">
   <div class="modal-header">
-    <div class="label">Customize a Pi SD card</div>
+    <div class="label">Set up a Pi robot</div>
     <button class="icon" id="prepare-close" aria-label="Close"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
   </div>
   <p class="meta" style="margin: 0 0 16px;">
@@ -250,9 +250,9 @@
       </esp-web-install-button>
     </section>
     <section class="card setup-item">
-      <div class="label">Customize a Pi SD card</div>
-      <div class="meta">Pi OS already on the card (via Raspberry Pi Imager)? Stage firmware, wheels, SSH key on the boot partition.</div>
-      <button class="secondary" type="button" id="prepare-open-btn">Customize card</button>
+      <div class="label">Set up a Pi robot</div>
+      <div class="meta">Pi OS already on the card (via Raspberry Pi Imager)? Stages firmware, wheels, dashboard key, and the Better Robotics runtime onto the boot partition.</div>
+      <button class="secondary" type="button" id="prepare-open-btn">Set up</button>
     </section>
   </div>
 </dialog>

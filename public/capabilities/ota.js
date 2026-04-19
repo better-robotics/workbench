@@ -44,7 +44,11 @@ async function streamOtaBytes(entry, bytes) {
 
 async function buildBundle(entry, manifestUrl) {
   manifestUrl = manifestUrl || entry.fwInfo?.bundle_url;
-  const manifest = await (await fetch(manifestUrl, { cache: "no-cache" })).json();
+  // Query-string cache-bust beats Cache-Control: unique URL bypasses the GH
+  // Pages CDN as well as the browser cache. Otherwise a freshly-published
+  // manifest can be served stale for a minute after CI finishes.
+  const busted = `${manifestUrl}${manifestUrl.includes("?") ? "&" : "?"}v=${Date.now()}`;
+  const manifest = await (await fetch(busted, { cache: "no-cache" })).json();
   const files = {};
   for (const spec of manifest.files || []) {
     const src = spec.src;
@@ -79,7 +83,8 @@ export async function updateFirmware(id) {
     try {
       const bundle = await buildBundle(entry, bundleUrl);
       bytes = new TextEncoder().encode(JSON.stringify(bundle));
-      logFor(entry, `bundle ready: ${bundle.manifest.files.length} files, ${bytes.length} B`);
+      const stamp = bundle.manifest.commit ? ` · commit ${bundle.manifest.commit}` : "";
+      logFor(entry, `bundle ready: ${bundle.manifest.files.length} files, ${bytes.length} B${stamp}`);
     } catch (err) {
       logFor(entry, `bundle build failed: ${err.message}`);
       return;

@@ -84,7 +84,13 @@ publish-pi-firmware:
 	pip download --no-deps --platform manylinux2014_aarch64 --python-version 311 --implementation cp --only-binary=:all: -d public/firmware/pi_robot/wheels/ bless bleak dbus-fast dbus-next typing-extensions
 	pip download --no-deps --platform manylinux2014_aarch64 --python-version 313 --implementation cp --only-binary=:all: -d public/firmware/pi_robot/wheels/ bless bleak dbus-fast dbus-next typing-extensions
 	@python3 -c "import json, pathlib; d = pathlib.Path('public/firmware/pi_robot/wheels'); (d/'manifest.json').write_text(json.dumps({'wheels': sorted(p.name for p in d.glob('*.whl'))}, indent=2) + '\n')"
+	@# Stamp commit SHA so fw-info.version and ota-manifest.commit can tell you
+	@# what's running vs what you're about to flash.
+	@SHA=$$(git rev-parse --short=8 HEAD 2>/dev/null || echo "dev"); \
+		echo "SHA = \"$$SHA\"" > public/firmware/pi_robot/version.py; \
+		python3 -c "import json; p='public/firmware/pi_robot/ota-manifest.json'; m=json.load(open(p)); m['commit']='$$SHA'; open(p,'w').write(json.dumps(m, indent=2) + '\n')"; \
+		echo "Stamped version: $$SHA"
 	@echo ""
-	@echo "Pi firmware + wheels published. Commit and push to deploy. SD-card prep runs in the dashboard's Customize-card dialog."
+	@echo "Pi firmware + wheels published. Commit and push to deploy."
 
 publish: publish-firmware publish-pi-firmware
