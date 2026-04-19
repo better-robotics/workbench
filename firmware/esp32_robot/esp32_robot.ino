@@ -11,6 +11,28 @@
 #include <Preferences.h>
 #include <Update.h>
 #include <mbedtls/sha256.h>
+#include "esp_camera.h"
+#include "esp_http_server.h"
+
+// AI-Thinker ESP32-CAM pin map. Matches the OV2640/OV3660/OV5640 socket on
+// the standard AI-Thinker board (the one paired with CAM-MB). If a future
+// board variant shows up, switch on an ifdef rather than patching in place.
+#define PWDN_GPIO_NUM     32
+#define RESET_GPIO_NUM    -1
+#define XCLK_GPIO_NUM      0
+#define SIOD_GPIO_NUM     26
+#define SIOC_GPIO_NUM     27
+#define Y9_GPIO_NUM       35
+#define Y8_GPIO_NUM       34
+#define Y7_GPIO_NUM       39
+#define Y6_GPIO_NUM       36
+#define Y5_GPIO_NUM       21
+#define Y4_GPIO_NUM       19
+#define Y3_GPIO_NUM       18
+#define Y2_GPIO_NUM        5
+#define VSYNC_GPIO_NUM    25
+#define HREF_GPIO_NUM     23
+#define PCLK_GPIO_NUM     22
 
 // UUIDs — must match firmware/pi_robot/pi_robot.py exactly.
 #define SERVICE_UUID          "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d91"
@@ -80,6 +102,9 @@ Preferences prefs;
 
 bool ledOn = false;
 
+static bool cameraReady = false;
+static httpd_handle_t streamHttpd = nullptr;
+
 // WiFi state machine — non-blocking, polled from loop().
 enum WifiPhase { PHASE_IDLE, PHASE_SCANNING, PHASE_JOINING };
 WifiPhase wifiPhase = PHASE_IDLE;
@@ -109,10 +134,11 @@ static int rssiToStrength(int rssi) {
   return s;
 }
 
-static void publishStatus(const char* st, const String& ssid = "", const String& err = "") {
+static void publishStatus(const char* st, const String& ssid = "", const String& err = "", const String& ip = "") {
   String payload = "{\"st\":\""; payload += st; payload += "\"";
   if (ssid.length()) { payload += ",\"ssid\":\""; payload += jsonEscape(ssid); payload += "\""; }
   if (err.length())  { payload += ",\"err\":\"";  payload += jsonEscape(err);  payload += "\""; }
+  if (ip.length())   { payload += ",\"ip\":\"";   payload += ip;               payload += "\""; }
   payload += "}";
   if (wifiStatusChar) {
     wifiStatusChar->setValue((uint8_t*)payload.c_str(), payload.length());
@@ -176,6 +202,84 @@ static void startJoin(const String& ssid, const String& pass) {
   WiFi.disconnect(true, false);
   WiFi.begin(ssid.c_str(), pass.c_str());
   publishStatus("joining", ssid);
+}
+
+static bool initCamera() {
+  camera_config_t config = {};
+  config.ledc_channel = LEDC_CHANNEL_0;
+  config.ledc_timer   = LEDC_TIMER_0;
+  config.pin_d0 = Y2_GPIO_NUM;  config.pin_d1 = Y3_GPIO_NUM;
+  config.pin_d2 = Y4_GPIO_NUM;  config.pin_d3 = Y5_GPIO_NUM;
+  config.pin_d4 = Y6_GPIO_NUM;  config.pin_d5 = Y7_GPIO_NUM;
+  config.pin_d6 = Y8_GPIO_NUM;  config.pin_d7 = Y9_GPIO_NUM;
+  config.pin_xclk     = XCLK_GPIO_NUM;
+  config.pin_pclk     = PCLK_GPIO_NUM;
+  config.pin_vsync    = VSYNC_GPIO_NUM;
+  config.pin_href     = HREF_GPIO_NUM;
+  config.pin_sccb_sda = SIOD_GPIO_NUM;
+  config.pin_sccb_scl = SIOC_GPIO_NUM;
+  config.pin_pwdn     = PWDN_GPIO_NUM;
+  config.pin_reset    = RESET_GPIO_NUM;
+  config.xclk_freq_hz = 20000000;
+  config.pixel_format = PIXFORMAT_JPEG;
+  config.frame_size   = FRAMESIZE_VGA;   // 640×480 — generous headroom on PSRAM
+  config.jpeg_quality = 12;              // lower = higher quality
+  config.fb_count     = psramFound() ? 2 : 1;
+  config.fb_location  = psramFound() ? CAMERA_FB_IN_PSRAM : CAMERA_FB_IN_DRAM;
+  config.grab_mode    = CAMERA_GRAB_LATEST;
+  esp_err_t err = esp_camera_init(&config);
+  if (err != ESP_OK) {
+    Serial.printf("camera init failed: 0x%x\n", err);
+    return false;
+  }
+  Serial.printf("camera ok, psram=%d\n", psramFound());
+  return true;
+}
+
+// MJPEG over HTTP — data plane rides joined WiFi; dashboard loads the stream
+// with a plain <img src="http://<ip>:81/stream">. CORS open so the dashboard
+// origin (GitHub Pages) can pull from this LAN-local server.
+static esp_err_t streamHandler(httpd_req_t *req) {
+  httpd_resp_set_type(req, "multipart/x-mixed-replace;boundary=frame");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  char hdr[96];
+  while (true) {
+    camera_fb_t *fb = esp_camera_fb_get();
+    if (!fb) return ESP_FAIL;
+    if (httpd_resp_send_chunk(req, "\r\n--frame\r\n", 11) != ESP_OK) { esp_camera_fb_return(fb); return ESP_FAIL; }
+    int hlen = snprintf(hdr, sizeof(hdr),
+      "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n", fb->len);
+    if (httpd_resp_send_chunk(req, hdr, hlen) != ESP_OK) { esp_camera_fb_return(fb); return ESP_FAIL; }
+    if (httpd_resp_send_chunk(req, (const char*)fb->buf, fb->len) != ESP_OK) { esp_camera_fb_return(fb); return ESP_FAIL; }
+    esp_camera_fb_return(fb);
+  }
+  return ESP_OK;
+}
+
+static void startCameraServer() {
+  if (streamHttpd) return;
+  httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+  config.server_port = 81;
+  // Default ctrl_port 32768 collides with WiFi's SNTP client on some builds;
+  // bump it off the beaten path.
+  config.ctrl_port = 32769;
+  httpd_uri_t stream_uri = { "/stream", HTTP_GET, streamHandler, nullptr };
+  if (httpd_start(&streamHttpd, &config) == ESP_OK) {
+    httpd_register_uri_handler(streamHttpd, &stream_uri);
+    Serial.println("MJPEG stream on :81/stream");
+  } else {
+    Serial.println("httpd_start failed");
+  }
+}
+
+static void publishFwInfo() {
+  if (!fwInfoChar) return;
+  String info = "{\"type\":\"esp32\",\"url\":\"firmware/bins/esp32_robot.bin\"";
+  if (cameraReady) {
+    info += ",\"caps\":[{\"name\":\"camera\",\"type\":\"mjpeg-stream\",\"port\":81,\"path\":\"/stream\"}]";
+  }
+  info += "}";
+  fwInfoChar->setValue(info.c_str());
 }
 
 static void applyLed(bool on) {
@@ -550,7 +654,11 @@ void setup() {
     FW_INFO_CHAR_UUID,
     BLECharacteristic::PROPERTY_READ
   );
-  fwInfoChar->setValue("{\"type\":\"esp32\",\"url\":\"firmware/bins/esp32_robot.bin\"}");
+  // Initialize camera BEFORE publishing fw-info so the schema can report
+  // whether the camera cap is available. Failure is non-fatal — robot still
+  // functions as a BLE peripheral without camera.
+  cameraReady = initCamera();
+  publishFwInfo();
 
   motorChar = service->createCharacteristic(
     MOTOR_CHAR_UUID,
@@ -608,7 +716,10 @@ void loop() {
       prefs.putString("ssid", pendingSsid);
       prefs.putString("pass", pendingPass);
       prefs.end();
-      publishStatus("joined", pendingSsid);
+      // IP is what the dashboard needs to open the MJPEG stream. Surface it
+      // on wifi-status (notify) so a later-attached dashboard picks it up.
+      publishStatus("joined", pendingSsid, "", WiFi.localIP().toString());
+      if (cameraReady) startCameraServer();
     } else if (s == WL_NO_SSID_AVAIL || s == WL_CONNECT_FAILED ||
                millis() - joinStartedAt > JOIN_TIMEOUT_MS) {
       wifiPhase = PHASE_IDLE;

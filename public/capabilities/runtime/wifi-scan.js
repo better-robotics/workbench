@@ -11,8 +11,8 @@ let renderEntry = () => {};
 export function setRender(fn) { renderEntry = fn; }
 
 function summarize(status) {
-  const { st, ssid, err } = status || {};
-  if (st === "joined")  return `Connected to ${ssid || "network"}`;
+  const { st, ssid, err, ip } = status || {};
+  if (st === "joined")  return `Connected to ${ssid || "network"}${ip ? ` · ${ip}` : ""}`;
   if (st === "joining") return `Joining${ssid ? ` ${ssid}` : ""}…`;
   if (st === "failed")  return `Failed${err ? ` — ${err}` : ""}`;
   return "Not configured";

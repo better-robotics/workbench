@@ -4,6 +4,7 @@ import { makeSignedPairCap,         setRender as setSignedPairRender } from "./s
 import { makeCommandCap,            setRender as setCommandRender    } from "./command.js";
 import { makeWifiScanCap,           setRender as setWifiScanRender   } from "./wifi-scan.js";
 import { makeWebrtcInstallableCap,  setRender as setWebrtcRender     } from "./webrtc-installable.js";
+import { makeMjpegStreamCap,        setRender as setMjpegRender      } from "./mjpeg-stream.js";
 
 export const RUNTIMES = {
   "toggle":              makeToggleCap,
@@ -11,6 +12,7 @@ export const RUNTIMES = {
   "command":             makeCommandCap,
   "wifi-scan":           makeWifiScanCap,
   "webrtc-installable":  makeWebrtcInstallableCap,
+  "mjpeg-stream":        makeMjpegStreamCap,
 };
 
 export function setRuntimeRenderer(fn) {
@@ -19,4 +21,5 @@ export function setRuntimeRenderer(fn) {
   setCommandRender(fn);
   setWifiScanRender(fn);
   setWebrtcRender(fn);
+  setMjpegRender(fn);
 }
