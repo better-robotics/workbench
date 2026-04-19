@@ -1,6 +1,6 @@
-// Routes updates to the right data plane: ESP32 + WiFi joined →
-// BLE-signaled URL-trigger (robot pulls over WiFi, 20-60x faster); otherwise
-// full BLE stream.
+// Routes updates to the right data plane: ESP32 + WiFi joined → PNA-direct
+// HTTP POST to the robot's /ota endpoint (dashboard pushes over WiFi, seconds);
+// otherwise BLE stream with flow-controlled WithoutResponse chunk writes.
 import {
   OTA_DATA_CHAR_UUID, OTA_STATUS_CHAR_UUID,
   decodeJson,
@@ -57,19 +57,33 @@ async function releaseWakeLock() {
 
 async function streamOtaBytes(entry, bytes) {
   const ch = entry.otaDataChar;
-  // Clear any lingering OTA session before starting a fresh one (0x00 abort).
+  // Lifecycle frames (abort/begin/commit) use WithResponse for ATT-acked
+  // reliability. Chunk frames use WithoutResponse for throughput, paced by
+  // software flow control against the firmware's `otaStatus.n` ack counter.
   try { await ch.writeValueWithResponse(new Uint8Array([0x00])); } catch {}
   const begin = new Uint8Array(5);
   begin[0] = 0x01;
   new DataView(begin.buffer).setUint32(1, bytes.length, false);
   await ch.writeValueWithResponse(begin);
   const CHUNK = 180;  // safe under negotiated ATT MTU on macOS/Chrome.
+  const MAX_IN_FLIGHT = 64 * 1024;
+  const STALL_TIMEOUT_MS = 30000;
+  let sent = 0;
   for (let i = 0; i < bytes.length; i += CHUNK) {
     const slice = bytes.subarray(i, Math.min(i + CHUNK, bytes.length));
     const frame = new Uint8Array(slice.length + 1);
     frame[0] = 0x02;
     frame.set(slice, 1);
-    await ch.writeValueWithResponse(frame);
+    await ch.writeValueWithoutResponse(frame);
+    sent += slice.length;
+    // Firmware notifies `ota-status` at most every 32 KB / 250 ms, so `acked`
+    // advances in jumps; 64 KB in-flight cap keeps a few notify-intervals of
+    // headroom without letting the link-layer buffer grow unbounded.
+    const stallStart = Date.now();
+    while (sent - (entry.otaStatus?.n ?? 0) > MAX_IN_FLIGHT) {
+      if (Date.now() - stallStart > STALL_TIMEOUT_MS) throw new Error("OTA stalled");
+      await new Promise(r => setTimeout(r, 10));
+    }
   }
   await ch.writeValueWithResponse(new Uint8Array([0x03]));
 }
@@ -90,6 +104,39 @@ async function buildBundle(entry, manifestUrl) {
     files[src] = btoa(bin);
   }
   return { manifest, files };
+}
+
+// Direct HTTP POST to the ESP32's /ota endpoint over the local network. First
+// call triggers Chrome's Private Network Access prompt when the target is a
+// private IP; on allow the POST proceeds, on deny/timeout/error we return false
+// and the caller falls back to BLE-stream.
+async function pnaOtaUpload(entry, bytes) {
+  const ip = entry.wifiStatus?.ip;
+  if (!ip) return false;
+  const url = `http://${ip}/ota`;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 30000);
+  try {
+    logFor(entry, `PNA direct OTA → ${url} (${bytes.length} B)`);
+    const resp = await fetch(url, {
+      method: "POST",
+      mode: "cors",
+      body: bytes,
+      headers: { "Content-Type": "application/octet-stream" },
+      signal: ctrl.signal,
+    });
+    clearTimeout(timer);
+    if (!resp.ok) {
+      logFor(entry, `PNA returned ${resp.status}`);
+      return false;
+    }
+    logFor(entry, "PNA OTA committed — robot restarting");
+    return true;
+  } catch (err) {
+    clearTimeout(timer);
+    logFor(entry, `PNA failed: ${err.message}`);
+    return false;
+  }
 }
 
 export async function updateFirmware(id) {
@@ -137,14 +184,10 @@ export async function updateFirmware(id) {
     logFor(entry, "no firmware source (fw-info missing url / bundle_url)");
     return;
   }
-  // Cache-bust applied to both the dashboard fetch AND the URL handed to the
-  // ESP32 for URL-trigger — we want both to skip the CDN cache so a freshly-
-  // published bin actually lands.
-  const bustedUrl = freshUrl(fetchUrl);
   logFor(entry, `fetching ${fetchUrl}…`);
   let bytes;
   try {
-    const resp = await fetch(bustedUrl, { cache: "no-cache" });
+    const resp = await fetch(freshUrl(fetchUrl), { cache: "no-cache" });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     bytes = new Uint8Array(await resp.arrayBuffer());
   } catch (err) {
@@ -153,37 +196,15 @@ export async function updateFirmware(id) {
   }
   await acquireWakeLock();
   try {
-    // URL-trigger: ESP32 pulls the binary itself over WiFi — 10 min → 10 sec
-    // on a 1.6 MB bin.
-    const canUrlTrigger =
-      entry.fwInfo?.type === "esp32" && entry.wifiStatus?.st === "joined";
-    if (canUrlTrigger) {
-      const hashBuf = await crypto.subtle.digest("SHA-256", bytes);
-      const sha256 = [...new Uint8Array(hashBuf)]
-        .map(b => b.toString(16).padStart(2, "0")).join("");
-      const absoluteUrl = new URL(bustedUrl, location.href).toString();
-      const payload = JSON.stringify({ url: absoluteUrl, size: bytes.length, sha256 });
-      const frame = new Uint8Array(1 + payload.length);
-      frame[0] = 0x04;
-      frame.set(new TextEncoder().encode(payload), 1);
-      logFor(entry, `OTA trigger — will fetch ${bytes.length} B over WiFi`);
-      let triggerSent = false;
-      try {
-        await entry.otaDataChar.writeValueWithResponse(frame);
-        triggerSent = true;
-      } catch (err) {
-        logFor(entry, `OTA trigger failed: ${err.message} — falling back to BLE stream`);
-      }
-      if (triggerSent) {
-        // ~8 s grace window: if status is "failed" by then (TLS/DNS/refused),
-        // fall back to BLE stream.
-        await new Promise(r => setTimeout(r, 8000));
-        if (entry.otaStatus?.st !== "failed") return;
-        logFor(entry, `URL-trigger failed (${entry.otaStatus.err || "?"}) — falling back to BLE stream`);
-      }
+    // PNA-direct: dashboard POSTs the bin to the ESP32's /ota endpoint over
+    // the local network (~seconds). On deny/timeout/error, fall back to
+    // BLE-stream (~30s with WithoutResponse chunks).
+    if (entry.fwInfo?.type === "esp32"
+        && entry.wifiStatus?.st === "joined"
+        && entry.wifiStatus?.ip) {
+      if (await pnaOtaUpload(entry, bytes)) return;
     }
-
-    logFor(entry, `OTA streaming ${bytes.length} B…`);
+    logFor(entry, `OTA streaming over BLE (~30s for ~1.6 MB)…`);
     try {
       await streamOtaBytes(entry, bytes);
       logFor(entry, "OTA commit sent — robot restarting");

@@ -238,34 +238,166 @@ static bool initCamera() {
 // esp_http_server because the latter's IRAM footprint pushed us 1952 B over
 // iram0_0_seg. This variant only pulls in LwIP + JPEG dataflow (camera
 // driver already resident) and holds up fine for classroom-distance streams.
+// Also serves POST /ota (WiFi OTA upload) + OPTIONS /ota (PNA preflight) so
+// the dashboard can push firmware over the LAN when it has IP + PNA access.
 static void streamTask(void* param) {
   WiFiServer server(81);
   server.begin();
-  Serial.println("MJPEG task ready on :81/stream");
+  Serial.println("HTTP task ready on :81 (/stream, /ota)");
   while (true) {
     WiFiClient client = server.accept();
     if (!client) { vTaskDelay(50 / portTICK_PERIOD_MS); continue; }
     client.setNoDelay(true);
-    // Drain request headers — we only serve /stream, so any GET is fine.
-    unsigned long headerStart = millis();
-    while (client.connected() && millis() - headerStart < 2000) {
-      String line = client.readStringUntil('\n');
-      if (line.length() <= 1) break;  // end of headers (blank line)
+
+    // Request-line + header parse. Cap total header read at 2 s to avoid
+    // parking the task on a half-open connection.
+    String method, path;
+    long contentLength = -1;
+    String origin;        // echoed back when present (some browsers care)
+    bool   pnaRequested = false;
+    {
+      unsigned long headerStart = millis();
+      String reqLine = client.readStringUntil('\n');
+      int sp1 = reqLine.indexOf(' ');
+      int sp2 = (sp1 >= 0) ? reqLine.indexOf(' ', sp1 + 1) : -1;
+      if (sp1 > 0 && sp2 > sp1) {
+        method = reqLine.substring(0, sp1);
+        path   = reqLine.substring(sp1 + 1, sp2);
+      }
+      while (client.connected() && millis() - headerStart < 2000) {
+        String line = client.readStringUntil('\n');
+        // Trim trailing \r.
+        if (line.length() && line[line.length() - 1] == '\r') line.remove(line.length() - 1);
+        if (line.length() == 0) break;  // end of headers
+        int colon = line.indexOf(':');
+        if (colon <= 0) continue;
+        String key = line.substring(0, colon);
+        String val = line.substring(colon + 1);
+        while (val.length() && (val[0] == ' ' || val[0] == '\t')) val.remove(0, 1);
+        // Case-insensitive compare — browsers may send any casing.
+        if (key.equalsIgnoreCase("Content-Length")) {
+          contentLength = val.toInt();
+        } else if (key.equalsIgnoreCase("Origin")) {
+          origin = val;
+        } else if (key.equalsIgnoreCase("Access-Control-Request-Private-Network")) {
+          pnaRequested = val.equalsIgnoreCase("true");
+        }
+      }
     }
-    // CORS open so the dashboard on GitHub Pages can load the stream as <img>.
-    client.print("HTTP/1.1 200 OK\r\n"
-                 "Content-Type: multipart/x-mixed-replace;boundary=frame\r\n"
+
+    if (method == "OPTIONS" && path == "/ota") {
+      // PNA preflight — Chrome sends this before cross-origin → private-IP
+      // POSTs. Max-Age=86400 caches it for a day so repeat OTAs skip it.
+      client.print("HTTP/1.1 204 No Content\r\n"
+                   "Access-Control-Allow-Origin: *\r\n"
+                   "Access-Control-Allow-Methods: POST, OPTIONS\r\n"
+                   "Access-Control-Allow-Headers: Content-Type\r\n"
+                   "Access-Control-Allow-Private-Network: true\r\n"
+                   "Access-Control-Max-Age: 86400\r\n"
+                   "Content-Length: 0\r\n"
+                   "Connection: close\r\n\r\n");
+      (void)origin; (void)pnaRequested;  // reserved for stricter replies
+      client.stop();
+      continue;
+    }
+
+    if (method == "POST" && path == "/ota") {
+      // Guard both bad (missing/negative) and oversized uploads — 4 MB cap
+      // matches the app0 partition ceiling on min_spiffs.
+      if (contentLength <= 0 || contentLength > 4 * 1024 * 1024) {
+        client.print("HTTP/1.1 400 Bad Request\r\n"
+                     "Access-Control-Allow-Origin: *\r\n"
+                     "Content-Length: 0\r\n"
+                     "Connection: close\r\n\r\n");
+        client.stop();
+        continue;
+      }
+      if (!Update.begin((size_t)contentLength)) {
+        client.print("HTTP/1.1 500 Internal Server Error\r\n"
+                     "Access-Control-Allow-Origin: *\r\n"
+                     "Content-Length: 0\r\n"
+                     "Connection: close\r\n\r\n");
+        client.stop();
+        continue;
+      }
+      uint8_t buf[2048];
+      size_t received = 0;
+      unsigned long lastData = millis();
+      bool failed = false;
+      while (received < (size_t)contentLength) {
+        int avail = client.available();
+        if (avail <= 0) {
+          if (!client.connected()) { failed = true; break; }
+          // 10 s stall timeout — abort instead of hanging the task.
+          if (millis() - lastData > 10000) { failed = true; break; }
+          vTaskDelay(5 / portTICK_PERIOD_MS);
+          continue;
+        }
+        size_t want = sizeof(buf);
+        size_t remaining = (size_t)contentLength - received;
+        if (want > remaining) want = remaining;
+        int got = client.read(buf, want);
+        if (got <= 0) {
+          if (millis() - lastData > 10000) { failed = true; break; }
+          continue;
+        }
+        if (Update.write(buf, got) != (size_t)got) { failed = true; break; }
+        received += got;
+        lastData = millis();
+      }
+      if (failed) {
+        Update.abort();
+        client.print("HTTP/1.1 500 Internal Server Error\r\n"
+                     "Access-Control-Allow-Origin: *\r\n"
+                     "Content-Length: 0\r\n"
+                     "Connection: close\r\n\r\n");
+        client.stop();
+        continue;
+      }
+      if (!Update.end(true)) {
+        client.print("HTTP/1.1 500 Internal Server Error\r\n"
+                     "Access-Control-Allow-Origin: *\r\n"
+                     "Content-Length: 0\r\n"
+                     "Connection: close\r\n\r\n");
+        client.stop();
+        continue;
+      }
+      client.print("HTTP/1.1 200 OK\r\n"
+                   "Access-Control-Allow-Origin: *\r\n"
+                   "Content-Type: text/plain\r\n"
+                   "Content-Length: 2\r\n"
+                   "Connection: close\r\n\r\n"
+                   "OK");
+      client.stop();
+      // Defer restart to loop() — gives TCP FIN time to flush, matches how
+      // the BLE commit path already reboots.
+      otaRestartPending = true;
+      continue;
+    }
+
+    if (method == "GET" && path == "/stream") {
+      // CORS open so the dashboard on GitHub Pages can load the stream as <img>.
+      client.print("HTTP/1.1 200 OK\r\n"
+                   "Content-Type: multipart/x-mixed-replace;boundary=frame\r\n"
+                   "Access-Control-Allow-Origin: *\r\n"
+                   "Connection: close\r\n\r\n");
+      while (client.connected()) {
+        camera_fb_t *fb = esp_camera_fb_get();
+        if (!fb) break;
+        client.printf("\r\n--frame\r\nContent-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n", fb->len);
+        size_t written = client.write(fb->buf, fb->len);
+        esp_camera_fb_return(fb);
+        if (written != fb->len) break;  // client disconnected mid-frame
+        vTaskDelay(1 / portTICK_PERIOD_MS);  // yield the core briefly
+      }
+      client.stop();
+      continue;
+    }
+
+    client.print("HTTP/1.1 404 Not Found\r\n"
                  "Access-Control-Allow-Origin: *\r\n"
+                 "Content-Length: 0\r\n"
                  "Connection: close\r\n\r\n");
-    while (client.connected()) {
-      camera_fb_t *fb = esp_camera_fb_get();
-      if (!fb) break;
-      client.printf("\r\n--frame\r\nContent-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n", fb->len);
-      size_t written = client.write(fb->buf, fb->len);
-      esp_camera_fb_return(fb);
-      if (written != fb->len) break;  // client disconnected mid-frame
-      vTaskDelay(1 / portTICK_PERIOD_MS);  // yield the core briefly
-    }
     client.stop();
   }
 }
@@ -325,6 +457,10 @@ static void publishOta(const char* st, size_t n = 0, size_t total = 0, const cha
   Serial.printf("ota-status → %s\n", payload.c_str());
 }
 
+// Rate-limit state for op 0x02 chunk-receive notifies. Reset on op 0x01.
+static size_t        chunkLastReported = 0;
+static unsigned long chunkLastProgress = 0;
+
 class OtaDataCallbacks : public BLECharacteristicCallbacks {
   void onWrite(BLECharacteristic* ch) override {
     String v = ch->getValue();
@@ -350,6 +486,9 @@ class OtaDataCallbacks : public BLECharacteristicCallbacks {
         return;
       }
       otaInProgress = true;
+      // Reset rate-limit window so a fresh OTA starts clean.
+      chunkLastReported = 0;
+      chunkLastProgress = 0;
       publishOta("receiving", 0, otaExpected);
     } else if (op == 0x02) {
       if (!otaInProgress) { publishOta("failed", 0, 0, "no active session"); return; }
@@ -362,7 +501,14 @@ class OtaDataCallbacks : public BLECharacteristicCallbacks {
         return;
       }
       otaReceived += len;
-      publishOta("receiving", otaReceived, otaExpected);
+      // 1.6 MB / 180 B/chunk ≈ 9000 notifies — throttle to avoid saturating
+      // the BLE stack once the dashboard switches to writeWithoutResponse.
+      unsigned long now = millis();
+      if (otaReceived - chunkLastReported > 32768 || now - chunkLastProgress > 250) {
+        chunkLastReported = otaReceived;
+        chunkLastProgress = now;
+        publishOta("receiving", otaReceived, otaExpected);
+      }
     } else if (op == 0x03) {
       if (!otaInProgress) { publishOta("failed", 0, 0, "no active session"); return; }
       publishOta("committing", otaReceived, otaExpected);
