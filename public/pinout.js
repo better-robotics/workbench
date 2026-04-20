@@ -148,17 +148,30 @@ function renderEdit(entry) {
   const motors = c.motors_pins || {};
   const ml = motors.left || {};
   const mr = motors.right || {};
-  // Detect duplicate GPIO usage across enabled caps — warn the user before save.
-  const usage = {};
-  if (c.led_enabled && c.led_pin != null) (usage[c.led_pin] ||= []).push("led");
-  if (c.motors_enabled) {
-    for (const [role, g] of flattenPins(motors)) (usage[g] ||= []).push(`motors.${role}`);
+  // Duplicate GPIO usage detection, in two tiers:
+  //   hard — every claimant is enabled; robot will misbehave on next boot.
+  //   soft — at least one claimant is disabled; fine right now but a latent
+  //          trap (re-enable and it breaks). Users hit this when the LED
+  //          default (17) matches a motor IN they later claimed.
+  // Hard blocks Save; soft just warns.
+  const usage = {};  // gpio → [{role, enabled}, ...]
+  if (c.led_pin != null) (usage[c.led_pin] ||= []).push({ role: "led", enabled: !!c.led_enabled });
+  for (const [role, g] of flattenPins(motors)) {
+    (usage[g] ||= []).push({ role: `motors.${role}`, enabled: !!c.motors_enabled });
   }
-  const conflicts = Object.entries(usage).filter(([, v]) => v.length > 1);
-  const warn = conflicts.length
-    ? `<div class="pinout-warn">Conflict: ${conflicts.map(([g, list]) =>
-        `GPIO ${g} claimed by ${list.join(" + ")}`).join("; ")}</div>`
-    : "";
+  const dup = Object.entries(usage).filter(([, v]) => v.length > 1);
+  const hard = dup.filter(([, v]) => v.every(x => x.enabled));
+  const soft = dup.filter(([, v]) => !v.every(x => x.enabled));
+  const fmt = (list) => list.map(x => x.enabled ? x.role : `${x.role} (off)`).join(" + ");
+  const warn = [
+    hard.length
+      ? `<div class="pinout-warn">Conflict: ${hard.map(([g, v]) => `GPIO ${g} claimed by ${fmt(v)}`).join("; ")}</div>`
+      : "",
+    soft.length
+      ? `<div class="pinout-warn soft">Latent conflict: ${soft.map(([g, v]) => `GPIO ${g} claimed by ${fmt(v)}`).join("; ")} — fine while one side is off, will break if re-enabled.</div>`
+      : "",
+  ].join("");
+  const conflicts = hard;  // only hard blocks Save
   $("pinout-body").innerHTML = `
     ${renderBoard(claims)}
     <div class="pinout-edit">
@@ -169,8 +182,10 @@ function renderEdit(entry) {
         </label>
         <label class="pinout-edit-row" style="padding-left: 24px;">
           <span class="pinout-edit-label">GPIO</span>
+          <!-- Default 26 not 17: 17 is the most common Left-IN1 pick, and
+               prefilling 17 here would trap the user into a collision. -->
           <input type="number" min="0" max="27" class="pinout-edit-input"
-                 data-path="led_pin" value="${c.led_pin ?? 17}">
+                 data-path="led_pin" value="${c.led_pin ?? 26}">
         </label>
       </div>
       <div class="pinout-edit-section">
