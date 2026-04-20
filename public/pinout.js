@@ -140,6 +140,13 @@ function renderView(entry) {
 }
 
 function renderEdit(entry) {
+  // Preserve focus across the innerHTML rebuild so typing into a pin input
+  // doesn't blur after every keystroke. For type="number" inputs Chrome
+  // returns null for selectionStart/End so we restore focus only — cursor
+  // lands at the end of the value, which is fine for 2-char pin numbers.
+  const active = document.activeElement;
+  const savedPath = active?.dataset?.path || null;
+  const savedToggle = active?.dataset?.toggle || null;
   const c = editConfig || {};
   const claims = claimsFromConfig(c);
   const ledChecked = c.led_enabled ? "checked" : "";
@@ -260,6 +267,11 @@ function renderEdit(entry) {
     renderView(entry);
   });
   $("pinout-save-btn")?.addEventListener("click", () => saveEdit(entry));
+
+  // Restore focus to whatever input was active before the re-render so the
+  // user can keep typing without re-clicking after every keystroke.
+  if (savedPath) $("pinout-body").querySelector(`input[data-path="${savedPath}"]`)?.focus();
+  else if (savedToggle) $("pinout-body").querySelector(`input[data-toggle="${savedToggle}"]`)?.focus();
 }
 
 function beginEdit(id) {
@@ -289,6 +301,12 @@ function beginEdit(id) {
 }
 
 async function saveEdit(entry) {
+  // Reject out-of-range pin values before shipping the config. reportValidity
+  // fires the browser's native "Please enter a number between 0 and 27"
+  // message on the offending input, so the user sees what to fix.
+  const badInput = [...$("pinout-body").querySelectorAll("input[data-path]")]
+    .find(el => !el.checkValidity());
+  if (badInput) { badInput.reportValidity(); badInput.focus(); return; }
   const json = JSON.stringify(editConfig, null, 2) + "\n";
   $("pinout-body").innerHTML = `<div class="meta">Uploading config + restarting service…</div>`;
   const ok = await uploadFile(
