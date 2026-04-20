@@ -120,12 +120,17 @@ async function loadPaired() {
 // Guard: only attempt if a paired BluetoothDevice is already attached (from
 // getDevices) — otherwise connect() would prompt with a chooser, which is
 // hostile on page load.
+// After this many consecutive failures in one session, stop retrying on load —
+// a dead/out-of-range robot shouldn't keep hammering the BT stack. Counter
+// lives in-memory (not persisted) so a fresh page load gets one clean attempt.
+const AUTO_RECONNECT_MAX_FAILURES = 2;
 function autoReconnectKnown() {
   const cutoff = Date.now() - AUTO_RECONNECT_MAX_AGE_MS;
   for (const entry of state.devices.values()) {
     if (!entry.device) continue;
     if (!entry.autoReconnect) continue;
     if ((entry.lastConnectedAt || 0) < cutoff) continue;
+    if ((entry.consecutiveFailures || 0) >= AUTO_RECONNECT_MAX_FAILURES) continue;
     connect(entry.id).catch(() => { /* timeouts are expected; status-row shows it */ });
   }
 }
@@ -272,6 +277,9 @@ async function connect(id) {
     // Unexpected GATT drops won't flip it — only an explicit Disconnect click will.
     entry.autoReconnect = true;
     entry.lastConnectedAt = Date.now();
+    // Reset the per-session failure state so a future drop starts from zero.
+    entry.consecutiveFailures = 0;
+    entry.lastConnectError = null;
     persist();
 
     // Read fw-info before cap probes — it carries the capability schema.
@@ -367,7 +375,9 @@ async function connect(id) {
     }
   } catch (err) {
     entry.status = "error";
-    logFor(entry, `connect failed: ${err.message}`);
+    entry.lastConnectError = err.message || String(err);
+    entry.consecutiveFailures = (entry.consecutiveFailures || 0) + 1;
+    logFor(entry, `connect failed: ${entry.lastConnectError}`);
   }
   renderEntry(entry);
 }
@@ -508,8 +518,11 @@ function renderEntry(entry) {
   const connected = status === "connected";
   const connecting = status === "connecting";
   // Connecting state is carried by the dot's amber pulse + the button label;
-  // the sub-line is reserved for "Error" so we don't duplicate the signal.
-  const statusText = status === "error" ? "Error" : "";
+  // the sub-line is reserved for error detail so the user knows whether to
+  // retry (Out of range = robot just needs to be awake) or investigate.
+  const statusText = status === "error"
+    ? (/no longer in range|not found/i.test(entry.lastConnectError || "") ? "Out of range" : "Error")
+    : "";
   const dotClass = connected ? " connected" : connecting ? " connecting" : status === "error" ? " error" : "";
 
   // Canonical capability order across robot types so the eye lands on the same
