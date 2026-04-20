@@ -35,6 +35,23 @@ function bridgeRequest(detail) {
   });
 }
 
+// Anthropic's messages API rejects tool entries with unknown keys (annotations,
+// etc). pip-tools.js carries webmcp-style annotations on some tool defs for
+// documentation + future external MCP exposure; strip to the API-allowed shape
+// before every request so extra metadata doesn't fail the call.
+const TOOL_API_FIELDS = ["name", "description", "input_schema", "cache_control"];
+function sanitizeTool(t) {
+  const out = {};
+  for (const k of TOOL_API_FIELDS) if (k in t) out[k] = t[k];
+  return out;
+}
+
+function logBridgeError(label, res) {
+  if (!res)         console.warn(`[claude] ${label}: null response (timeout or bridge unreachable)`);
+  else if (res.error) console.warn(`[claude] ${label}: bridge error`, res.error);
+  else              console.warn(`[claude] ${label}: HTTP ${res.status}`, res.body?.slice?.(0, 500) ?? res.body);
+}
+
 export async function ask(userText, { system, maxTokens = 200 } = {}) {
   const res = await bridgeRequest({
     type: "proxy",
@@ -49,8 +66,8 @@ export async function ask(userText, { system, maxTokens = 200 } = {}) {
       stream: false,
     },
   });
-  if (!res || res.error) return null;
-  if (res.status < 200 || res.status >= 300) return null;
+  if (!res || res.error) { logBridgeError("ask", res); return null; }
+  if (res.status < 200 || res.status >= 300) { logBridgeError("ask", res); return null; }
   try {
     const json = JSON.parse(res.body);
     // "" is distinct from null — empty means Pip chose silence; null means the call failed.
@@ -75,14 +92,15 @@ export async function askWithTools(messages, { system, tools, executor, maxItera
         max_tokens: maxTokens,
         system,
         messages: convo,
-        tools,
+        tools: tools?.map(sanitizeTool),
         stream: false,
       },
     });
-    if (!res || res.error) return null;
-    if (res.status < 200 || res.status >= 300) return null;
+    if (!res || res.error) { logBridgeError("askWithTools", res); return null; }
+    if (res.status < 200 || res.status >= 300) { logBridgeError("askWithTools", res); return null; }
     let json;
-    try { json = JSON.parse(res.body); } catch { return null; }
+    try { json = JSON.parse(res.body); }
+    catch (err) { console.warn("[claude] askWithTools: malformed JSON body", err); return null; }
 
     convo.push({ role: "assistant", content: json.content });
 
