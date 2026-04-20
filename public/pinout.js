@@ -208,26 +208,31 @@ function renderEdit(entry) {
           <span>Motors (H-bridge)</span>
         </label>
         <div style="padding-left: 24px;">
+          <!-- Labels match the silkscreen on L298N / DRV8833 / TB6612 boards:
+               IN1+IN2 drive motor A (left), IN3+IN4 drive motor B (right).
+               Config keys stay motors_pins.{left,right}.{in1,in2} — that's
+               the firmware contract; only the display labels changed. -->
           <label class="pinout-edit-row">
-            <span class="pinout-edit-label">Left IN1</span>
+            <span class="pinout-edit-label">IN1 · left motor</span>
             <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input"
                    data-path="motors_pins.left.in1" value="${ml.in1 ?? 17}">
           </label>
           <label class="pinout-edit-row">
-            <span class="pinout-edit-label">Left IN2</span>
+            <span class="pinout-edit-label">IN2 · left motor</span>
             <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input"
                    data-path="motors_pins.left.in2" value="${ml.in2 ?? 27}">
           </label>
           <label class="pinout-edit-row">
-            <span class="pinout-edit-label">Right IN1</span>
+            <span class="pinout-edit-label">IN3 · right motor</span>
             <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input"
                    data-path="motors_pins.right.in1" value="${mr.in1 ?? 23}">
           </label>
           <label class="pinout-edit-row">
-            <span class="pinout-edit-label">Right IN2</span>
+            <span class="pinout-edit-label">IN4 · right motor</span>
             <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input"
                    data-path="motors_pins.right.in2" value="${mr.in2 ?? 24}">
           </label>
+          <div class="meta" style="margin-top: 6px;">Wire each Pi GPIO to the driver board's IN pin of the same number (IN1 ↔ IN1, etc.). Works with L298N, DRV8833, TB6612, and most H-bridge clones.</div>
         </div>
       </div>
       <div class="pinout-edit-section">
