@@ -16,8 +16,12 @@ const MODEL = "claude-sonnet-4-6";
 // tight for tool loops and cold-start proxy latency. 20s covers typical
 // Anthropic response time with headroom for slow networks / first request.
 const TIMEOUT_MS = 20000;
+// Shorter ceiling for the auto-retry — if the first attempt hung for the full
+// 20s we're fairly sure the bridge is wedged, not just slow; a quick retry
+// either reaches a recovered bridge or confirms it's gone.
+const RETRY_TIMEOUT_MS = 10000;
 
-function bridgeRequest(detail) {
+function bridgeRequestOnce(detail, timeoutMs) {
   return new Promise((resolve) => {
     const id = crypto.randomUUID();
     const cleanup = () => {
@@ -30,9 +34,18 @@ function bridgeRequest(detail) {
       resolve(e.detail);
     };
     document.addEventListener("ai-bridge-response", onResponse);
-    const timer = setTimeout(() => { cleanup(); resolve(null); }, TIMEOUT_MS);
+    const timer = setTimeout(() => { cleanup(); resolve(null); }, timeoutMs);
     document.dispatchEvent(new CustomEvent("ai-bridge-request", { detail: { _id: id, ...detail } }));
   });
+}
+
+// One silent retry on null covers the common transient case: bridge extension
+// reloaded, network blip to proxy.neevs.io, content script momentarily between
+// tabs. If both attempts return null the bridge is really gone — then we log.
+async function bridgeRequest(detail) {
+  const first = await bridgeRequestOnce(detail, TIMEOUT_MS);
+  if (first !== null) return first;
+  return await bridgeRequestOnce(detail, RETRY_TIMEOUT_MS);
 }
 
 // Anthropic's messages API rejects tool entries with unknown keys (annotations,
@@ -46,10 +59,12 @@ function sanitizeTool(t) {
   return out;
 }
 
+// Only called after the retry path has been exhausted, so "null" here really
+// does mean the bridge is unreachable — not just transiently busy.
 function logBridgeError(label, res) {
-  if (!res)         console.warn(`[claude] ${label}: null response (timeout or bridge unreachable)`);
+  if (!res)           console.info(`[claude] ${label}: bridge unreachable after retry (is AI Bridge installed and running?)`);
   else if (res.error) console.warn(`[claude] ${label}: bridge error`, res.error);
-  else              console.warn(`[claude] ${label}: HTTP ${res.status}`, res.body?.slice?.(0, 500) ?? res.body);
+  else                console.warn(`[claude] ${label}: HTTP ${res.status}`, res.body?.slice?.(0, 500) ?? res.body);
 }
 
 export async function ask(userText, { system, maxTokens = 200 } = {}) {

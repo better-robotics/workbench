@@ -4,15 +4,13 @@
 // dashboard just opens http://<ip>:<port><path> with a plain <img>. Works
 // only when the dashboard's browser and the robot share a network.
 import { escapeHtml } from "../../dom.js";
-import { settings } from "../../settings.js";
 import {
-  isSupported as visionSupported,
-  isWatching as visionWatching,
-  startWatching as visionStart,
   stopWatching as visionStop,
-  getLatestScene as visionScene,
+  renderPerceptionRow,
+  wirePerceptionToggle,
+  renderPerceptionPromptField,
+  wirePerceptionPrompt,
 } from "../../perception.js";
-import { broadcastSceneToPhones } from "../../phones.js";
 
 let renderEntry = () => {};
 export function setRender(fn) { renderEntry = fn; }
@@ -32,6 +30,7 @@ export function makeMjpegStreamCap(schema) {
   const actionStart = `${name}-start`;
   const actionStop  = `${name}-stop`;
   const actionWatch = `${name}-watch`;
+  const actionPrompt = `${name}-prompt`;
   const label = name[0].toUpperCase() + name.slice(1);
 
   return {
@@ -64,36 +63,10 @@ export function makeMjpegStreamCap(schema) {
         : running
           ? `<button class="secondary sm" data-action="${actionStop}">Stop</button>`
           : `<button class="secondary sm" data-action="${actionStart}">Start</button>`;
-      // Perception toggle — only surface when the stream is active AND the
-      // browser supports WebGPU. Shows the latest scene text underneath the
-      // checkbox so the user can see what Pip sees.
-      const scene = visionScene(entry.id);
-      const sceneText = scene?.text ?? "";
-      // Perception is gated behind settings.perception (Settings → Experimental)
-      // because it's WebGPU-only, multi-hundred-MB on first load, and GPU-heavy
-      // at run. When the setting is on but the stream/GPU isn't, show a muted
-      // hint explaining why the toggle isn't here — so a user who enabled the
-      // setting and sees nothing isn't left guessing.
-      let watchRow = "";
-      if (settings.perception) {
-        if (!running) {
-          watchRow = `<div class="meta camera-watch-hint">Perception: start the stream to enable “Watch with Pip”.</div>`;
-        } else if (!visionSupported()) {
-          watchRow = `<div class="meta camera-watch-hint">Perception: this browser has no WebGPU (Chrome desktop required).</div>`;
-        } else {
-          watchRow = `
-            <label class="camera-watch-row">
-              <input type="checkbox" data-action="${actionWatch}" ${watching ? "checked" : ""}>
-              <span>Watch with Pip</span>
-              ${watching && sceneText
-                ? `<span class="meta camera-scene">${escapeHtml(sceneText)}</span>`
-                : watching
-                  ? `<span class="meta camera-scene">Loading model…</span>`
-                  : ""}
-            </label>
-          `;
-        }
-      }
+      const watchRow = renderPerceptionRow(entry, {
+        running, watching, watchingAction: actionWatch,
+      });
+      const promptField = running ? renderPerceptionPromptField(entry, { editAction: actionPrompt }) : "";
       return `
         <div class="robot-controls">
           <div class="row">
@@ -102,6 +75,7 @@ export function makeMjpegStreamCap(schema) {
           </div>
           ${body}
           ${watchRow}
+          ${promptField}
         </div>
       `;
     },
@@ -116,31 +90,10 @@ export function makeMjpegStreamCap(schema) {
         entry[runningField] = false;
         renderEntry(entry);
       });
-      node.querySelector(`[data-action="${actionWatch}"]`)?.addEventListener("change", async (e) => {
-        if (e.target.checked) {
-          entry[watchingField] = true;
-          renderEntry(entry);
-          try {
-            await visionStart(entry, {
-              onScene: (text) => {
-                renderEntry(entry);
-                // Paired phones see what Pip sees — catwatcher-style push. No
-                // Pip-in-the-loop for this stream; it's raw VLM observation.
-                broadcastSceneToPhones({ source: entry.name, text });
-              },
-              onError: (err) => console.warn("perception error", err),
-            });
-          } catch (err) {
-            entry[watchingField] = false;
-            alert(`Can't start perception: ${err.message || err}`);
-            renderEntry(entry);
-          }
-        } else {
-          visionStop(entry.id);
-          entry[watchingField] = false;
-          renderEntry(entry);
-        }
+      wirePerceptionToggle(entry, node, {
+        watchingAction: actionWatch, watchingField, onRender: renderEntry,
       });
+      wirePerceptionPrompt(entry, node, { editAction: actionPrompt, onRender: renderEntry });
     },
   };
 }

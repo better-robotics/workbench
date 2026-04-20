@@ -21,6 +21,9 @@
 //   The loop only runs while the user explicitly toggles "Watch" on a
 //   robot — no idle GPU drain.
 import { state } from "./state.js";
+import { settings } from "./settings.js";
+import { escapeHtml } from "./dom.js";
+import { broadcastSceneToPhones } from "./phones.js";
 
 const MODEL_ID = "LiquidAI/LFM2.5-VL-450M-ONNX";
 const DTYPE = { vision_encoder: "fp16", embed_tokens: "fp16", decoder_model_merged: "q4" };
@@ -157,7 +160,9 @@ export async function startWatching(entry, opts = {}) {
     if (loop.running) { loop.timer = setTimeout(tick, POLL_MS); return; }
     loop.running = true;
     try {
-      const text = await runInference(entry, prompt);
+      // Re-read entry.vlmPrompt each tick so changes in the prompt field take
+      // effect on the next inference without restarting the watch loop.
+      const text = await runInference(entry, entry.vlmPrompt?.trim() || prompt);
       if (text) {
         entry.vlmScene = { text, at: Date.now() };
         loop.onScene?.(text);
@@ -178,4 +183,124 @@ export function stopWatching(id) {
   loop.stopped = true;
   if (loop.timer) clearTimeout(loop.timer);
   _loops.delete(id);
+}
+
+// ─── Shared "Watch with Pip" UI ───────────────────────────────────────────
+// Both camera capabilities (mjpeg-stream + webrtc-installable) wire the same
+// toggle under their camera element. Rendering + wiring live here so the
+// gate-and-hint logic isn't duplicated per cap.
+
+// Emits HTML for the row under the camera. `running` is the cap-specific
+// "stream is active" check (img.running / entry[pcField] / etc). `watchingId`
+// is the data-action attribute the capability's wireActions will listen on.
+export function renderPerceptionRow(entry, { running, watching, watchingAction }) {
+  if (!settings.perception) return "";
+  if (!running) {
+    return `<div class="meta camera-watch-hint">Perception: start the stream to enable “Watch with Pip”.</div>`;
+  }
+  if (!isSupported()) {
+    return `<div class="meta camera-watch-hint">Perception: this browser has no WebGPU (Chrome desktop required).</div>`;
+  }
+  const scene = getLatestScene(entry.id);
+  const sceneText = scene?.text ?? "";
+  // Loading state (while the ~770 MB model streams in): show the current
+  // file + percent + a thin progress bar under the checkbox. Lives on the
+  // entry (not a module map) so the cap's own renderEntry cycle drives it.
+  const load = entry.vlmLoadState;
+  const loading = watching && load?.status === "loading";
+  const loadRow = loading ? `
+    <div class="camera-watch-load">
+      <div class="meta camera-scene">${escapeHtml(load.file || "preparing")} · ${Math.round(load.percent || 0)}%</div>
+      <progress class="ota-progress" value="${load.percent || 0}" max="100"></progress>
+    </div>
+  ` : "";
+  return `
+    <label class="camera-watch-row">
+      <input type="checkbox" data-action="${escapeHtml(watchingAction)}" ${watching ? "checked" : ""}>
+      <span>Watch with Pip</span>
+      ${!loading && watching && sceneText
+        ? `<span class="meta camera-scene">${escapeHtml(sceneText)}</span>`
+        : !loading && watching
+          ? `<span class="meta camera-scene">Listening…</span>`
+          : ""}
+    </label>
+    ${loadRow}
+  `;
+}
+
+// Wires the checkbox change handler. The cap writes the watching state back
+// onto the entry under the field name it owns. onRender is the cap's own
+// renderEntry trigger (each cap holds a local reference via setRender).
+// entry.vlmPrompt overrides DEFAULT_PROMPT when set (user-editable prompt).
+export function wirePerceptionToggle(entry, node, {
+  watchingAction, watchingField, onRender,
+}) {
+  const cb = node.querySelector(`[data-action="${watchingAction}"]`);
+  if (!cb) return;
+  cb.addEventListener("change", async (e) => {
+    if (e.target.checked) {
+      entry[watchingField] = true;
+      onRender(entry);
+      try {
+        await startWatching(entry, {
+          prompt: entry.vlmPrompt?.trim() || undefined,
+          onProgress: (p) => {
+            if (p.status === "progress") {
+              entry.vlmLoadState = {
+                status: "loading",
+                file: (p.file || "").split("/").pop(),
+                percent: Math.round(p.progress || 0),
+              };
+              onRender(entry);
+            } else if (p.status === "ready" || p.status === "done") {
+              entry.vlmLoadState = null;
+              onRender(entry);
+            }
+          },
+          onScene: (text) => {
+            entry.vlmLoadState = null;  // first scene = model is definitely loaded
+            onRender(entry);
+            // Paired phones see what Pip sees — catwatcher-style push. Raw
+            // VLM observation; Pip isn't in the loop for this stream.
+            broadcastSceneToPhones({ source: entry.name, text });
+          },
+          onError: (err) => console.warn("perception error", err),
+        });
+      } catch (err) {
+        entry[watchingField] = false;
+        entry.vlmLoadState = null;
+        alert(`Can't start perception: ${err.message || err}`);
+        onRender(entry);
+      }
+    } else {
+      stopWatching(entry.id);
+      entry[watchingField] = false;
+      entry.vlmLoadState = null;
+      onRender(entry);
+    }
+  });
+}
+
+// Editable-prompt UI. Lives on the same row as the Watch checkbox so the
+// user can steer what the VLM looks for (e.g. "Describe any obstacles in
+// front of the robot"). Persists on entry.vlmPrompt for the session;
+// changing it while a loop is active takes effect on the next inference.
+export function renderPerceptionPromptField(entry, { editAction }) {
+  if (!settings.perception) return "";
+  const current = entry.vlmPrompt ?? "";
+  return `
+    <details class="camera-prompt">
+      <summary class="meta">What to look for</summary>
+      <textarea class="camera-prompt-input" rows="2" placeholder="${escapeHtml(DEFAULT_PROMPT)}" data-action="${escapeHtml(editAction)}">${escapeHtml(current)}</textarea>
+      <div class="meta camera-prompt-hint">Directives work (“Describe…”) better than questions (“Is there…”). Empty uses the default.</div>
+    </details>
+  `;
+}
+
+export function wirePerceptionPrompt(entry, node, { editAction, onRender }) {
+  const ta = node.querySelector(`[data-action="${editAction}"]`);
+  if (!ta) return;
+  ta.addEventListener("input", () => {
+    entry.vlmPrompt = ta.value;
+  });
 }
