@@ -161,14 +161,23 @@ export async function updateFirmware(id) {
     || (entry.otaDataChar && !entry.fwInfo?.url ? "firmware/pi_robot/ota-manifest.json" : null);
   if (bundleUrl) {
     logFor(entry, `fetching bundle (${bundleUrl})…`);
-    let bytes;
+    let bytes, bundle;
     try {
-      const bundle = await buildBundle(entry, bundleUrl);
+      bundle = await buildBundle(entry, bundleUrl);
       bytes = new TextEncoder().encode(JSON.stringify(bundle));
       const stamp = bundle.manifest.commit ? ` · commit ${bundle.manifest.commit}` : "";
       logFor(entry, `bundle ready: ${bundle.manifest.files.length} files, ${bytes.length} B${stamp}`);
     } catch (err) {
       logFor(entry, `bundle build failed: ${err.message}`);
+      return;
+    }
+    // Skip if the published bundle matches what's already running — otherwise
+    // the robot reboots pointlessly and the user sees "OTA succeeded" while
+    // the commit stamp doesn't change. Most commonly happens when CI or GH
+    // Pages hasn't caught up to the latest push yet.
+    if (bundle.manifest.commit && entry.fwInfo?.version
+        && bundle.manifest.commit === entry.fwInfo.version) {
+      logFor(entry, `already at commit ${bundle.manifest.commit} — nothing to update (CI may still be building)`);
       return;
     }
     await acquireWakeLock();
