@@ -677,6 +677,42 @@ details.tray[open] > :not(summary) { margin-top: 12px; }
 }
 .motor-sliders input[type="range"] { flex: 1; accent-color: var(--accent); }
 
+/* Joypad — 2D drag surface with a knob that follows the pointer. Drives
+   throttle (Y) + turn (X); firmware-side differential mixing lives in JS
+   (signed-pair.js). touch-action:none stops mobile browsers from stealing
+   drags for pan/zoom. */
+.joypad-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 12px;
+  user-select: none;
+}
+.joypad {
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  background: radial-gradient(circle at center, var(--border-subtle) 0%, transparent 70%);
+  border: 1px solid var(--border-default);
+  position: relative;
+  touch-action: none;
+  cursor: grab;
+}
+.joypad:active { cursor: grabbing; }
+.joypad-knob {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 48px; height: 48px;
+  margin: -24px 0 0 -24px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+  transition: transform 0.1s ease-out;
+}
+.joypad:active .joypad-knob { transition: none; }
+.joypad-hint { margin-top: 10px; font-size: 12px; }
+
 .install-log {
   margin-top: 8px;
   padding: 6px 10px;

@@ -14,6 +14,7 @@ import { restartService, rebootRobot, enrollKey, getLog, getConfig } from "./cap
 import { initRecovery, openRecoveryDialog } from "./recovery.js";
 import { initPinout, openPinoutDialog } from "./pinout.js";
 import { initGamepad } from "./gamepad.js";
+import { initMotorsKeyboard } from "./capabilities/runtime/signed-pair.js";
 import { initVoice } from "./voice.js";
 import { initPrepare } from "./prepare.js";
 import { initAuthUI, fingerprint as dashFingerprint, pubkeySsh, onKeyChange } from "./auth.js";
@@ -284,6 +285,9 @@ async function connect(id) {
     persist();
 
     // Read fw-info before cap probes — it carries the capability schema.
+    // Also subscribe to notifications: ESP32 re-publishes fw-info after
+    // deferred camera init (post WiFi-join), so the camera cap only appears
+    // mid-session. Old firmware without NOTIFY silently skips the subscribe.
     try {
       const info = await service.getCharacteristic(FW_INFO_CHAR_UUID);
       const raw = await info.readValue();
@@ -295,6 +299,18 @@ async function connect(id) {
         entry.fwType = entry.fwInfo.type;
         persist();  // survive disconnect/reload so the badge stays visible
       }
+      try {
+        await info.startNotifications();
+        info.addEventListener("characteristicvaluechanged", (e) => {
+          const updated = decodeJson(e.target.value);
+          if (!updated) return;
+          entry.fwInfo = updated;
+          entry.capSchema = updated.caps || null;
+          logFor(entry, `fw-info updated: caps=${(updated.caps||[]).map(c=>c.name).join(",")}`);
+          // Rebuild runtime caps so newly-advertised ones (camera) probe + render.
+          probeRuntimeCaps(entry, service).then(() => renderEntry(entry));
+        });
+      } catch { /* firmware without NOTIFY — one-shot read is fine */ }
     } catch (err) {
       logFor(entry, `fw-info read failed: ${err.message}`);
       entry.fwInfo = null;
@@ -360,20 +376,10 @@ async function connect(id) {
     } catch { /* ops-response char absent on older firmware — optional */ }
 
     entry.runtimeCaps = [];
-    for (const capSchema of entry.capSchema || []) {
-      const make = RUNTIMES[capSchema.type];
-      if (!make) continue;
-      const cap = make(capSchema);
-      Object.assign(entry, cap.initEntry());
-      entry.runtimeCaps.push(cap);
-    }
-
     for (const cap of CAPABILITIES) {
       try { await cap.probe(entry, service); } catch { /* optional */ }
     }
-    for (const cap of entry.runtimeCaps) {
-      try { await cap.probe(entry, service); } catch { /* optional */ }
-    }
+    await probeRuntimeCaps(entry, service);
   } catch (err) {
     entry.status = "error";
     entry.lastConnectError = err.message || String(err);
@@ -381,6 +387,24 @@ async function connect(id) {
     logFor(entry, `connect failed: ${entry.lastConnectError}`);
   }
   renderEntry(entry);
+}
+
+// Build + probe only runtime caps that aren't already live. Used both at
+// connect time and when fw-info notifies a schema change mid-session (ESP32
+// adds camera post-WiFi-join). Keyed by name so an existing cap's state
+// (wifi scan cache, etc.) survives a re-notify.
+async function probeRuntimeCaps(entry, service) {
+  entry.runtimeCaps = entry.runtimeCaps || [];
+  const have = new Set(entry.runtimeCaps.map(c => c.name));
+  for (const capSchema of entry.capSchema || []) {
+    if (have.has(capSchema.name)) continue;
+    const make = RUNTIMES[capSchema.type];
+    if (!make) continue;
+    const cap = make(capSchema);
+    Object.assign(entry, cap.initEntry());
+    try { await cap.probe(entry, service); } catch { /* optional */ }
+    entry.runtimeCaps.push(cap);
+  }
 }
 
 async function disconnect(id) {
@@ -675,6 +699,15 @@ function openMenu(triggerBtn, id) {
   } else {
     header.hidden = true;
   }
+  // Gate ops-dependent items on the presence of the ops channel. ESP32 has
+  // no opsChar, so restart/reboot/log/pinout would be no-ops and the log
+  // dialog would sit forever on "Loading…" waiting for a response that
+  // can't come. Hide them instead of letting the user click into a dead end.
+  const hasOps = !!entry?.opsChar;
+  $("menu-restart").hidden = !hasOps;
+  $("menu-reboot").hidden  = !hasOps;
+  $("menu-log").hidden     = !hasOps;
+  $("menu-pinout").hidden  = !hasOps;
   const rect = triggerBtn.getBoundingClientRect();
   // Position below-right of trigger, nudging left if it would overflow viewport.
   const menuWidth = 220;
@@ -784,6 +817,7 @@ document.addEventListener("DOMContentLoaded", () => {
     closeMenu();
     if (id) rebootRobot(id);
   });
+  let logTimeoutId = null;
   $("menu-log").addEventListener("click", () => {
     const id = menuTargetId;
     closeMenu();
@@ -792,11 +826,25 @@ document.addEventListener("DOMContentLoaded", () => {
     $("log-dialog-title").textContent = `Log · ${entry?.name || "robot"}`;
     $("log-dialog-body").textContent = "Loading…";
     $("log-dialog").showModal();
+    if (logTimeoutId) clearTimeout(logTimeoutId);
+    // Reply arrives as a single get-log notify; if none lands within 10 s the
+    // robot likely silently dropped the request (no ops-response handler,
+    // stalled service, link congestion). Surface it instead of hanging.
+    logTimeoutId = setTimeout(() => {
+      logTimeoutId = null;
+      if ($("log-dialog").open && $("log-dialog-body").textContent === "Loading…") {
+        $("log-dialog-body").textContent = "(timed out — no response from robot)";
+      }
+    }, 10000);
     getLog(id);
   });
-  $("log-dialog-close").addEventListener("click", () => $("log-dialog").close());
+  $("log-dialog-close").addEventListener("click", () => {
+    if (logTimeoutId) { clearTimeout(logTimeoutId); logTimeoutId = null; }
+    $("log-dialog").close();
+  });
   onOpsResponse("get-log", (entry, msg) => {
     if (!$("log-dialog").open) return;
+    if (logTimeoutId) { clearTimeout(logTimeoutId); logTimeoutId = null; }
     $("log-dialog-body").textContent = msg.text || "(empty)";
   });
   $("menu-pinout").addEventListener("click", () => {
@@ -930,6 +978,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("setup-close").addEventListener("click", () => $("setup-dialog").close());
 
   initGamepad();
+  initMotorsKeyboard();
   initVoice({ connectAll });
   initPrepare();
   initRecovery();

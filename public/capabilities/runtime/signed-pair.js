@@ -1,8 +1,13 @@
 // Expected schema shape:
 //   { name: "motors", char: "…d99", type: "signed-pair",
 //     range: [-100, 100], unit?: "pct", labels?: {left: "L", right: "R"} }
-// Write path is drop-intermediate-values (latest-intent-wins) because sliders
-// fire faster than BLE writes can complete.
+// For name === "motors" the UI is a 2D joypad (throttle + turn, differential
+// mixing done client-side) plus a global WASD/arrow-keys listener. Anything
+// else falls back to two independent sliders so the raw signed-pair contract
+// still serves future non-driving uses (e.g. pan/tilt).
+//
+// Write path is drop-intermediate-values (latest-intent-wins) because pointer
+// moves and keyboard ticks fire faster than BLE writes can complete.
 import { UUIDS_BY_CAP } from "../../ble.js";
 import { escapeHtml } from "../../dom.js";
 import { log, logFor } from "../../log.js";
@@ -37,6 +42,13 @@ export async function setPairValue(entry, capName, left, right) {
   }
 }
 
+// Differential mix: (throttle, turn) ∈ [-100, 100] → (L, R). Used by joypad
+// and keyboard so the slider-less controls share one mental model.
+function mix(throttle, turn) {
+  const c = (v) => Math.max(-100, Math.min(100, Math.round(v)));
+  return [c(throttle + turn), c(throttle - turn)];
+}
+
 export function makeSignedPairCap(schema) {
   const { name } = schema;
   const char = schema.char || UUIDS_BY_CAP[name];
@@ -50,6 +62,7 @@ export function makeSignedPairCap(schema) {
   const actionStop = `${name}-stop`;
   const label = name.length <= 3 ? name.toUpperCase()
     : name[0].toUpperCase() + name.slice(1);
+  const isMotors = name === "motors";
 
   return {
     name,
@@ -92,7 +105,7 @@ export function makeSignedPairCap(schema) {
 
     renderSection(entry) {
       if (entry.status !== "connected" || !entry[charField]) return "";
-      return `
+      const header = `
         <div class="robot-controls row">
           <div>
             <div class="label">${escapeHtml(label)}</div>
@@ -100,6 +113,16 @@ export function makeSignedPairCap(schema) {
           </div>
           <button class="secondary sm" data-action="${actionStop}">Stop</button>
         </div>
+      `;
+      if (isMotors) {
+        return `${header}
+          <div class="joypad-wrap" data-action="motors-joypad">
+            <div class="joypad"><div class="joypad-knob"></div></div>
+            <div class="meta joypad-hint">Drag to drive · W A S D / arrow keys also work</div>
+          </div>
+        `;
+      }
+      return `${header}
         <div class="motor-sliders">
           <label>${escapeHtml(labels.left)} <input type="range" min="${range[0]}" max="${range[1]}" value="${entry[leftField]}" data-action="${actionLeft}"></label>
           <label>${escapeHtml(labels.right)} <input type="range" min="${range[0]}" max="${range[1]}" value="${entry[rightField]}" data-action="${actionRight}"></label>
@@ -108,27 +131,160 @@ export function makeSignedPairCap(schema) {
     },
 
     wireActions(entry, node) {
+      const stop = node.querySelector(`[data-action="${actionStop}"]`);
+      if (stop) stop.addEventListener("click", () => {
+        node.querySelectorAll("input[type='range']").forEach(el => { el.value = 0; });
+        setPairValue(entry, name, 0, 0);
+      });
+      if (isMotors) {
+        const pad = node.querySelector(".joypad");
+        const knob = pad?.querySelector(".joypad-knob");
+        if (pad && knob) wireJoypad(entry, pad, knob);
+        return;
+      }
       const l = node.querySelector(`[data-action="${actionLeft}"]`);
       const r = node.querySelector(`[data-action="${actionRight}"]`);
-      const stop = node.querySelector(`[data-action="${actionStop}"]`);
       if (l && r) {
         const onInput = () => setPairValue(entry, name, l.value, r.value);
         l.addEventListener("input", onInput);
         r.addEventListener("input", onInput);
       }
-      if (stop) {
-        stop.addEventListener("click", () => {
-          if (l) l.value = 0;
-          if (r) r.value = 0;
-          setPairValue(entry, name, 0, 0);
-        });
-      }
     },
   };
+}
+
+// Wire pointer events on a joypad. Heartbeat re-sends the last values every
+// 200ms while the pointer is held, so the firmware watchdog (~600ms) doesn't
+// cut a motor that the user is holding steady.
+function wireJoypad(entry, pad, knob) {
+  let activePointer = null;
+  let holdTimer = null;
+  let lastL = 0, lastR = 0;
+
+  const updateFromXY = (clientX, clientY) => {
+    const rect = pad.getBoundingClientRect();
+    const radius = rect.width / 2;
+    const dx = clientX - (rect.left + radius);
+    const dy = clientY - (rect.top + radius);
+    const dist = Math.min(1, Math.hypot(dx, dy) / radius);
+    const angle = Math.atan2(dy, dx);
+    const nx = Math.cos(angle) * dist;
+    const ny = Math.sin(angle) * dist;
+    knob.style.transform = `translate(${nx * radius}px, ${ny * radius}px)`;
+    // Y is inverted — up on screen should be +throttle forward.
+    [lastL, lastR] = mix(-ny * 100, nx * 100);
+    setPairValue(entry, "motors", lastL, lastR);
+  };
+
+  const release = (e) => {
+    if (activePointer === null) return;
+    if (e && e.pointerId !== activePointer) return;
+    try { pad.releasePointerCapture(activePointer); } catch {}
+    activePointer = null;
+    if (holdTimer) { clearInterval(holdTimer); holdTimer = null; }
+    knob.style.transform = "";
+    lastL = lastR = 0;
+    setPairValue(entry, "motors", 0, 0);
+  };
+
+  pad.addEventListener("pointerdown", (e) => {
+    if (activePointer !== null) return;
+    activePointer = e.pointerId;
+    pad.setPointerCapture(activePointer);
+    updateFromXY(e.clientX, e.clientY);
+    holdTimer = setInterval(() => setPairValue(entry, "motors", lastL, lastR), 200);
+  });
+  pad.addEventListener("pointermove", (e) => {
+    if (e.pointerId !== activePointer) return;
+    updateFromXY(e.clientX, e.clientY);
+  });
+  pad.addEventListener("pointerup", release);
+  pad.addEventListener("pointercancel", release);
+  pad.addEventListener("pointerleave", release);
 }
 
 // Matches the old sendMotors(id, l, r) shape that gamepad.js calls.
 export async function sendPairById(id, capName, left, right) {
   const entry = state.devices.get(id);
   if (entry) await setPairValue(entry, capName, left, right);
+}
+
+// ─── Keyboard (WASD / arrows) ────────────────────────────────────────────
+// Global listener. Sends motor commands to the first connected robot that
+// exposes the motors cap. Ignores keydown while a text input / textarea /
+// select has focus so dialog text fields still work normally.
+const KEY_MAP = {
+  "w": "throttle+", "arrowup":    "throttle+",
+  "s": "throttle-", "arrowdown":  "throttle-",
+  "d": "turn+",     "arrowright": "turn+",
+  "a": "turn-",     "arrowleft":  "turn-",
+};
+const _heldKeys = new Set();
+let _keyHoldTimer = null;
+let _keyboardWired = false;
+
+function pickMotorsTarget() {
+  for (const e of state.devices.values()) {
+    if (e.motorsChar && e.status === "connected") return e;
+  }
+  return null;
+}
+
+function keyboardTick() {
+  const entry = pickMotorsTarget();
+  if (!entry) return;
+  let throttle = 0, turn = 0;
+  for (const k of _heldKeys) {
+    const axis = KEY_MAP[k];
+    if (axis === "throttle+") throttle = 100;
+    else if (axis === "throttle-") throttle = -100;
+    else if (axis === "turn+") turn = 100;
+    else if (axis === "turn-") turn = -100;
+  }
+  const [l, r] = mix(throttle, turn);
+  setPairValue(entry, "motors", l, r);
+}
+
+function stopKeyboardMotors() {
+  const entry = pickMotorsTarget();
+  if (entry) setPairValue(entry, "motors", 0, 0);
+}
+
+export function initMotorsKeyboard() {
+  if (_keyboardWired) return;
+  _keyboardWired = true;
+
+  window.addEventListener("keydown", (e) => {
+    const tag = document.activeElement?.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const k = e.key.toLowerCase();
+    if (!(k in KEY_MAP)) return;
+    e.preventDefault();
+    if (_heldKeys.has(k)) return;  // ignore OS auto-repeat
+    _heldKeys.add(k);
+    keyboardTick();
+    if (!_keyHoldTimer) _keyHoldTimer = setInterval(keyboardTick, 200);
+  });
+
+  window.addEventListener("keyup", (e) => {
+    const k = e.key.toLowerCase();
+    if (!_heldKeys.has(k)) return;
+    _heldKeys.delete(k);
+    if (_heldKeys.size === 0) {
+      if (_keyHoldTimer) { clearInterval(_keyHoldTimer); _keyHoldTimer = null; }
+      stopKeyboardMotors();
+    } else {
+      keyboardTick();
+    }
+  });
+
+  // Lost window focus: treat all keys as released so the robot doesn't keep
+  // driving into a wall while the user alt-tabs.
+  window.addEventListener("blur", () => {
+    if (_heldKeys.size === 0) return;
+    _heldKeys.clear();
+    if (_keyHoldTimer) { clearInterval(_keyHoldTimer); _keyHoldTimer = null; }
+    stopKeyboardMotors();
+  });
 }
