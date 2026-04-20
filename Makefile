@@ -8,7 +8,7 @@ PUBLISH_DIR := public/firmware/bins
 BOOT_APP0   := $(shell find ~/Library/Arduino15 ~/.arduino15 -name boot_app0.bin 2>/dev/null | sort -V | tail -1)
 MONITOR      = arduino-cli monitor --port "$(PORT)" --config baudrate=115200,dtr=off,rts=off
 
-.PHONY: help setup compile flash monitor flash-monitor preview publish publish-firmware publish-pi-firmware
+.PHONY: help setup compile flash monitor flash-monitor install-pi-os preview publish publish-firmware publish-pi-firmware
 
 help:
 	@echo ""
@@ -20,6 +20,9 @@ help:
 	@echo "  \033[36mflash\033[0m          Compile + upload over USB — fast dev iteration"
 	@echo "  \033[36mmonitor\033[0m        Open serial monitor at 115200"
 	@echo "  \033[36mflash-monitor\033[0m  Flash then open monitor"
+	@echo ""
+	@echo "\033[2mPi SD provisioning\033[0m"
+	@echo "  \033[36minstall-pi-os\033[0m  Write Raspberry Pi OS Lite 64-bit to SD card (then use dashboard 'Customize card')"
 	@echo ""
 	@echo "\033[2mDashboard & publishing (what the browser serves + OTA fetches)\033[0m"
 	@echo "  \033[36mpreview\033[0m             Serve dashboard at http://localhost:8080 (local)"
@@ -61,6 +64,9 @@ monitor:
 	$(MONITOR)
 
 flash-monitor: flash monitor
+
+install-pi-os:
+	@bash scripts/install-pi-os.sh
 
 preview:
 	@# Local HTTP server + cloudflared tunnel. Desktop uses localhost, phone
