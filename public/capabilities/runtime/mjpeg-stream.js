@@ -71,18 +71,29 @@ export function makeMjpegStreamCap(schema) {
       const sceneText = scene?.text ?? "";
       // Perception is gated behind settings.perception (Settings → Experimental)
       // because it's WebGPU-only, multi-hundred-MB on first load, and GPU-heavy
-      // at run. Users opt in explicitly before the control even appears.
-      const watchRow = running && visionSupported() && settings.perception ? `
-        <label class="camera-watch-row">
-          <input type="checkbox" data-action="${actionWatch}" ${watching ? "checked" : ""}>
-          <span>Watch with Pip</span>
-          ${watching && sceneText
-            ? `<span class="meta camera-scene">${escapeHtml(sceneText)}</span>`
-            : watching
-              ? `<span class="meta camera-scene">Loading model…</span>`
-              : ""}
-        </label>
-      ` : "";
+      // at run. When the setting is on but the stream/GPU isn't, show a muted
+      // hint explaining why the toggle isn't here — so a user who enabled the
+      // setting and sees nothing isn't left guessing.
+      let watchRow = "";
+      if (settings.perception) {
+        if (!running) {
+          watchRow = `<div class="meta camera-watch-hint">Perception: start the stream to enable “Watch with Pip”.</div>`;
+        } else if (!visionSupported()) {
+          watchRow = `<div class="meta camera-watch-hint">Perception: this browser has no WebGPU (Chrome desktop required).</div>`;
+        } else {
+          watchRow = `
+            <label class="camera-watch-row">
+              <input type="checkbox" data-action="${actionWatch}" ${watching ? "checked" : ""}>
+              <span>Watch with Pip</span>
+              ${watching && sceneText
+                ? `<span class="meta camera-scene">${escapeHtml(sceneText)}</span>`
+                : watching
+                  ? `<span class="meta camera-scene">Loading model…</span>`
+                  : ""}
+            </label>
+          `;
+        }
+      }
       return `
         <div class="robot-controls">
           <div class="row">
