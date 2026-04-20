@@ -11,6 +11,12 @@ function setStatus(state, text) {
   dot.className = `dot${state ? ` ${state}` : ""}`;
   $("phone-status-text").textContent = text;
 }
+
+function transportLabel(transport) {
+  if (transport === "p2p") return "Connected · P2P";
+  if (transport === "relay") return "Connected · relay";
+  return "Disconnected";
+}
 function setMessage(text) { $("phone-message").textContent = text; }
 function setEcho(text) {
   const el = $("phone-echo");
@@ -89,9 +95,15 @@ async function init() {
   try {
     setStatus("connecting", "Connecting…");
     _peer = await joinPairingRoom(roomId);
-    setStatus("connected", "Connected");
+    setStatus("connected", transportLabel(_peer.transport));
     setMessage("Hi — I'm Pip, running on your desktop. Ask me something.");
     _peer.onMessage(onPeerMessage);
+    _peer.onTransportChange((t) => {
+      // P2P → relay shift is usually transient; only flag as "error" when
+      // everything's actually down. Relay mode still works end-to-end, just
+      // higher latency for drive commands.
+      setStatus(t === "closed" ? "error" : "connected", transportLabel(t));
+    });
     _peer.onClose(() => {
       setStatus("error", "Disconnected");
       setMessage("Connection lost. Re-open the pair QR on the desktop to reconnect.");
