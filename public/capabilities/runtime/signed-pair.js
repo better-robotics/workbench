@@ -158,14 +158,20 @@ export function makeSignedPairCap(schema) {
   };
 }
 
-// Wire pointer events on a joypad. Heartbeat re-sends the last values every
-// 200ms while the pointer is held, so the firmware watchdog (~600ms) doesn't
-// cut a motor the user is holding steady. Returns a reset fn callers can use
-// to synthesize an immediate release (e.g. from the Stop button).
+// Wire pointer events on a joypad. Pattern mirrors nipplejs (github.com/
+// yoannmoinet/nipplejs) — pointerdown on the pad, but pointermove/up on the
+// window. setPointerCapture is unreliable across iOS Safari + mobile Chrome;
+// listening on the window holds together when the pointer leaves the circle,
+// the viewport, or the browser window entirely. 200ms heartbeat keeps the
+// firmware watchdog (~600ms) from cutting a motor the user is holding steady.
+// Returns a reset fn callers (e.g. Stop button) can use to end a drag
+// immediately from outside the event flow.
 function wireJoypad(entry, pad, knob) {
-  let activePointer = null;
+  let activePointerId = null;
   let holdTimer = null;
   let lastL = 0, lastR = 0;
+  let rafPending = null;
+  let pendingXY = null;
 
   const updateFromXY = (clientX, clientY) => {
     const rect = pad.getBoundingClientRect();
@@ -182,44 +188,64 @@ function wireJoypad(entry, pad, knob) {
     setPairValue(entry, "motors", lastL, lastR);
   };
 
-  // Internal state-reset shared by release events and the external reset fn.
-  // External reset skips the (0, 0) write because the caller (Stop button)
-  // does its own write after.
+  // Coalesce pointer-move bursts (can hit 120Hz+ on high-refresh screens) to
+  // one update per animation frame — keeps the knob silky and the BLE write
+  // queue from backing up on fast moves.
+  const scheduleUpdate = (x, y) => {
+    pendingXY = [x, y];
+    if (rafPending) return;
+    rafPending = requestAnimationFrame(() => {
+      rafPending = null;
+      if (!pendingXY) return;
+      const [cx, cy] = pendingXY;
+      pendingXY = null;
+      updateFromXY(cx, cy);
+    });
+  };
+
+  const onMove = (e) => {
+    if (e.pointerId !== activePointerId) return;
+    e.preventDefault();
+    scheduleUpdate(e.clientX, e.clientY);
+  };
+
+  const detach = () => {
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    window.removeEventListener("pointercancel", onUp);
+  };
+
+  // External reset: cancel drag machinery without emitting a (0,0) write.
+  // Callers (Stop button) typically follow up with their own write.
   const clearDragState = () => {
-    if (activePointer !== null) {
-      try { pad.releasePointerCapture(activePointer); } catch {}
-      activePointer = null;
-    }
+    if (activePointerId === null) return;
+    activePointerId = null;
+    detach();
     if (holdTimer) { clearInterval(holdTimer); holdTimer = null; }
+    if (rafPending) { cancelAnimationFrame(rafPending); rafPending = null; }
+    pendingXY = null;
     pad.classList.remove("dragging");
     knob.style.transform = "";
     lastL = lastR = 0;
   };
 
-  const release = (e) => {
-    if (activePointer === null) return;
-    if (e && e.pointerId !== activePointer) return;
+  function onUp(e) {
+    if (e && e.pointerId !== activePointerId) return;
     clearDragState();
     setPairValue(entry, "motors", 0, 0);
-  };
+  }
 
   pad.addEventListener("pointerdown", (e) => {
-    if (activePointer !== null) return;
-    activePointer = e.pointerId;
-    pad.setPointerCapture(activePointer);
+    if (activePointerId !== null) return;
+    e.preventDefault();
+    activePointerId = e.pointerId;
     pad.classList.add("dragging");
     updateFromXY(e.clientX, e.clientY);
     holdTimer = setInterval(() => setPairValue(entry, "motors", lastL, lastR), 200);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
   });
-  pad.addEventListener("pointermove", (e) => {
-    if (e.pointerId !== activePointer) return;
-    updateFromXY(e.clientX, e.clientY);
-  });
-  pad.addEventListener("pointerup", release);
-  pad.addEventListener("pointercancel", release);
-  // NOT pointerleave: with pointer capture active, dragging outside the circle
-  // still fires pointerleave even though the capture is still live. Using it
-  // as a release trigger cancels drags mid-motion.
 
   return clearDragState;
 }
