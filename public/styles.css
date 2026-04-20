@@ -1192,7 +1192,10 @@ dialog[open]::backdrop { opacity: 1; }
   top: auto;
   width: min(320px, calc(100vw - 40px));
   margin: 0;
-  padding: 12px 14px;
+  /* Extra top padding reserves space for the floating close button without
+     a dedicated header row. Matches the conversational-bubble pattern where
+     the corner × sits over the content rather than on a divider. */
+  padding: 14px 14px 14px;
   border: 1px solid var(--border-default);
   border-radius: 14px;
   background: var(--surface);
@@ -1200,17 +1203,36 @@ dialog[open]::backdrop { opacity: 1; }
   box-shadow: 0 10px 30px rgba(0,0,0,0.15);
   transform-origin: bottom right;
 }
-/* Echo of the user's last turn — muted so Pip's current reply stays the focus. */
+/* Floating close button — top-right corner, same visual weight as the icon-
+   class buttons we use elsewhere but positioned rather than flexed into a
+   header row. */
+.assistant-panel .assistant-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  min-width: 28px;
+  min-height: 28px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--ink-muted);
+}
+.assistant-panel .assistant-close:hover { color: var(--ink); }
+/* Echo of the user's last turn — muted quote, takes the space the "Pip"
+   title used to hold so the conversation context is always at the top. */
 .assistant-echo {
-  font-size: 12px;
+  font-size: 13px;
   font-style: italic;
   color: var(--ink-muted);
-  margin: 6px 0 4px;
+  margin: 0 32px 8px 0;  /* right margin clears the floating close button */
   padding-left: 8px;
   border-left: 2px solid var(--border-default);
   white-space: pre-wrap;
   word-break: break-word;
 }
+/* When there's no echo (fresh session), Pip's greeting needs a bit of extra
+   right-margin so it doesn't run under the close button. */
+.assistant-echo[hidden] + .assistant-message { margin-right: 32px; }
 .assistant-message { margin: 0; }
 .assistant-form { margin: 10px 0 0; }
 .assistant-input {

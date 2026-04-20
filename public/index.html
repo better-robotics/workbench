@@ -333,11 +333,11 @@
   </svg>
 </button>
 <dialog id="assistant-panel" class="assistant-panel">
-  <div class="modal-header">
-    <div class="label">Pip</div>
-    <button class="icon" id="assistant-close" aria-label="Close"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
-  </div>
-  <!-- Last user turn echoed above Pip's reply so there's continuity without a scrollback. -->
+  <!-- No "Pip" label — the bubble tail identifies whose voice this is, same
+       way iMessage/WhatsApp don't label each bubble with a sender name. The
+       user's last question takes the place the title used to occupy,
+       contextualizing Pip's reply. Close button floats in the corner. -->
+  <button class="icon assistant-close" id="assistant-close" aria-label="Close"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
   <div id="assistant-echo" class="assistant-echo" hidden></div>
   <p id="assistant-message" class="meta assistant-message">Hi — I'm Pip. I'll pipe up when there's something worth knowing.</p>
   <form id="assistant-form" class="assistant-form">
