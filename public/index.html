@@ -214,9 +214,9 @@
     <input id="prep-username" value="robot">
   </div>
   <div class="field">
-    <label for="prep-password">Sudo password (optional)</label>
+    <label for="prep-password">Sudo password</label>
     <input id="prep-password" type="password" autocomplete="new-password">
-    <div class="hint" style="margin-top: 4px;">Leave blank for SSH-key-only login. You can set a password later with <code>passwd</code>.</div>
+    <div class="hint" style="margin-top: 4px;">Leave blank for key-only SSH. Set one to enable password SSH too.</div>
   </div>
   <div class="field">
     <label for="prep-sshkey">SSH public keys</label>
@@ -224,7 +224,7 @@
       <textarea id="prep-sshkey" rows="3" placeholder="ssh-ed25519 AAAA..." autocomplete="off"></textarea>
       <button type="button" class="overlay-action" id="prep-sshkey-load">Upload</button>
     </div>
-    <div class="hint" style="margin-top: 4px;">Pre-filled with your dashboard key. Add more lines to authorize other keys, or edit to replace.</div>
+    <div class="hint" style="margin-top: 4px;">Pre-filled with your dashboard key. Add more lines to authorize other keys, or clear to disable key auth.</div>
   </div>
   <div class="field">
     <label>Capabilities</label>

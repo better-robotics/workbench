@@ -64,16 +64,25 @@ for g in sudo adm dialout cdrom audio video plugdev games users input render net
 done
 note user_created "$USER_NAME"
 
-# SSH_KEY is the textarea content, which the dashboard pre-fills with the
-# dashboard's own pubkey. Empty = no SSH authorization = BLE-only recovery.
+# Each field is its own switch: SSH_KEY non-empty → key auth;
+# USER_PASS non-empty → password auth. Either turns SSH on. Both empty =
+# BLE-only recovery, SSH stays off. Matches the two hints in the dialog.
 if [ -n "$SSH_KEY" ]; then
   install -d -m 700 -o "$USER_NAME" -g "$USER_NAME" "/home/$USER_NAME/.ssh"
   printf '%s\n' "$SSH_KEY" > "/home/$USER_NAME/.ssh/authorized_keys"
   chmod 600 "/home/$USER_NAME/.ssh/authorized_keys"
   chown "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.ssh/authorized_keys"
+fi
+if [ -n "$SSH_KEY" ] || [ -n "$USER_PASS" ]; then
   systemctl enable ssh
   systemctl start ssh
-  note ssh_enabled
+  if [ -n "$SSH_KEY" ] && [ -n "$USER_PASS" ]; then
+    note ssh_enabled "key + password"
+  elif [ -n "$SSH_KEY" ]; then
+    note ssh_enabled "key only"
+  else
+    note ssh_enabled "password only"
+  fi
 else
   note ssh_skipped
 fi
