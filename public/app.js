@@ -540,6 +540,15 @@ function render() {
 
 function renderEntry(entry) {
   if (!entry.node) { render(); return; }
+  // Preserve focus + value across the innerHTML rebuild for any data-action
+  // input/textarea inside this card. Telemetry/ops/motor notifies fire
+  // renderEntry frequently; without this, typing in an inline editor (e.g.
+  // the perception prompt field) is interrupted on every tick.
+  const active = document.activeElement;
+  const savedAction = active && entry.node.contains(active) ? active.dataset?.action : null;
+  const savedValue = savedAction && "value" in active ? active.value : null;
+  const savedStart = savedAction && active.selectionStart != null ? active.selectionStart : null;
+  const savedEnd   = savedAction && active.selectionEnd != null ? active.selectionEnd : null;
   const { id, name, status } = entry;
   const connected = status === "connected";
   const connecting = status === "connecting";
@@ -675,6 +684,22 @@ function renderEntry(entry) {
   });
 
   updateHeaderActions();
+
+  // Restore focus + selection to the data-action element that had focus
+  // before the rebuild, if any. Preserves the user's typing in inline
+  // editors (perception prompt textarea, etc.) across telemetry ticks.
+  if (savedAction) {
+    const restored = entry.node.querySelector(`[data-action="${savedAction}"]`);
+    if (restored) {
+      try {
+        if (savedValue != null && "value" in restored) restored.value = savedValue;
+        restored.focus();
+        if (savedStart != null && typeof restored.setSelectionRange === "function") {
+          restored.setSelectionRange(savedStart, savedEnd ?? savedStart);
+        }
+      } catch {}
+    }
+  }
 }
 
 let menuTargetId = null;

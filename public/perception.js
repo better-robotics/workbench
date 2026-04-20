@@ -190,9 +190,11 @@ export function stopWatching(id) {
 // toggle under their camera element. Rendering + wiring live here so the
 // gate-and-hint logic isn't duplicated per cap.
 
-// Emits HTML for the row under the camera. `running` is the cap-specific
-// "stream is active" check (img.running / entry[pcField] / etc). `watchingId`
-// is the data-action attribute the capability's wireActions will listen on.
+// Emits the FULL perception skeleton — checkbox, scene slot, load section,
+// prompt editor — always in the same shape when perception is enabled and
+// the stream is running. Content updates happen via patchPerceptionState so
+// a scene tick can't destroy the user's in-progress edit in the prompt
+// textarea.
 export function renderPerceptionRow(entry, { running, watching, watchingAction }) {
   if (!settings.perception) return "";
   if (!running) {
@@ -201,31 +203,44 @@ export function renderPerceptionRow(entry, { running, watching, watchingAction }
   if (!isSupported()) {
     return `<div class="meta camera-watch-hint">Perception: this browser has no WebGPU (Chrome desktop required).</div>`;
   }
-  const scene = getLatestScene(entry.id);
-  const sceneText = scene?.text ?? "";
-  // Loading state (while the ~770 MB model streams in): show the current
-  // file + percent + a thin progress bar under the checkbox. Lives on the
-  // entry (not a module map) so the cap's own renderEntry cycle drives it.
-  const load = entry.vlmLoadState;
-  const loading = watching && load?.status === "loading";
-  const loadRow = loading ? `
-    <div class="camera-watch-load">
-      <div class="meta camera-scene">${escapeHtml(load.file || "preparing")} · ${Math.round(load.percent || 0)}%</div>
-      <progress class="ota-progress" value="${load.percent || 0}" max="100"></progress>
-    </div>
-  ` : "";
   return `
-    <label class="camera-watch-row">
-      <input type="checkbox" data-action="${escapeHtml(watchingAction)}" ${watching ? "checked" : ""}>
-      <span>Watch with Pip</span>
-      ${!loading && watching && sceneText
-        ? `<span class="meta camera-scene">${escapeHtml(sceneText)}</span>`
-        : !loading && watching
-          ? `<span class="meta camera-scene">Listening…</span>`
-          : ""}
-    </label>
-    ${loadRow}
+    <div class="camera-perception" data-cam-perception="${escapeHtml(entry.id)}">
+      <label class="camera-watch-row">
+        <input type="checkbox" class="camera-watch-cb" data-action="${escapeHtml(watchingAction)}" ${watching ? "checked" : ""}>
+        <span>Watch with Pip</span>
+        <span class="meta camera-scene"></span>
+      </label>
+      <div class="camera-watch-load" hidden>
+        <div class="meta camera-load-label"></div>
+        <progress class="ota-progress" value="0" max="100"></progress>
+      </div>
+    </div>
   `;
+}
+
+// Surgical update for scene text + load progress. Does NOT touch the prompt
+// textarea or the checkbox state — ingests entry.vlmScene and entry.vlmLoadState
+// only. Called from onScene/onProgress so rapid perception ticks don't trigger
+// full-card re-renders that destroy the user's focus in the prompt editor.
+export function patchPerceptionState(entry) {
+  const root = entry.node?.querySelector(".camera-perception");
+  if (!root) return;
+  const sceneEl  = root.querySelector(".camera-watch-row .camera-scene");
+  const loadEl   = root.querySelector(".camera-watch-load");
+  const loadLabel = loadEl?.querySelector(".camera-load-label");
+  const loadBar   = loadEl?.querySelector("progress");
+  const watching  = !!root.querySelector(".camera-watch-cb")?.checked;
+  const load  = entry.vlmLoadState;
+  const scene = entry.vlmScene;
+  if (load?.status === "loading") {
+    if (loadEl)    loadEl.hidden = false;
+    if (loadLabel) loadLabel.textContent = `${load.file || "preparing"} · ${Math.round(load.percent || 0)}%`;
+    if (loadBar)   { loadBar.value = load.percent || 0; loadBar.max = 100; }
+    if (sceneEl)   sceneEl.textContent = "";
+  } else {
+    if (loadEl)  loadEl.hidden = true;
+    if (sceneEl) sceneEl.textContent = watching ? (scene?.text || "Listening…") : "";
+  }
 }
 
 // Wires the checkbox change handler. The cap writes the watching state back
@@ -240,7 +255,7 @@ export function wirePerceptionToggle(entry, node, {
   cb.addEventListener("change", async (e) => {
     if (e.target.checked) {
       entry[watchingField] = true;
-      onRender(entry);
+      patchPerceptionState(entry);  // show "Listening…" without re-rendering
       try {
         await startWatching(entry, {
           prompt: entry.vlmPrompt?.trim() || undefined,
@@ -251,15 +266,15 @@ export function wirePerceptionToggle(entry, node, {
                 file: (p.file || "").split("/").pop(),
                 percent: Math.round(p.progress || 0),
               };
-              onRender(entry);
+              patchPerceptionState(entry);
             } else if (p.status === "ready" || p.status === "done") {
               entry.vlmLoadState = null;
-              onRender(entry);
+              patchPerceptionState(entry);
             }
           },
           onScene: (text) => {
             entry.vlmLoadState = null;  // first scene = model is definitely loaded
-            onRender(entry);
+            patchPerceptionState(entry);
             // Paired phones see what Pip sees — catwatcher-style push. Raw
             // VLM observation; Pip isn't in the loop for this stream.
             broadcastSceneToPhones({ source: entry.name, text });
@@ -270,13 +285,14 @@ export function wirePerceptionToggle(entry, node, {
         entry[watchingField] = false;
         entry.vlmLoadState = null;
         alert(`Can't start perception: ${err.message || err}`);
-        onRender(entry);
+        onRender(entry);  // structural change back to off state — full render
       }
     } else {
       stopWatching(entry.id);
       entry[watchingField] = false;
       entry.vlmLoadState = null;
-      onRender(entry);
+      entry.vlmScene = null;
+      patchPerceptionState(entry);
     }
   });
 }
