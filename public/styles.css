@@ -1059,8 +1059,11 @@ dialog[open]::backdrop { opacity: 1; }
 }
 .assistant-bubble:hover { transform: translateY(-3px); }
 .assistant-bubble:active { transform: translateY(0); }
-/* Amber while the bot is the one talking — dialog opened by the bot, or chat reply in flight. */
-.assistant-bubble.speaking { color: var(--duke-persimmon); }
+/* .open = panel is visible; icon glows amber. No motion. Intent: "attention".
+   .responding = Pip is actively generating; antenna sways + eyes work,
+   serving as the typing indicator so the chat bubble doesn't need a "…". */
+.assistant-bubble.open,
+.assistant-bubble.responding { color: var(--duke-persimmon); }
 
 /* Living behavior — idle loop ported from robot-studio. ~8s cycle of mostly
    rest with occasional blinks + glances + antenna bobs. Inspired by Buddy's
@@ -1130,19 +1133,24 @@ dialog[open]::backdrop { opacity: 1; }
   40%                { transform: scaleY(0.15); }
 }
 
-/* Speaking — glance + blink cadence on the eyes, gentle antenna sway.
-   No full spin on the antenna: reads mechanical on a 2D head icon. */
-.assistant-bubble.speaking .robot-eyes {
+/* Responding — glance + blink cadence on the eyes, gentle antenna sway.
+   No full spin on the antenna: reads mechanical on a 2D head icon.
+   Only fires during active Pip response generation (setResponding in
+   assistant.js), not whenever the panel is open — so the motion has
+   actual meaning as a typing indicator. */
+.assistant-bubble.responding .robot-eyes {
   animation: robot-speak-eyes 2.4s step-end infinite;
 }
-/* Speaking: antenna cycles left → straight → right → straight at ~300ms each.
-   Path-swap instead of rotation — a "|" doesn't mind swinging sides, an "L" does. */
-.assistant-bubble.speaking .robot-antenna-l { animation: antenna-l-speak 1.2s step-end infinite; }
-.assistant-bubble.speaking .robot-antenna-s { animation: antenna-s-speak 1.2s step-end infinite; }
-.assistant-bubble.speaking .robot-antenna-r { animation: antenna-r-speak 1.2s step-end infinite; }
-/* Idle wink + spark both quiet down while the bot is talking — the speak rhythm is the only voice. */
-.assistant-bubble.speaking .robot-eye-r { animation: none; }
-.assistant-bubble.speaking .robot-spark { animation: none; opacity: 0; }
+/* Responding: antenna cycles left → straight → right → straight at ~300ms
+   each. Path-swap instead of rotation — a "|" doesn't mind swinging sides,
+   an "L" does. */
+.assistant-bubble.responding .robot-antenna-l { animation: antenna-l-speak 1.2s step-end infinite; }
+.assistant-bubble.responding .robot-antenna-s { animation: antenna-s-speak 1.2s step-end infinite; }
+.assistant-bubble.responding .robot-antenna-r { animation: antenna-r-speak 1.2s step-end infinite; }
+/* Idle wink + spark both quiet down while Pip is actively responding —
+   the response rhythm is the only voice. */
+.assistant-bubble.responding .robot-eye-r { animation: none; }
+.assistant-bubble.responding .robot-spark { animation: none; opacity: 0; }
 
 @keyframes robot-speak-eyes {
   0%, 50%, 100% { transform: scaleY(1)   translateX(0); }
@@ -1187,10 +1195,10 @@ dialog[open]::backdrop { opacity: 1; }
   .assistant-bubble .robot-spark,
   .assistant-bubble .robot-antenna-s,
   .assistant-bubble .robot-antenna-r { opacity: 0; }
-  .assistant-bubble.speaking .robot-eyes,
-  .assistant-bubble.speaking .robot-antenna-l,
-  .assistant-bubble.speaking .robot-antenna-s,
-  .assistant-bubble.speaking .robot-antenna-r { animation: none; }
+  .assistant-bubble.responding .robot-eyes,
+  .assistant-bubble.responding .robot-antenna-l,
+  .assistant-bubble.responding .robot-antenna-s,
+  .assistant-bubble.responding .robot-antenna-r { animation: none; }
   .assistant-panel.fading { transition: none; }
 }
 

@@ -65,7 +65,14 @@ let _lastNotifyAt = 0;
 let _pending = false;
 const _history = [];
 
-const setSpeaking = (on) => _bubble.classList.toggle("speaking", on);
+// Two distinct states on the mascot button:
+//   .open        — panel is visible; icon lit amber ("attention"). No motion.
+//   .responding  — Pip is actively generating a reply; antenna sways +
+//                  eye cadence runs. Visible during the await.
+// Separating them lets the antenna serve as the typing indicator, so the
+// chat bubble doesn't need a "…" placeholder on top of that.
+const setPanelOpen  = (on) => _bubble.classList.toggle("open", on);
+const setResponding = (on) => _bubble.classList.toggle("responding", on);
 
 function cancelAutoDismiss() {
   if (_fadeTimer)   { clearTimeout(_fadeTimer);   _fadeTimer = null; }
@@ -83,13 +90,14 @@ function scheduleAutoDismiss() {
 function close() {
   cancelAutoDismiss();
   _panel.close();
-  setSpeaking(false);
+  setPanelOpen(false);
+  setResponding(false);  // cancel any in-flight response indicator on close
 }
 
 function open({ autoDismiss = false } = {}) {
   cancelAutoDismiss();
   if (!_panel.open) _panel.show();
-  setSpeaking(true);
+  setPanelOpen(true);
   if (autoDismiss) scheduleAutoDismiss();
 }
 
@@ -124,7 +132,9 @@ async function notify(dialogId) {
     "by reading this panel. If nothing genuinely useful comes to mind, reply with",
     "an empty string — silence beats narrating what they can see.",
   ].join("\n");
+  setResponding(true);
   const reply = await ask(prompt, { system: PIP_SYSTEM });
+  setResponding(false);
   if (reply === "") return;                     // Pip chose silence — respect it
   speakMessage(reply ?? ctx.fallback);          // null = network failure, use fallback
 }
@@ -139,8 +149,11 @@ async function handleSubmit(e) {
 
   _history.push({ role: "user", content: text });
   setEcho(text);
-  _message.textContent = "…";
+  // No "…" placeholder — the antenna sway (triggered by setResponding below)
+  // is the typing indicator. Keep the previous reply visible as context
+  // while Pip generates the next one.
   _input.value = "";
+  setResponding(true);
 
   // Build a messages array for Claude from recent history. We pass the running
   // conversation so Pip can follow references ("the pin I mentioned?").
@@ -161,6 +174,7 @@ async function handleSubmit(e) {
   _history.push({ role: "assistant", content: finalReply });
   if (_history.length > HISTORY_LIMIT) _history.splice(0, _history.length - HISTORY_LIMIT);
 
+  setResponding(false);
   _input.disabled = false;
   _pending = false;
   // Keep the panel around for a beat so the user can read the reply, then fade.
@@ -180,6 +194,9 @@ export async function handleRemoteChat(text, { source = "phone" } = {}) {
   // Keep remote messages in the shared history so desktop context carries
   // through; tag the source so Pip knows the sender isn't local.
   _history.push({ role: "user", content: `[${source}] ${t}` });
+  // Desktop mascot animates while the phone's chat is being processed, so
+  // the operator at the desktop can see Pip is busy answering a remote user.
+  setResponding(true);
   const messages = _history.slice(-HISTORY_LIMIT)
     .map(m => ({ role: m.role, content: m.content }));
   const reply = await askWithTools(messages, {
@@ -188,6 +205,7 @@ export async function handleRemoteChat(text, { source = "phone" } = {}) {
     executor,
     maxTokens: 1024,
   });
+  setResponding(false);
   const finalReply = reply === null
     ? "I can't reach my brain right now — try again in a sec?"
     : reply || "I don't have a good answer for that — tell me more?";
