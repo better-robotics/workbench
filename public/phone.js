@@ -101,7 +101,12 @@ async function init() {
   const roomId = match[1];
   try {
     setStatus("connecting", "Connecting…");
-    _peer = await joinPairingRoom(roomId);
+    // Route pair stages through setMessage so the user sees where we're
+    // stuck if something stalls — "offer sent, waiting for desktop…" tells
+    // them way more than a forever-spinning "Connecting…".
+    _peer = await joinPairingRoom(roomId, {
+      onStatus: (s) => setMessage(s),
+    });
     setStatus("connected", "Connected");
     setMessage("Hi — I'm Pip, running on your desktop. Ask me something.");
     _peer.onMessage(onPeerMessage);

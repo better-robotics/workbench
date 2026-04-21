@@ -27,6 +27,19 @@ const DISCONNECT_GRACE_MS = 10000;  // Transient ICE `disconnected` can recover 
 const BACKPRESSURE_HIGH = 1_000_000;
 const BACKPRESSURE_LOW  =   200_000;
 const QUEUE_MAX = 1000;
+// Fail the initial pair fast if nothing reaches "channel open" in this
+// window — otherwise the phone shows a spinner forever when the QR is old
+// or NAT traversal silently dies. 30s is long enough for ICE on typical
+// home networks but short enough that the user doesn't assume it worked.
+const PAIR_TIMEOUT_MS = 30000;
+
+// Verbose transition logging, opt-in via ?debug or #debug in the URL. Gives
+// "where is it stuck?" visibility without permanently polluting the console.
+const DEBUG = typeof location !== "undefined" && /\bdebug\b/.test((location.search || "") + (location.hash || ""));
+function dbg(...args) {
+  if (!DEBUG) return;
+  try { console.log("[pairing]", performance.now().toFixed(0) + "ms", ...args); } catch {}
+}
 
 // Peer — JSON-framed data channel wrapper with a multi-state status channel
 // so UI can show connecting / connected / reconnecting / failed accurately.
@@ -244,6 +257,7 @@ function wireIceTrickle(pc, ws, myRole) {
 // instead of a frozen "waiting for phone" when something's silently wedged.
 export function hostPairingRoom({ onStatus = () => {} } = {}) {
   const roomId = crypto.randomUUID();
+  dbg("desktop: opening room", roomId);
   const myRole = "desktop";
   const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
   const ws = openSignalWs(roomId);
@@ -252,11 +266,28 @@ export function hostPairingRoom({ onStatus = () => {} } = {}) {
   const peerPromise = new Promise((res, rej) => { resolvePeer = res; rejectPeer = rej; });
   let resolved = false;
 
+  const timeoutId = setTimeout(() => {
+    if (resolved) return;
+    resolved = true;
+    dbg("desktop: pair timeout");
+    try { ws.close(); } catch {}
+    try { pc.close(); } catch {}
+    rejectPeer(new Error("Phone didn't pair within 30s. If the QR has been open a while, close and reopen the dialog to get a fresh one."));
+  }, PAIR_TIMEOUT_MS);
+
+  ws.addEventListener("open",  () => dbg("desktop ws: open"));
+  ws.addEventListener("close", () => dbg("desktop ws: close"));
+  pc.addEventListener("iceconnectionstatechange", () => dbg("desktop ice", pc.iceConnectionState));
+  pc.addEventListener("connectionstatechange",    () => dbg("desktop pc",  pc.connectionState));
+
   pc.addEventListener("datachannel", (e) => {
+    dbg("desktop: ondatachannel");
     try { onStatus("Phone connected, establishing channel…"); } catch {}
     e.channel.addEventListener("open", () => {
       if (resolved) return;
       resolved = true;
+      clearTimeout(timeoutId);
+      dbg("desktop: channel open, resolving peer");
       resolvePeer(new Peer({ pc, channel: e.channel, ws, myRole, roomId }));
     });
   });
@@ -265,64 +296,102 @@ export function hostPairingRoom({ onStatus = () => {} } = {}) {
     let msg; try { msg = JSON.parse(e.data); } catch { return; }
     if (msg.type !== "signal" || msg.peer === myRole) return;
     if (msg.data?.offer) {
+      dbg("desktop: offer received");
       try { onStatus("Phone connected, negotiating…"); } catch {}
       await pc.setRemoteDescription(msg.data.offer);
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       ws.send(JSON.stringify({ type: "signal", peer: myRole, data: { answer } }));
+      dbg("desktop: answer sent");
     }
     if (msg.data?.ice) { try { await pc.addIceCandidate(msg.data.ice); } catch {} }
   });
 
   ws.addEventListener("error", () => {
-    if (!resolved) { resolved = true; pc.close(); rejectPeer(new Error("signal socket failed")); }
+    if (!resolved) { resolved = true; clearTimeout(timeoutId); pc.close(); rejectPeer(new Error("signal socket failed")); }
   });
 
   return {
     roomId,
     waitForPeer: () => peerPromise,
-    cancel: () => { ws.close(); pc.close(); },
+    cancel: () => { clearTimeout(timeoutId); ws.close(); pc.close(); },
   };
 }
 
 // Phone: joins the room, creates data channel + offer on WS open, processes answer.
-export function joinPairingRoom(roomId) {
+// onStatus fires at each negotiation stage ("opening signal channel…",
+// "offer sent, waiting…", etc.) so phone.js can surface exactly where the
+// pair is — instead of a single "connecting…" blob that hides every stall.
+export function joinPairingRoom(roomId, { onStatus = () => {} } = {}) {
+  dbg("phone: joining room", roomId);
+  try { onStatus("Opening signal channel…"); } catch {}
   const myRole = "phone";
   const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
   const channel = pc.createDataChannel("pip");
   const ws = openSignalWs(roomId);
   wireIceTrickle(pc, ws, myRole);
 
+  ws.addEventListener("close", () => dbg("phone ws: close"));
+  pc.addEventListener("connectionstatechange", () => dbg("phone pc", pc.connectionState));
+  pc.addEventListener("iceconnectionstatechange", () => {
+    const s = pc.iceConnectionState;
+    dbg("phone ice", s);
+    if (s === "checking") { try { onStatus("Finding network path…"); } catch {} }
+    else if (s === "connected" || s === "completed") { try { onStatus("Network path ready, opening channel…"); } catch {} }
+  });
+
   return new Promise((resolve, reject) => {
     let resolved = false;
-    const fail = (err) => { if (!resolved) { resolved = true; try { ws.close(); } catch {} try { pc.close(); } catch {} reject(err); } };
+    let timeoutId;
+    const fail = (err) => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(timeoutId);
+      try { ws.close(); } catch {}
+      try { pc.close(); } catch {}
+      reject(err);
+    };
+
+    timeoutId = setTimeout(() => {
+      dbg("phone: pair timeout");
+      fail(new Error("Pairing took too long. Regenerate the QR on the desktop and try again."));
+    }, PAIR_TIMEOUT_MS);
 
     channel.addEventListener("open", () => {
       if (resolved) return;
       resolved = true;
+      clearTimeout(timeoutId);
+      dbg("phone: channel open, resolving peer");
       resolve(new Peer({ pc, channel, ws, myRole, roomId }));
     });
 
     ws.addEventListener("open", async () => {
+      dbg("phone ws: open");
       try {
+        try { onStatus("Signal channel open. Creating offer…"); } catch {}
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
         ws.send(JSON.stringify({ type: "signal", peer: myRole, data: { offer } }));
+        try { onStatus("Offer sent. Waiting for desktop…"); } catch {}
       } catch (err) { fail(err); }
     });
 
     ws.addEventListener("message", async (e) => {
       let msg; try { msg = JSON.parse(e.data); } catch { return; }
       if (msg.type !== "signal" || msg.peer === myRole) return;
-      if (msg.data?.answer) await pc.setRemoteDescription(msg.data.answer);
-      if (msg.data?.ice)   { try { await pc.addIceCandidate(msg.data.ice); } catch {} }
+      if (msg.data?.answer) {
+        dbg("phone: answer received");
+        try { onStatus("Desktop answered. Negotiating…"); } catch {}
+        await pc.setRemoteDescription(msg.data.answer);
+      }
+      if (msg.data?.ice) { try { await pc.addIceCandidate(msg.data.ice); } catch {} }
     });
 
-    ws.addEventListener("error", () => fail(new Error("signal socket failed")));
+    ws.addEventListener("error", () => fail(new Error("Signal channel failed. Check your internet and try again.")));
     pc.addEventListener("connectionstatechange", () => {
       // Only fail the INITIAL connect this way; once Peer is constructed,
       // its own iceconnectionstatechange handler owns lifecycle.
-      if (!resolved && pc.connectionState === "failed") fail(new Error("WebRTC connection failed"));
+      if (!resolved && pc.connectionState === "failed") fail(new Error("Couldn't reach the desktop's network. Check both devices are online."));
     });
   });
 }
