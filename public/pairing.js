@@ -19,22 +19,38 @@ const SIGNAL_WS_URL = "wss://signal.neevs.io";
 const ICE_SERVERS = [{ urls: "stun:stun.l.google.com:19302" }];
 const HEARTBEAT_MS = 20000;   // Cloudflare closes idle WebSockets ~100s; ping well below that.
 const DISCONNECT_GRACE_MS = 10000;  // Transient ICE `disconnected` can recover on its own.
+// Backpressure: DataChannel.bufferedAmount grows unbounded if we outrun the
+// peer. Text/joypad traffic is tiny so we rarely get near this; the queue is
+// insurance for whoever later ships camera frames or audio chunks over the
+// same channel. Queue drops oldest at QUEUE_MAX so a wedged receiver doesn't
+// OOM the sender.
+const BACKPRESSURE_HIGH = 1_000_000;
+const BACKPRESSURE_LOW  =   200_000;
+const QUEUE_MAX = 1000;
 
 // Peer — JSON-framed data channel wrapper with a multi-state status channel
 // so UI can show connecting / connected / reconnecting / failed accurately.
 class Peer {
-  constructor({ pc, channel, ws, myRole }) {
+  constructor({ pc, channel, ws, myRole, roomId }) {
     this._pc = pc;
     this._channel = channel;
     this._ws = ws;
     this._myRole = myRole;
+    // roomId lets us reopen the signaling WS when iOS backgrounds the tab
+    // and silently kills it — we rejoin the same room instead of a fresh pair.
+    this._roomId = roomId;
     this._onMessage = () => {};
     this._onStatus = () => {};
     this._onClose = () => {};
     this._status = "connected";
     this._graceTimer = null;
     this._heartbeatTimer = null;
+    this._sendQueue = [];
+    this._reopening = false;
+    this._visibilityHandler = null;
 
+    channel.bufferedAmountLowThreshold = BACKPRESSURE_LOW;
+    channel.addEventListener("bufferedamountlow", () => this._drainQueue());
     channel.addEventListener("message", (e) => {
       try { this._onMessage(JSON.parse(e.data)); } catch { /* drop malformed */ }
     });
@@ -69,6 +85,7 @@ class Peer {
 
     this._startHeartbeat();
     this._installSignalHandlers();
+    this._installVisibilityRecovery();
   }
 
   _setStatus(status, detail) {
@@ -124,16 +141,78 @@ class Peer {
     });
   }
 
+  // iOS Safari kills idle WebSockets when the tab backgrounds; even a 20s
+  // heartbeat can't save it. When the tab comes back, the data channel may
+  // still negotiate but the signal WS is gone, so any ICE restart we try
+  // sends into the void. Rejoin the same room first, rewire handlers, then
+  // kick an ICE restart — gets us from "frozen" to recovered in ~1s instead
+  // of waiting for the eventual ICE failure timeout.
+  _installVisibilityRecovery() {
+    if (typeof document === "undefined") return;
+    this._visibilityHandler = () => {
+      if (document.visibilityState !== "visible") return;
+      const s = this._ws.readyState;
+      if (s === WebSocket.OPEN || s === WebSocket.CONNECTING) return;
+      if (this._reopening) return;
+      this._reopenSignal();
+    };
+    document.addEventListener("visibilitychange", this._visibilityHandler);
+  }
+
+  _reopenSignal() {
+    this._reopening = true;
+    this._setStatus("reconnecting", "Signal channel dropped, reopening…");
+    const newWs = openSignalWs(this._roomId);
+    newWs.addEventListener("open", () => {
+      const oldWs = this._ws;
+      this._ws = newWs;
+      this._installSignalHandlers();
+      // ICE-trickle handler on the PC uses this._ws via the closure in
+      // wireIceTrickle — old handler still exists but its captured ws is
+      // closed, so its send() guard (readyState === OPEN) skips. Harmless
+      // extra listener; avoids an awkward removeEventListener dance.
+      wireIceTrickle(this._pc, this._ws, this._myRole);
+      try { oldWs.close(); } catch {}
+      this._reopening = false;
+      this._attemptIceRestart();
+    });
+    newWs.addEventListener("error", () => {
+      this._reopening = false;
+      this._setStatus("failed", "Signal reconnect failed");
+      this._finalClose();
+    });
+  }
+
+  _drainQueue() {
+    while (this._sendQueue.length > 0
+           && this._channel.readyState === "open"
+           && this._channel.bufferedAmount < BACKPRESSURE_HIGH) {
+      try { this._channel.send(this._sendQueue.shift()); } catch { break; }
+    }
+  }
+
   _finalClose() {
     if (this._graceTimer) { clearTimeout(this._graceTimer); this._graceTimer = null; }
     if (this._heartbeatTimer) { clearInterval(this._heartbeatTimer); this._heartbeatTimer = null; }
+    if (this._visibilityHandler) {
+      document.removeEventListener("visibilitychange", this._visibilityHandler);
+      this._visibilityHandler = null;
+    }
     try { this._ws.close(); } catch {}
     try { this._onClose(); } catch {}
   }
 
   send(obj) {
     if (this._channel.readyState !== "open") return;
-    try { this._channel.send(JSON.stringify(obj)); } catch {}
+    const payload = JSON.stringify(obj);
+    // Queue if we're above the high-water mark OR the queue is already
+    // draining — draining in order matters, so never jump the line.
+    if (this._channel.bufferedAmount > BACKPRESSURE_HIGH || this._sendQueue.length > 0) {
+      if (this._sendQueue.length >= QUEUE_MAX) this._sendQueue.shift();
+      this._sendQueue.push(payload);
+      return;
+    }
+    try { this._channel.send(payload); } catch {}
   }
   onMessage(cb) { this._onMessage = cb; }
   onStatus(cb)  { this._onStatus = cb; try { cb(this._status); } catch {} }  // fire initial
@@ -160,7 +239,10 @@ function wireIceTrickle(pc, ws, myRole) {
 
 // Desktop: opens the room, waits for the phone's offer, answers.
 // Returns { roomId, waitForPeer: () => Promise<Peer>, cancel() }.
-export function hostPairingRoom() {
+// onStatus fires at pre-Peer stages ("phone connected, negotiating…",
+// "establishing channel…") so the pair dialog can show distinct states
+// instead of a frozen "waiting for phone" when something's silently wedged.
+export function hostPairingRoom({ onStatus = () => {} } = {}) {
   const roomId = crypto.randomUUID();
   const myRole = "desktop";
   const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
@@ -171,10 +253,11 @@ export function hostPairingRoom() {
   let resolved = false;
 
   pc.addEventListener("datachannel", (e) => {
+    try { onStatus("Phone connected, establishing channel…"); } catch {}
     e.channel.addEventListener("open", () => {
       if (resolved) return;
       resolved = true;
-      resolvePeer(new Peer({ pc, channel: e.channel, ws, myRole }));
+      resolvePeer(new Peer({ pc, channel: e.channel, ws, myRole, roomId }));
     });
   });
 
@@ -182,6 +265,7 @@ export function hostPairingRoom() {
     let msg; try { msg = JSON.parse(e.data); } catch { return; }
     if (msg.type !== "signal" || msg.peer === myRole) return;
     if (msg.data?.offer) {
+      try { onStatus("Phone connected, negotiating…"); } catch {}
       await pc.setRemoteDescription(msg.data.offer);
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
@@ -216,7 +300,7 @@ export function joinPairingRoom(roomId) {
     channel.addEventListener("open", () => {
       if (resolved) return;
       resolved = true;
-      resolve(new Peer({ pc, channel, ws, myRole }));
+      resolve(new Peer({ pc, channel, ws, myRole, roomId }));
     });
 
     ws.addEventListener("open", async () => {
