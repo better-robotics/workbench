@@ -7,16 +7,34 @@
 //
 // Signal protocol (~/Github/jonasneves/signal/src/server/room.js):
 //   connect wss://signal.neevs.io/{room}/ws
-//   send   { type: "signal", peer: myRole, data: { offer|answer|ice } }
-//   recv   { type: "state",  peers: {...} }           // once, on connect
-//          { type: "signal", peer: theirRole, data: {...} }
+//   send   { type: "signal", peer: myPeerId, data: { offer|answer|ice } }
+//   recv   { type: "state",  peers: { peerId: lastSignal } }  // once, on connect
+//          { type: "signal", peer: theirPeerId, data: {...} }
 //
 // Protocol roles: phone is OFFERER (joins second, has something to offer),
-// desktop is ANSWERER. The signal server sends `state` only on connect and
-// doesn't broadcast peer-joined events, so making the side-that-joins-last
-// kick off the offer is the only natural ordering that works.
+// desktop is ANSWERER. peerId = role + "-" + nonce so re-scanning the QR
+// or leaving a stale tab open doesn't collide with a fresh session under a
+// fixed role key. The server's `state` snapshot is how late-joiners recover
+// a signal sent before they arrived; we apply it only when we're not
+// already on a healthy connection.
 const SIGNAL_WS_URL = "wss://signal.neevs.io";
-const ICE_SERVERS = [{ urls: "stun:stun.l.google.com:19302" }];
+const ICE_SERVERS = [
+  { urls: "stun:stun.l.google.com:19302" },
+  { urls: "stun:stun.cloudflare.com:3478" },
+  // OpenRelay's public TURN — covers symmetric-NAT networks (cellular,
+  // corporate/guest wifi) where STUN-only fails silently at the "checking"
+  // ICE state. Best-effort uptime, shared credentials, rate-limited;
+  // swap in a private TURN if we outgrow the quota.
+  {
+    urls: [
+      "turn:openrelay.metered.ca:80",
+      "turn:openrelay.metered.ca:443",
+      "turn:openrelay.metered.ca:443?transport=tcp",
+    ],
+    username: "openrelayproject",
+    credential: "openrelayproject",
+  },
+];
 const HEARTBEAT_MS = 20000;   // Cloudflare closes idle WebSockets ~100s; ping well below that.
 const DISCONNECT_GRACE_MS = 10000;  // Transient ICE `disconnected` can recover on its own.
 // Backpressure: DataChannel.bufferedAmount grows unbounded if we outrun the
@@ -33,22 +51,70 @@ const QUEUE_MAX = 1000;
 // home networks but short enough that the user doesn't assume it worked.
 const PAIR_TIMEOUT_MS = 30000;
 
-// Verbose transition logging, opt-in via ?debug or #debug in the URL. Gives
-// "where is it stuck?" visibility without permanently polluting the console.
-const DEBUG = typeof location !== "undefined" && /\bdebug\b/.test((location.search || "") + (location.hash || ""));
+// Verbose transition logging, opt-in via ?debug or #debug in the URL. When
+// set, dbg() mirrors to both console and any subscribed sinks (the floating
+// in-page panel, so phones can diagnose without remote DevTools).
+export const DEBUG = typeof location !== "undefined" && /\bdebug\b/.test((location.search || "") + (location.hash || ""));
+const _logSinks = new Set();
+export function onDebugLog(fn) { _logSinks.add(fn); return () => _logSinks.delete(fn); }
+
 function dbg(...args) {
   if (!DEBUG) return;
   try { console.log("[pairing]", performance.now().toFixed(0) + "ms", ...args); } catch {}
+  if (!_logSinks.size) return;
+  const ts = new Date().toISOString().slice(11, 23);
+  const msg = args.map(x => typeof x === "string" ? x : (() => { try { return JSON.stringify(x); } catch { return String(x); } })()).join(" ");
+  for (const fn of _logSinks) { try { fn(`${ts} ${msg}`); } catch {} }
+}
+
+// Auto-install a floating log panel when ?debug is set so phone-side issues
+// are diagnosable without remote DevTools. Pointer-events: none lets the
+// user tap through it. Module side-effect on purpose — nothing to remember
+// to wire up from callers.
+if (DEBUG && typeof document !== "undefined") {
+  const install = () => {
+    if (document.getElementById("__pairing_debug_panel")) return;
+    const panel = document.createElement("pre");
+    panel.id = "__pairing_debug_panel";
+    panel.style.cssText = "position:fixed;right:8px;bottom:8px;max-width:60vw;max-height:40vh;overflow:auto;margin:0;padding:8px;font:11px ui-monospace,monospace;background:rgba(0,0,0,0.85);color:#8f8;z-index:99999;border-radius:4px;white-space:pre-wrap;pointer-events:none;";
+    document.body.appendChild(panel);
+    onDebugLog((line) => {
+      panel.textContent += line + "\n";
+      panel.scrollTop = panel.scrollHeight;
+    });
+  };
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", install, { once: true });
+  else install();
+}
+
+function makePeerId(role) {
+  return role + "-" + Math.random().toString(36).slice(2, 8);
+}
+
+// State snapshots can carry stale entries from prior sessions. Apply only
+// semantic-describe (offer/answer); ICE candidates tied to a dead pc would
+// be rejected anyway. Filter to the opposite role's prefix so our own stale
+// entries from a previous tab don't echo back into this session.
+function extractFromState(peers, selfPeerId, otherRolePrefix) {
+  const out = [];
+  for (const k of Object.keys(peers || {})) {
+    if (k === selfPeerId) continue;
+    if (!k.startsWith(otherRolePrefix + "-")) continue;
+    const d = peers[k];
+    if (d && (d.offer || d.answer)) out.push(d);
+  }
+  return out;
 }
 
 // Peer — JSON-framed data channel wrapper with a multi-state status channel
 // so UI can show connecting / connected / reconnecting / failed accurately.
 class Peer {
-  constructor({ pc, channel, ws, myRole, roomId }) {
+  constructor({ pc, channel, ws, myPeerId, otherRolePrefix, roomId }) {
     this._pc = pc;
     this._channel = channel;
     this._ws = ws;
-    this._myRole = myRole;
+    this._myPeerId = myPeerId;
+    this._otherRolePrefix = otherRolePrefix;
     // roomId lets us reopen the signaling WS when iOS backgrounds the tab
     // and silently kills it — we rejoin the same room instead of a fresh pair.
     this._roomId = roomId;
@@ -115,16 +181,21 @@ class Peer {
     }, HEARTBEAT_MS);
   }
 
+  _isConnected() {
+    const s = this._pc.iceConnectionState;
+    return s === "connected" || s === "completed";
+  }
+
   // Only the phone (offerer) initiates an ICE restart. Desktop sits and waits
   // for the fresh offer — its existing signal handler will set the remote
   // description and answer, same as initial negotiation.
   async _attemptIceRestart() {
-    if (this._myRole !== "phone") return;
+    if (!this._myPeerId.startsWith("phone-")) return;
     try {
       this._pc.restartIce();
       const offer = await this._pc.createOffer({ iceRestart: true });
       await this._pc.setLocalDescription(offer);
-      this._ws.send(JSON.stringify({ type: "signal", peer: this._myRole, data: { offer } }));
+      this._ws.send(JSON.stringify({ type: "signal", peer: this._myPeerId, data: { offer } }));
     } catch (err) {
       // If restart itself fails, mark failed and let the caller rebuild.
       this._setStatus("failed", `Restart failed: ${err.message || err}`);
@@ -133,25 +204,50 @@ class Peer {
   }
 
   // Signals after data channel is up — subsequent offer/answer rounds for
-  // ICE restart, and late-arriving ICE candidates.
+  // ICE restart, and late-arriving ICE candidates. Handles `state` too for
+  // the case where a visibility-recovery WS reopen picks up an offer that
+  // arrived while we were backgrounded.
   _installSignalHandlers() {
     this._ws.addEventListener("message", async (e) => {
       let msg;
       try { msg = JSON.parse(e.data); } catch { return; }
-      if (msg.type !== "signal" || msg.peer === this._myRole) return;
-      try {
-        if (msg.data?.offer) {
-          await this._pc.setRemoteDescription(msg.data.offer);
-          const answer = await this._pc.createAnswer();
-          await this._pc.setLocalDescription(answer);
-          this._ws.send(JSON.stringify({ type: "signal", peer: this._myRole, data: { answer } }));
+      if (msg.type === "signal") {
+        if (msg.peer === this._myPeerId) return;
+        await this._applySignal(msg.data);
+      } else if (msg.type === "state") {
+        // Healthy connection → skip. Replaying an old offer on a working pc
+        // would tear it down. We only want state during initial connect and
+        // during active reconnect.
+        if (this._isConnected()) { dbg("peer state skipped (already connected)"); return; }
+        for (const d of extractFromState(msg.peers, this._myPeerId, this._otherRolePrefix)) {
+          await this._applySignal(d);
         }
-        if (msg.data?.answer) await this._pc.setRemoteDescription(msg.data.answer);
-        if (msg.data?.ice)   { try { await this._pc.addIceCandidate(msg.data.ice); } catch {} }
-      } catch (err) {
-        console.warn("[pairing] signal handling error", err);
       }
     });
+  }
+
+  async _applySignal(data) {
+    if (!data) return;
+    try {
+      if (data.offer) {
+        // If we're mid-negotiation (phone sent a rapid-fire ICE-restart
+        // before our prior answer made it through), rollback to stable so
+        // setRemoteDescription doesn't InvalidStateError. Safe on already-
+        // stable pc; try/catch because rollback on "stable" itself throws
+        // on some UAs.
+        if (this._pc.signalingState !== "stable") {
+          try { await this._pc.setLocalDescription({ type: "rollback" }); } catch {}
+        }
+        await this._pc.setRemoteDescription(data.offer);
+        const answer = await this._pc.createAnswer();
+        await this._pc.setLocalDescription(answer);
+        this._ws.send(JSON.stringify({ type: "signal", peer: this._myPeerId, data: { answer } }));
+      }
+      if (data.answer) await this._pc.setRemoteDescription(data.answer);
+      if (data.ice)    { try { await this._pc.addIceCandidate(data.ice); } catch {} }
+    } catch (err) {
+      dbg("peer signal error", err.message || err);
+    }
   }
 
   // iOS Safari kills idle WebSockets when the tab backgrounds; even a 20s
@@ -184,7 +280,7 @@ class Peer {
       // wireIceTrickle — old handler still exists but its captured ws is
       // closed, so its send() guard (readyState === OPEN) skips. Harmless
       // extra listener; avoids an awkward removeEventListener dance.
-      wireIceTrickle(this._pc, this._ws, this._myRole);
+      wireIceTrickle(this._pc, this._ws, this._myPeerId);
       try { oldWs.close(); } catch {}
       this._reopening = false;
       this._attemptIceRestart();
@@ -242,10 +338,10 @@ function openSignalWs(roomId) {
   return new WebSocket(`${SIGNAL_WS_URL}/${roomId}/ws`);
 }
 
-function wireIceTrickle(pc, ws, myRole) {
+function wireIceTrickle(pc, ws, myPeerId) {
   pc.addEventListener("icecandidate", (e) => {
     if (e.candidate && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "signal", peer: myRole, data: { ice: e.candidate } }));
+      ws.send(JSON.stringify({ type: "signal", peer: myPeerId, data: { ice: e.candidate } }));
     }
   });
 }
@@ -257,14 +353,16 @@ function wireIceTrickle(pc, ws, myRole) {
 // instead of a frozen "waiting for phone" when something's silently wedged.
 export function hostPairingRoom({ onStatus = () => {} } = {}) {
   const roomId = crypto.randomUUID();
-  dbg("desktop: opening room", roomId);
-  const myRole = "desktop";
+  const myPeerId = makePeerId("desktop");
+  const otherRolePrefix = "phone";
+  dbg("desktop: opening room", roomId, "peerId=", myPeerId);
   const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
   const ws = openSignalWs(roomId);
-  wireIceTrickle(pc, ws, myRole);
+  wireIceTrickle(pc, ws, myPeerId);
   let resolvePeer, rejectPeer;
   const peerPromise = new Promise((res, rej) => { resolvePeer = res; rejectPeer = rej; });
   let resolved = false;
+  const pendingIce = [];
 
   const timeoutId = setTimeout(() => {
     if (resolved) return;
@@ -288,23 +386,46 @@ export function hostPairingRoom({ onStatus = () => {} } = {}) {
       resolved = true;
       clearTimeout(timeoutId);
       dbg("desktop: channel open, resolving peer");
-      resolvePeer(new Peer({ pc, channel: e.channel, ws, myRole, roomId }));
+      resolvePeer(new Peer({ pc, channel: e.channel, ws, myPeerId, otherRolePrefix, roomId }));
     });
   });
 
-  ws.addEventListener("message", async (e) => {
-    let msg; try { msg = JSON.parse(e.data); } catch { return; }
-    if (msg.type !== "signal" || msg.peer === myRole) return;
-    if (msg.data?.offer) {
+  const applySignal = async (data) => {
+    if (!data) return;
+    if (data.offer) {
       dbg("desktop: offer received");
       try { onStatus("Phone connected, negotiating…"); } catch {}
-      await pc.setRemoteDescription(msg.data.offer);
+      await pc.setRemoteDescription(data.offer);
+      for (const c of pendingIce) { try { await pc.addIceCandidate(c); } catch {} }
+      pendingIce.length = 0;
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
-      ws.send(JSON.stringify({ type: "signal", peer: myRole, data: { answer } }));
+      ws.send(JSON.stringify({ type: "signal", peer: myPeerId, data: { answer } }));
       dbg("desktop: answer sent");
     }
-    if (msg.data?.ice) { try { await pc.addIceCandidate(msg.data.ice); } catch {} }
+    if (data.ice) {
+      if (pc.remoteDescription) { try { await pc.addIceCandidate(data.ice); } catch {} }
+      else pendingIce.push(data.ice);
+    }
+  };
+
+  ws.addEventListener("message", async (e) => {
+    let msg; try { msg = JSON.parse(e.data); } catch { return; }
+    if (msg.type === "signal") {
+      if (msg.peer === myPeerId) return;
+      // Accept signals from phone-prefixed peers OR, defensively, anything
+      // not prefixed with our own role — tolerates legacy clients on older
+      // code until both sides have updated.
+      if (msg.peer && msg.peer.startsWith("desktop-")) return;
+      await applySignal(msg.data);
+    } else if (msg.type === "state") {
+      // Pre-Peer state: only apply if phone already dropped a signal before
+      // we arrived. Ignore our own role's stale entries.
+      for (const d of extractFromState(msg.peers, myPeerId, otherRolePrefix)) {
+        dbg("desktop: replaying state entry");
+        await applySignal(d);
+      }
+    }
   });
 
   ws.addEventListener("error", () => {
@@ -323,13 +444,14 @@ export function hostPairingRoom({ onStatus = () => {} } = {}) {
 // "offer sent, waiting…", etc.) so phone.js can surface exactly where the
 // pair is — instead of a single "connecting…" blob that hides every stall.
 export function joinPairingRoom(roomId, { onStatus = () => {} } = {}) {
-  dbg("phone: joining room", roomId);
+  const myPeerId = makePeerId("phone");
+  const otherRolePrefix = "desktop";
+  dbg("phone: joining room", roomId, "peerId=", myPeerId);
   try { onStatus("Opening signal channel…"); } catch {}
-  const myRole = "phone";
   const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
   const channel = pc.createDataChannel("pip");
   const ws = openSignalWs(roomId);
-  wireIceTrickle(pc, ws, myRole);
+  wireIceTrickle(pc, ws, myPeerId);
 
   ws.addEventListener("close", () => dbg("phone ws: close"));
   pc.addEventListener("connectionstatechange", () => dbg("phone pc", pc.connectionState));
@@ -343,6 +465,7 @@ export function joinPairingRoom(roomId, { onStatus = () => {} } = {}) {
   return new Promise((resolve, reject) => {
     let resolved = false;
     let timeoutId;
+    const pendingIce = [];
     const fail = (err) => {
       if (resolved) return;
       resolved = true;
@@ -362,8 +485,23 @@ export function joinPairingRoom(roomId, { onStatus = () => {} } = {}) {
       resolved = true;
       clearTimeout(timeoutId);
       dbg("phone: channel open, resolving peer");
-      resolve(new Peer({ pc, channel, ws, myRole, roomId }));
+      resolve(new Peer({ pc, channel, ws, myPeerId, otherRolePrefix, roomId }));
     });
+
+    const applySignal = async (data) => {
+      if (!data) return;
+      if (data.answer) {
+        dbg("phone: answer received");
+        try { onStatus("Desktop answered. Negotiating…"); } catch {}
+        await pc.setRemoteDescription(data.answer);
+        for (const c of pendingIce) { try { await pc.addIceCandidate(c); } catch {} }
+        pendingIce.length = 0;
+      }
+      if (data.ice) {
+        if (pc.remoteDescription) { try { await pc.addIceCandidate(data.ice); } catch {} }
+        else pendingIce.push(data.ice);
+      }
+    };
 
     ws.addEventListener("open", async () => {
       dbg("phone ws: open");
@@ -371,20 +509,23 @@ export function joinPairingRoom(roomId, { onStatus = () => {} } = {}) {
         try { onStatus("Signal channel open. Creating offer…"); } catch {}
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
-        ws.send(JSON.stringify({ type: "signal", peer: myRole, data: { offer } }));
+        ws.send(JSON.stringify({ type: "signal", peer: myPeerId, data: { offer } }));
         try { onStatus("Offer sent. Waiting for desktop…"); } catch {}
       } catch (err) { fail(err); }
     });
 
     ws.addEventListener("message", async (e) => {
       let msg; try { msg = JSON.parse(e.data); } catch { return; }
-      if (msg.type !== "signal" || msg.peer === myRole) return;
-      if (msg.data?.answer) {
-        dbg("phone: answer received");
-        try { onStatus("Desktop answered. Negotiating…"); } catch {}
-        await pc.setRemoteDescription(msg.data.answer);
+      if (msg.type === "signal") {
+        if (msg.peer === myPeerId) return;
+        if (msg.peer && msg.peer.startsWith("phone-")) return;
+        await applySignal(msg.data);
+      } else if (msg.type === "state") {
+        for (const d of extractFromState(msg.peers, myPeerId, otherRolePrefix)) {
+          dbg("phone: replaying state entry");
+          await applySignal(d);
+        }
       }
-      if (msg.data?.ice) { try { await pc.addIceCandidate(msg.data.ice); } catch {} }
     });
 
     ws.addEventListener("error", () => fail(new Error("Signal channel failed. Check your internet and try again.")));
