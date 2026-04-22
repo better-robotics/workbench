@@ -22,7 +22,11 @@
 import { drawFrameToCanvas } from "./perception.js";
 
 const TRANSFORMERS_URL = "https://cdn.jsdelivr.net/npm/@huggingface/transformers";
-const MODEL_ID = "Xenova/owlvit-base-patch32";
+// OWLv2 has a cleaner ONNX graph than OWL-ViT — the base-patch32 variant
+// tripped onnxruntime-web's WASM backend on an unsupported Cast(13) op in
+// the wild. OWLv2 also tends to outperform its predecessor on open-vocab
+// tasks. Size is comparable (~300MB quantized).
+const MODEL_ID = "Xenova/owlv2-base-patch16";
 const MAX_DIM = 640;
 const DEFAULT_THRESHOLD = 0.1;
 const DEFAULT_TOPK = 5;

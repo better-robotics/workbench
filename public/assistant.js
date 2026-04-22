@@ -1,6 +1,7 @@
 import { $ } from "./dom.js";
 import { ask, askWithTools } from "./claude.js";
 import { TOOLS, executor } from "./pip-tools.js";
+import { renderMd } from "./markdown.js";
 
 // Auto-dismiss timings match Buddy: 10s total show, fade begins at 7s (last 3s).
 const SHOW_MS = 10000;
@@ -119,9 +120,11 @@ function setEcho(text) {
 // .ai-generated CSS class tints the text amber so the user can tell
 // Claude output apart from hardcoded app copy (intro line, fallback
 // replies when Claude is unreachable) — calibrates trust without adding
-// UI chrome.
+// UI chrome. AI replies go through renderMd (code/bold/italic/lists);
+// static goes through textContent (no rendering, no surprises).
 function setMessageText(text, fromAI = false) {
-  _message.textContent = text;
+  if (fromAI) _message.innerHTML = renderMd(text);
+  else        _message.textContent = text;
   _message.classList.toggle("ai-generated", !!fromAI);
 }
 
