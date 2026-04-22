@@ -45,6 +45,19 @@ Dev handles exposed on `window`: `replayDownload()` → saves full JSON of the s
 
 Use case: when upgrading Claude, we can re-run a past session's inputs against the new model offline and compare decisions. No hardware, no user, no risk. comma.ai's replay-your-drive pattern, scoped to our tool surface.
 
+# Subsystem map
+
+`public/` is still flat on purpose — file count is manageable and naming prefixes carry the subsystem boundary. Use this map to know where new files belong, and promote a subsystem to its own folder (following `capabilities/`'s pattern) once it passes ~5 files whose internals shouldn't leak outside.
+
+- **Pair layer** — `pairing.js`, `phones.js`, `phone.js`, `phone.html`. Desktop ↔ phone WebRTC link; anything protocol-shaped between the two belongs here.
+- **Perception** — `perception.js`. In-browser VLM, camera-frame capture, scene prompt.
+- **Pip / assistant** — `assistant.js`, `claude.js`, `pip-tools.js`, `replay.js`. Claude integration, tool schemas, tool executor, replay logging. Anything Pip reasons with belongs here.
+- **Robot ops** — `ble.js`, `ops-response.js`, `capabilities/`. BLE protocol, ops channel, per-capability cards + runtime handlers.
+- **Robot lifecycle** — `prepare.js`, `recovery.js`, `pinout.js`. SD card prep, USB serial recovery, pinout config editor. Covers "getting a robot running or repaired."
+- **App shell** — `app.js`, `dom.js`, `state.js`, `settings.js`, `log.js`, `auth.js`, `passwords.js`, `index.html`, `styles.css`, `icons.svg`. Dashboard chrome and cross-cutting utilities.
+
+Likely next promotion candidate: **nav/** once `probe.js`, `navigate.js`, and friends land on top of the action-observation primitive.
+
 # Scope discipline
 
 Name what the system WON'T do, as loudly as what it will:

@@ -36,6 +36,14 @@ function handleSubmit(e) {
 // (or Skip / timeout at the other end). Only one ask at a time on screen;
 // if a second arrives while the first is open, the new one replaces it and
 // the prior ask resolves as skipped server-side when its timer fires.
+//
+// PROTOCOL PARITY — must match phones.js askHuman():
+//   desktop → phone  { type:"ask",       askId, question, options, imageDataUrl }  (received here)
+//   phone → desktop  { type:"ask-reply", askId, answer }                           (sent from respond())
+// Desktop-side the reply is matched against the pending ask by askId; mismatched
+// or late replies are dropped silently. Keep both halves in sync — renaming a
+// field on one side without the other leaves the user tapping answers into the
+// void.
 function showAsk(msg) {
   const dialog = $("phone-ask-dialog");
   const img = $("phone-ask-image");

@@ -48,6 +48,16 @@ export function broadcastSceneToPhones({ source, text }) {
 // answer is a string when the user tapped an option or typed a reply,
 // null when they skipped, and the promise resolves (not rejects) on timeout
 // so Pip can keep operating instead of crashing on a distracted user.
+//
+// PROTOCOL PARITY — must match phone.js:
+//   desktop → phone  { type:"ask",       askId, question, options, imageDataUrl }
+//   phone → desktop  { type:"ask-reply", askId, answer }
+// The receiver on phone.js is showAsk(); its response path posts ask-reply
+// back here, resolved by the "ask-reply" branch in onPhoneMessage below.
+// askId must round-trip identical or the lookup silently drops the reply
+// (malformed/unknown reply ids are ignored, by design — late-after-timeout
+// replies shouldn't resurrect a resolved promise). If you rename any field
+// on either side, update both at once.
 export function askHuman(phoneId, { question, options = [], imageDataUrl = null, timeoutMs = 60000 } = {}) {
   const phone = _phones.get(phoneId);
   if (!phone) return Promise.reject(new Error(`phone ${phoneId} not paired`));
