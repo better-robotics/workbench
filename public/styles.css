@@ -1255,10 +1255,12 @@ dialog[open]::backdrop { opacity: 1; }
    right-margin so it doesn't run under the close button. */
 .assistant-echo[hidden] + .assistant-message { margin-right: 32px; }
 .assistant-message { margin: 0; }
-/* AI-generated replies get an amber tint so the user can tell "Claude wrote
-   this" apart from the app's hardcoded copy (onboarding lines, fallback
-   messages when Claude is unreachable). Calibrates trust — yellow-ish is
-   the "this is model output, verify as needed" signal. */
+/* Amber tint = Pip is answering something the user just asked right now.
+   Narrow scope on purpose: proactive notify tips and static fallbacks
+   stay gray, even when Claude wrote them, because they're Pip's background
+   voice rather than a live reply. Calibrates trust the right way —
+   yellow appears when the user has context for "I asked, this is the
+   answer" and can judge it against their question. */
 .assistant-message.ai-generated { color: #d4b24e; }
 /* Markdown rendering inside Pip's AI replies. Keeps the amber tint from
    .ai-generated but gives code, lists, and emphasis proper structure

@@ -119,12 +119,14 @@ function setEcho(text) {
   else      { _echo.textContent = "";          _echo.hidden = true;  }
 }
 
-// Set the message text and tag it as AI-generated vs static. The
-// .ai-generated CSS class tints the text amber so the user can tell
-// Claude output apart from hardcoded app copy (intro line, fallback
-// replies when Claude is unreachable) — calibrates trust without adding
-// UI chrome. AI replies go through renderMd (code/bold/italic/lists);
-// static goes through textContent (no rendering, no surprises).
+// Set the message text and mark it as a live chat reply vs app voice.
+// fromAI is narrowly scoped: "Pip is answering what the user just asked
+// right now" — chat responses only. Proactive notify tips and static
+// fallbacks stay gray even though notify tips are technically Claude-
+// generated; they're Pip's background voice, not a response to an input.
+// The .ai-generated CSS class tints the text amber and runs markdown
+// (code/bold/italic/lists) so live replies are visually and structurally
+// distinct from the UI chrome around them.
 function setMessageText(text, fromAI = false) {
   if (fromAI) _message.innerHTML = renderMd(text);
   else        _message.textContent = text;
@@ -168,8 +170,10 @@ async function notify(dialogId) {
   const reply = await ask(prompt, { system: PIP_SYSTEM });
   setResponding(false);
   if (reply === "") return;                     // Pip chose silence — respect it
-  // reply non-null = Claude-generated, reply null = fallback static copy.
-  speakMessage(reply ?? ctx.fallback, { fromAI: reply !== null });
+  // Proactive notify tips are app voice even when Claude generated them —
+  // user didn't ask anything, this is Pip volunteering context on the side.
+  // Only chat replies get the amber 'live reply' tint (see setMessageText).
+  speakMessage(reply ?? ctx.fallback);
 }
 
 async function handleSubmit(e) {
