@@ -1,3 +1,7 @@
+# Developer reference
+
+`DEV.md` at the repo root is the canonical list of URL flags, `window.*` handles, IndexedDB stores, and common debug paths. Check it before grepping the codebase for "how do I enable X?"; keep it in sync when adding any new URL flag, console handle, or diagnostic surface.
+
 # Project layout gotchas
 
 - **`docs/` is a symlink to `public/`.** GitHub Pages serves from `docs/` on `main`, but the site content lives in `public/`. Do not put repo-level documentation under `docs/` or `public/` unless you want it published as part of the dashboard. Repo-level docs live at the root (e.g. `HARDWARE.md`) or inside a subsystem (e.g. `firmware/pi_robot/README.md`).
