@@ -2,7 +2,6 @@ import { state } from "./state.js";
 import { onOpsResponse } from "./ops-response.js";
 import { getLog, getConfig, restartService } from "./capabilities/runtime/command.js";
 import { listPhones, sendToPhone, askHuman } from "./phones.js";
-import { pulseMotors } from "./capabilities/runtime/signed-pair.js";
 import {
   getLatestScene as getRobotScene,
   isWatching as isWatchingRobot,
@@ -135,21 +134,6 @@ const ALL_TOOLS = [
       required: ["id", "queries"],
     },
     annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: true },
-  },
-  {
-    name: "move_motor",
-    description: "Issues a time-bounded motor pulse on the robot: runs motors at (l, r) for duration_ms milliseconds, then firmware auto-stops. THE ONLY way to move the robot from Pip — there is no persistent-motion equivalent in the LLM tool surface (that's reserved for the human's joystick). Arguments: l and r are signed wheel speeds [-100, 100]; firmware clamps LLM-issued magnitude to ±40 and duration to [50, 2000]ms, so anything outside that range is silently capped. Use short, small pulses for exploratory motion and re-observe the scene after — large commits to a direction without re-checking are how the robot gets stuck or collides. Not acknowledged (fire-and-forget); returns { ok, applied:{l,r,duration_ms} } with the actually-sent values or { ok:false, error }.",
-    input_schema: {
-      type: "object",
-      properties: {
-        id:          { type: "string", description: "Robot id" },
-        l:           { type: "number", description: "Left motor speed [-100, 100]. Firmware-capped to ±40." },
-        r:           { type: "number", description: "Right motor speed [-100, 100]. Firmware-capped to ±40." },
-        duration_ms: { type: "number", description: "Pulse length in ms. Firmware-capped to [50, 2000]." },
-      },
-      required: ["id", "l", "r", "duration_ms"],
-    },
-    annotations: { readOnlyHint: false, idempotentHint: false, destructiveHint: true, openWorldHint: true },
   },
   {
     name: "ask_human_via_phone",
@@ -293,9 +277,6 @@ async function dispatch(name, input) {
       } catch (err) {
         return { error: `detector failed: ${String(err.message || err)}` };
       }
-    }
-    case "move_motor": {
-      return await pulseMotors(input.id, input.l, input.r, input.duration_ms);
     }
     case "ask_human_via_phone": {
       const question = String(input.question || "").trim();

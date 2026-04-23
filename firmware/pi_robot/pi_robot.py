@@ -100,14 +100,6 @@ def _build_caps() -> list:
 # Safe default on disconnect — no redundant channel required.
 MOTOR_WATCHDOG_MS = 500
 
-# Control-loop invariants — see .claude/CLAUDE.md. LLM-issued motion comes
-# as a 4-byte payload [l, r, dur_hi, dur_lo] with a duration_ms that the
-# firmware honors by auto-stopping at the end of the pulse. Magnitude and
-# duration are clamped to these caps regardless of what the dashboard
-# sends; firmware is the safety floor, not Pip / Claude.
-LLM_MAX_SPEED = 40
-LLM_MAX_DURATION_MS = 2000
-
 # BLE OTA protocol:
 #   ota-data  (write) — binary frames with 1-byte opcode:
 #       0x01 [size:u32 big-endian]     begin — reset buffer, expect `size` bytes
@@ -296,11 +288,6 @@ _ota_last_reported_at: float = 0.0
 _motor_left: int = 0
 _motor_right: int = 0
 _motor_last_write_at: float = 0.0
-# Incremented on every motor write (joystick OR pulse). A scheduled pulse-
-# stop task only fires if the pulse_id it captured is still current — so a
-# human joystick write between pulse-start and pulse-end invalidates the
-# scheduled stop and the joystick's command wins.
-_motor_pulse_id: int = 0
 
 _robot_status: dict = {"st": "ready"}
 
@@ -632,42 +619,13 @@ def _apply_motors(left: int, right: int) -> None:
 
 
 def _motor_handle_write(data: bytearray) -> None:
-    """Motor char accepts two payload shapes:
-      2 bytes [l, r]                   — persistent (user joystick). Watchdog
-                                          stops after MOTOR_WATCHDOG_MS silence.
-                                          No LLM caps (user controls directly).
-      4 bytes [l, r, dur_hi, dur_lo]  — time-bounded pulse (LLM). Clamped to
-                                          LLM_MAX_SPEED / LLM_MAX_DURATION_MS,
-                                          firmware auto-stops at duration end.
-    Any write bumps _motor_pulse_id so a later write invalidates an earlier
-    pulse's scheduled stop — the newer command always wins.
-    """
-    global _motor_last_write_at, _motor_pulse_id
+    global _motor_last_write_at
+    if len(data) < 2:
+        return
     def signed(b: int) -> int:
         return b - 256 if b >= 128 else b
-    if len(data) == 2:
-        _motor_last_write_at = asyncio.get_event_loop().time()
-        _motor_pulse_id += 1
-        _apply_motors(signed(data[0]), signed(data[1]))
-    elif len(data) == 4:
-        l = max(-LLM_MAX_SPEED, min(LLM_MAX_SPEED, signed(data[0])))
-        r = max(-LLM_MAX_SPEED, min(LLM_MAX_SPEED, signed(data[1])))
-        duration_ms = max(50, min(LLM_MAX_DURATION_MS, (data[2] << 8) | data[3]))
-        _motor_last_write_at = asyncio.get_event_loop().time()
-        _motor_pulse_id += 1
-        pid = _motor_pulse_id
-        _apply_motors(l, r)
-        _schedule(_pulse_stop(duration_ms / 1000.0, pid))
-    else:
-        log.warning("motor: unexpected payload length %d", len(data))
-
-
-async def _pulse_stop(duration_s: float, pulse_id: int) -> None:
-    await asyncio.sleep(duration_s)
-    # Joystick or a newer pulse may have taken over — only stop if we're
-    # still the active pulse. Watchdog still covers the crash path.
-    if _motor_pulse_id == pulse_id:
-        _apply_motors(0, 0)
+    _motor_last_write_at = asyncio.get_event_loop().time()
+    _apply_motors(signed(data[0]), signed(data[1]))
 
 
 def _cam_send(obj: dict) -> None:
