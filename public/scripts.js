@@ -12,6 +12,21 @@ import { sendCommand } from "./capabilities/runtime/command.js";
 import { waitOpsResponse } from "./ops-response.js";
 import { observeOnce, captureFrameDataUrl } from "./perception.js";
 import { listPhones, askHuman } from "./phones.js";
+import { ask as claudeAsk } from "./claude.js";
+
+// pip.ask(prompt, opts?) — same Claude bridge Pip uses (claude.js). Throws on
+// any bridge/HTTP/parse failure so scripts catch a single error path instead
+// of branching on null vs. text. Costs the user's API quota — same as Pip.
+const pip = {
+  async ask(prompt, opts = {}) {
+    const text = await claudeAsk(String(prompt), {
+      system: opts.system,
+      maxTokens: opts.maxTokens ?? 300,
+    });
+    if (text === null) throw new Error("pip.ask: Claude bridge unreachable (is AI Bridge installed?)");
+    return text;
+  },
+};
 
 const STORE_KEY = "better-robotics:scripts:v1";
 
@@ -144,6 +159,44 @@ for (let step = 0; step < 6; step++) {
   log(\`phone said: \${dir ?? "(no answer)"}\`);
   if (!dir || dir === "Stop") break;
   if (CMDS[dir]) await robot.move({ ...CMDS[dir], durationMs: 400 });
+}
+log("done");
+`,
+  },
+  {
+    id: "pip-in-the-loop",
+    name: "Pip in the loop — VLM sees, Claude decides, robot acts",
+    body: `// The architecture's defining shape: vision feeds an LLM, the LLM picks
+// a typed action, firmware enforces the safety floor. Same primitives Pip
+// uses — the script is just driving the loop directly. Six steps, then stop.
+//
+// Requires: camera streaming on this robot + AI Bridge installed
+// (pip.ask hits the user's Claude API key, same as Pip).
+
+if (!robot) { log("Pair a robot first."); return; }
+
+const SYSTEM = "You drive a small ground robot via short pulses. Given a one-sentence scene, reply with EXACTLY ONE token from: forward, left, right, stop. No punctuation, no explanation.";
+
+for (let step = 0; step < 6; step++) {
+  let scene;
+  try { scene = await robot.scene("Describe what's directly in front of the robot in one short sentence."); }
+  catch (err) { log(\`scene failed: \${err.message} — start the camera stream first.\`); return; }
+  log(\`saw: \${scene}\`);
+
+  let move;
+  try { move = (await pip.ask(\`Scene: \${scene}\`, { system: SYSTEM, maxTokens: 8 })).trim().toLowerCase(); }
+  catch (err) { log(err.message); return; }
+  log(\`pip: \${move}\`);
+
+  if (move === "stop") { speak("stopping"); break; }
+  const cmd = {
+    forward: { left: 25,  right: 25 },
+    left:    { left: -22, right: 22 },
+    right:   { left: 22,  right: -22 },
+  }[move];
+  if (!cmd) { log(\`unrecognized move: "\${move}"\`); break; }
+  await robot.move({ ...cmd, durationMs: 350 });
+  await sleep(400);
 }
 log("done");
 `,
@@ -300,9 +353,9 @@ async function runScript() {
   try {
     // AsyncFunction so `await` works at the top of the user's script.
     const fn = new (Object.getPrototypeOf(async function () {}).constructor)(
-      "robot", "robots", "phones", "sleep", "log", "speak", body
+      "robot", "robots", "phones", "pip", "sleep", "log", "speak", body
     );
-    const ret = await fn(robot, robots, phones, sleep, log, speak);
+    const ret = await fn(robot, robots, phones, pip, sleep, log, speak);
     if (ret !== undefined) appendOutput(`→ ${typeof ret === "string" ? ret : JSON.stringify(ret)}`);
   } catch (err) {
     appendOutput(`Error: ${err.message || err}`);

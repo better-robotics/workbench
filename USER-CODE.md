@@ -41,11 +41,23 @@ const dir = await phones[0].ask({
   question: "Which way?",
   options: ["Forward", "Back", "Stop"],
 });
+
+// Claude in the loop — same bridge Pip uses (claude.js). Costs the user's
+// API quota per call. Throws on bridge failure.
+const move = await pip.ask("Scene: chair ahead. Reply: forward, left, right, stop.", {
+  system: "Reply with EXACTLY ONE token.",
+  maxTokens: 8,
+});
 ```
 
-In scope inside a script: `robot`, `robots`, `phones`, `sleep(ms)`, `log(...)`,
-`speak(text)`. The Scripts dialog ships several templates that demonstrate the
-shapes — pick one from the dropdown to load it into the editor.
+In scope inside a script: `robot`, `robots`, `phones`, `pip`, `sleep(ms)`,
+`log(...)`, `speak(text)`. The Scripts dialog ships several templates that
+demonstrate the shapes — pick one from the dropdown to load it into the editor.
+
+The `pip` namespace is intentionally thin: today just `pip.ask(prompt, opts?)`,
+returning Claude's text. It's the seam between "user wrote the orchestration"
+and "Claude decided this step" — same shape the project's Pip integration uses,
+exposed to user scripts directly so the two worlds aren't siloed.
 
 ## Why this is the right shape
 
