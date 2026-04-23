@@ -83,14 +83,43 @@ async function anthropicDirectRequest(body) {
   }
 }
 
-// Single dispatch point — chooses backend per request from current settings.
-// Lets the user switch backends mid-session without page reload (next
-// askWithTools call picks the new backend). bridgeRequest expects a
-// {type:"proxy", provider, path, method, body} envelope; the direct call
-// just takes the body. Both return the same {status, body} shape.
+// Single dispatch point for Anthropic-protocol calls (bridge OR direct API).
+// callOpenai (below) is the parallel for OpenAI's chat-completions protocol.
 async function callAnthropic(body) {
   if (settings.pipBackend === "anthropic") return anthropicDirectRequest(body);
   return bridgeRequest({ type: "proxy", provider: "claude", path: "/v1/messages", method: "POST", body });
+}
+
+// OpenAI direct API. Different protocol from Anthropic (auth header,
+// messages-with-system-as-message, function-calling shape) — see
+// _openaiAsk/_openaiAskWithTools for the per-protocol mappings. CORS is
+// allowed by OpenAI (no special header needed unlike Anthropic).
+const OPENAI_MODEL = "gpt-4o-mini";  // cheap default; future: model picker per backend
+async function callOpenai(body) {
+  const key = settings.pipOpenaiKey;
+  if (!key) return { status: 401, body: '{"error":"no OpenAI API key configured in Settings"}' };
+  try {
+    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "authorization": `Bearer ${key}`,
+      },
+      body: JSON.stringify(body),
+    });
+    return { status: resp.status, body: await resp.text() };
+  } catch (err) {
+    return { status: 0, error: err.message || String(err) };
+  }
+}
+
+// Anthropic tool spec → OpenAI function spec. Anthropic uses
+// {name, description, input_schema}; OpenAI wraps as
+// {type:"function", function:{name, description, parameters}}.
+// Both use JSON Schema for the parameters object so the schema body itself
+// transfers verbatim — only the wrapper differs.
+function anthropicToolToOpenai(t) {
+  return { type: "function", function: { name: t.name, description: t.description, parameters: t.input_schema } };
 }
 
 // Anthropic's messages API rejects tool entries with unknown keys (annotations,
@@ -108,13 +137,24 @@ function sanitizeTool(t) {
 // useful content back. Names the active backend so the message points at the
 // right thing to investigate.
 function logBackendError(label, res) {
-  const which = settings.pipBackend === "anthropic" ? "anthropic-direct" : "bridge";
-  if (!res)           console.info(`[claude/${which}] ${label}: unreachable (${which === "bridge" ? "is AI Bridge installed?" : "no API key configured?"})`);
+  const b = settings.pipBackend || "bridge";
+  const which = b === "anthropic" ? "anthropic-direct"
+              : b === "openai"    ? "openai-direct"
+              : b === "local"     ? "local-llm"
+              :                     "bridge";
+  if (!res)           console.info(`[claude/${which}] ${label}: unreachable`);
   else if (res.error) console.warn(`[claude/${which}] ${label}: ${res.error}`);
   else                console.warn(`[claude/${which}] ${label}: HTTP ${res.status}`, res.body?.slice?.(0, 500) ?? res.body);
 }
 
-export async function ask(userText, { system, maxTokens = 200 } = {}) {
+// Public API — protocol dispatch happens here. Both backends ultimately
+// return text or null; the caller never sees protocol details.
+export async function ask(userText, opts = {}) {
+  if (settings.pipBackend === "openai") return _openaiAsk(userText, opts);
+  return _anthropicAsk(userText, opts);
+}
+
+async function _anthropicAsk(userText, { system, maxTokens = 200 } = {}) {
   const res = await callAnthropic({
     model: MODEL,
     max_tokens: maxTokens,
@@ -128,6 +168,28 @@ export async function ask(userText, { system, maxTokens = 200 } = {}) {
     const json = JSON.parse(res.body);
     // "" is distinct from null — empty means Pip chose silence; null means the call failed.
     return json?.content?.[0]?.text?.trim() ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// OpenAI's chat/completions: system goes inside the messages array as
+// {role:"system"}, content is just a string.
+async function _openaiAsk(userText, { system, maxTokens = 200 } = {}) {
+  const messages = [];
+  if (system) messages.push({ role: "system", content: system });
+  messages.push({ role: "user", content: userText });
+  const res = await callOpenai({
+    model: OPENAI_MODEL,
+    max_tokens: maxTokens,
+    messages,
+    stream: false,
+  });
+  if (!res || res.error) { logBackendError("ask", res); return null; }
+  if (res.status < 200 || res.status >= 300) { logBackendError("ask", res); return null; }
+  try {
+    const json = JSON.parse(res.body);
+    return json?.choices?.[0]?.message?.content?.trim() ?? null;
   } catch {
     return null;
   }
@@ -152,7 +214,12 @@ export async function ask(userText, { system, maxTokens = 200 } = {}) {
 //                                             N more iterations; 0/false to
 //                                             stop and return the canned
 //                                             "(reached iteration limit)".
-export async function askWithTools(messages, { system, tools, executor, maxIterations = 5, maxTokens = 1024, onToolStart, onToolEnd, shouldAbort, onMaxIterations } = {}) {
+export async function askWithTools(messages, opts = {}) {
+  if (settings.pipBackend === "openai") return _openaiAskWithTools(messages, opts);
+  return _anthropicAskWithTools(messages, opts);
+}
+
+async function _anthropicAskWithTools(messages, { system, tools, executor, maxIterations = 5, maxTokens = 1024, onToolStart, onToolEnd, shouldAbort, onMaxIterations } = {}) {
   const convo = [...messages];
   let i = 0;
   let budget = maxIterations;
@@ -209,6 +276,85 @@ export async function askWithTools(messages, { system, tools, executor, maxItera
       }
     }
     convo.push({ role: "user", content: toolResults });
+    i++;
+    if (i >= budget && onMaxIterations) {
+      const more = await onMaxIterations();
+      if (typeof more === "number" && more > 0) budget += more;
+    }
+  }
+  return "(reached iteration limit)";
+}
+
+// OpenAI tool-use loop. Same shape as Anthropic's, different protocol:
+// - system goes inside messages as {role:"system"}
+// - tools wrapped as {type:"function", function:{...}}
+// - finish_reason === "tool_calls" instead of stop_reason === "tool_use"
+// - tool calls live on assistant.message.tool_calls (array of {id, function:{name, arguments}})
+//   where arguments is a JSON STRING that needs parsing
+// - tool results sent back as {role:"tool", tool_call_id, content}
+//
+// Anthropic-side input was already JSON; OpenAI's arguments-as-string
+// requires JSON.parse before passing to the executor. We catch parse
+// failures the same way as upstream errors — surfaces a tool_result that
+// represents the failure rather than crashing the loop.
+async function _openaiAskWithTools(messages, { system, tools, executor, maxIterations = 5, maxTokens = 1024, onToolStart, onToolEnd, shouldAbort, onMaxIterations } = {}) {
+  // Translate Anthropic-style messages (where the "system" prompt is a
+  // separate field, and tool messages have content arrays) into OpenAI's
+  // flat messages-with-system-as-first-message shape. The caller's
+  // initial messages are already plain text user/assistant turns from
+  // assistant.js's _history, so this normalization is mostly cheap.
+  const convo = [];
+  if (system) convo.push({ role: "system", content: system });
+  for (const m of messages) convo.push({ role: m.role, content: m.content });
+
+  let i = 0;
+  let budget = maxIterations;
+  while (i < budget) {
+    if (shouldAbort?.()) return "(stopped)";
+    const res = await callOpenai({
+      model: OPENAI_MODEL,
+      max_tokens: maxTokens,
+      messages: convo,
+      tools: tools?.map(anthropicToolToOpenai),
+      tool_choice: tools?.length ? "auto" : undefined,
+      stream: false,
+    });
+    if (!res || res.error) { logBackendError("askWithTools", res); return null; }
+    if (res.status < 200 || res.status >= 300) { logBackendError("askWithTools", res); return null; }
+    let json;
+    try { json = JSON.parse(res.body); }
+    catch (err) { console.warn("[claude/openai] askWithTools: malformed JSON body", err); return null; }
+
+    const choice = json?.choices?.[0];
+    const msg = choice?.message;
+    if (!msg) { logBackendError("askWithTools", res); return null; }
+
+    // Push assistant's response into the convo VERBATIM — OpenAI requires
+    // the same message object back when feeding tool_results, so we can't
+    // reshape it.
+    convo.push(msg);
+
+    if (choice.finish_reason !== "tool_calls" || !msg.tool_calls?.length) {
+      return (msg.content || "").trim();  // "" is silence, same convention as Anthropic
+    }
+
+    for (const tc of msg.tool_calls) {
+      const name = tc.function?.name;
+      let input;
+      try { input = JSON.parse(tc.function?.arguments || "{}"); }
+      catch (err) { input = { _parseError: String(err.message || err), raw: tc.function?.arguments }; }
+      const startedAt = performance.now();
+      onToolStart?.({ name, input });
+      try {
+        const result = await executor(name, input);
+        onToolEnd?.({ name, input, result, error: null, durationMs: performance.now() - startedAt });
+        convo.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify(result) });
+      } catch (err) {
+        const error = String(err.message || err);
+        onToolEnd?.({ name, input, result: null, error, durationMs: performance.now() - startedAt });
+        convo.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify({ error }) });
+      }
+    }
     i++;
     if (i >= budget && onMaxIterations) {
       const more = await onMaxIterations();

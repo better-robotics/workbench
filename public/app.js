@@ -1197,22 +1197,27 @@ document.addEventListener("DOMContentLoaded", () => {
     saveSettings();
   });
 
-  // Pip backend picker — bridge (default) or direct Anthropic API. Phase 2/3
-  // (OpenAI, local LFM2.5) extend this list when the adapters land.
+  // Pip backend picker — bridge (default), Anthropic direct, OpenAI direct.
+  // Phase 3 (local LFM2.5) extends this list when its adapter lands.
   const backendSelect = $("setting-pip-backend");
   const backendHint = $("setting-pip-backend-hint");
-  const keyRow = $("setting-pip-key-row");
-  const keyInput = $("setting-pip-key");
+  const anthropicKeyRow = $("setting-pip-anthropic-key-row");
+  const openaiKeyRow    = $("setting-pip-openai-key-row");
+  const anthropicKeyInput = $("setting-pip-key");
+  const openaiKeyInput    = $("setting-pip-openai-key");
   const HINTS = {
-    bridge: "Routes through the AI Bridge extension. Token stays in Keychain via native messaging — never exposed to the page.",
+    bridge:    "Routes through the AI Bridge extension. Token stays in Keychain via native messaging — never exposed to the page.",
     anthropic: "Calls api.anthropic.com directly with your API key. Works without the AI Bridge extension. Key stays in this browser.",
+    openai:    "Calls api.openai.com directly with your API key. Tool-calling translated from Anthropic's tool_use shape to OpenAI's function_calling shape — same Pip behavior, different backend.",
   };
   function syncBackendUI() {
     const b = settings.pipBackend || "bridge";
     backendSelect.value = b;
     backendHint.textContent = HINTS[b] || "";
-    keyRow.hidden = b !== "anthropic";
-    keyInput.value = settings.pipApiKey || "";
+    anthropicKeyRow.hidden = b !== "anthropic";
+    openaiKeyRow.hidden    = b !== "openai";
+    anthropicKeyInput.value = settings.pipApiKey || "";
+    openaiKeyInput.value    = settings.pipOpenaiKey || "";
   }
   syncBackendUI();
   backendSelect.addEventListener("change", () => {
@@ -1220,10 +1225,14 @@ document.addEventListener("DOMContentLoaded", () => {
     saveSettings();
     syncBackendUI();
   });
-  // Save key on blur, not per-keystroke — avoids persisting partial pastes
+  // Save keys on blur, not per-keystroke — avoids persisting partial pastes
   // and keeps the storage write off the typing critical path.
-  keyInput.addEventListener("blur", () => {
-    settings.pipApiKey = keyInput.value.trim();
+  anthropicKeyInput.addEventListener("blur", () => {
+    settings.pipApiKey = anthropicKeyInput.value.trim();
+    saveSettings();
+  });
+  openaiKeyInput.addEventListener("blur", () => {
+    settings.pipOpenaiKey = openaiKeyInput.value.trim();
     saveSettings();
   });
 
