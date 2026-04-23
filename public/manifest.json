@@ -1,0 +1,11 @@
+{
+  "name": "Better Robotics",
+  "short_name": "BetterRobotics",
+  "description": "Pair any robot in a browser tab. No network, no accounts, no servers.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "orientation": "any"
+}

@@ -998,6 +998,52 @@ function setBluetoothAvailable(available) {
   if (emptyBtn) emptyBtn.disabled = !available;
 }
 
+// Service worker — offline-first dashboard. Registered fire-and-forget;
+// the update banner (showSwUpdateBanner below) handles the user-facing
+// "new version available" prompt. SW lifecycle is intentional: we never
+// auto-skip-waiting, the user clicks Reload to apply.
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").then((reg) => {
+    if (reg.waiting && navigator.serviceWorker.controller) {
+      // A waiting worker was already present at page load — surface it.
+      showSwUpdateBanner(reg.waiting);
+    }
+    reg.addEventListener("updatefound", () => {
+      const next = reg.installing;
+      next?.addEventListener("statechange", () => {
+        if (next.state === "installed" && navigator.serviceWorker.controller) {
+          showSwUpdateBanner(next);
+        }
+      });
+    });
+  }).catch((err) => console.warn("[sw] register failed:", err.message));
+  // When the new SW takes control after the user clicks Reload, refresh
+  // the page so all in-memory state matches the now-active version.
+  let _swReloading = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (_swReloading) return;
+    _swReloading = true;
+    window.location.reload();
+  });
+}
+
+function showSwUpdateBanner(worker) {
+  if (document.getElementById("sw-update-banner")) return;  // already shown
+  const bar = document.createElement("div");
+  bar.id = "sw-update-banner";
+  bar.innerHTML = `
+    <span>New dashboard version available.</span>
+    <button class="sm" id="sw-update-reload">Reload</button>
+    <button class="icon" id="sw-update-dismiss" aria-label="Dismiss"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
+  `;
+  document.body.appendChild(bar);
+  document.getElementById("sw-update-reload").addEventListener("click", () => {
+    worker.postMessage("skip-waiting");
+    // controllerchange listener above triggers the actual reload.
+  });
+  document.getElementById("sw-update-dismiss").addEventListener("click", () => bar.remove());
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   if (!navigator.bluetooth) {
     $("unsupported").hidden = false;
