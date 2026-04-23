@@ -48,6 +48,14 @@ export function makeEntry(id, name, fwType = null, { autoReconnect = false, last
     wifiScanChar: null, wifiJoinChar: null, wifiStatusChar: null,
     wifiStatus: { st: "idle" }, wifiNetworks: null, wifiScanning: false,
     otaDataChar: null, otaStatusChar: null, otaStatus: { st: "idle" }, fwInfo: null,
+    // Browser-side OTA-sent counter — bytes for which writeValueWithResponse
+    // has resolved (≈ ATT_WRITE_RSP, which arrives only after the firmware's
+    // onWrite callback returns). More accurate than otaStatus.n on active
+    // uploads — that one's throttled (every 32 KB or 250 ms on ESP32). Lives
+    // in-memory only; resets to 0 on page load. patchOtaSection picks the
+    // higher of the two via Math.max so post-refresh display falls back to
+    // firmware-reported.
+    otaSent: 0,
     // Motors fields (motorsChar, motorsLeft/Right, motorsSending, motorsPending)
     // are assigned by the signed-pair runtime's initEntry() on connect.
     cameraSignalChar: null, cameraStatusChar: null,

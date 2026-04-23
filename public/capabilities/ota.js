@@ -47,15 +47,27 @@ export function setRender(fn) { renderEntry = fn; }
 // the card's innerHTML on every progress tick (which would destroy hovered
 // elements and flicker). Falls back to a full re-render if the section isn't
 // in the DOM (collapsed card, or the section hasn't been created yet).
+//
+// Two progress signals: entry.otaSent (browser, per-chunk, accurate) and
+// entry.otaStatus.n (firmware notify, throttled every 32 KB / 250 ms).
+// Math.max picks whichever is higher — sent leads during active uploads,
+// firmware-reported wins on post-refresh reconnect when sent is back to 0.
+// Label upgrades to "committing" client-side once we've sent everything but
+// the firmware hasn't notified "done" yet — so the bar doesn't sit at "100%
+// receiving" while we wait the install round-trip.
 function patchOtaSection(entry) {
   const section = entry.node?.querySelector(".ota-section");
   if (!section) { renderEntry(entry); return; }
-  const { st, n = 0, total = 0, err } = entry.otaStatus || {};
-  const pct = total ? Math.round(100 * n / total) : 0;
+  const { st, n: confirmed = 0, total = 0, err } = entry.otaStatus || {};
+  const sent = entry.otaSent || 0;
+  const display = Math.max(sent, confirmed);
+  const pct = total ? Math.round(100 * display / total) : 0;
+  const looksDone = total && sent >= total;
+  const label = looksDone && (st === "receiving" || !st) ? "committing" : (st || "idle");
   const meta = section.querySelector(".meta");
-  if (meta) meta.textContent = err ? `${st} — ${err}` : total ? `${st} · ${pct}%` : st;
+  if (meta) meta.textContent = err ? `${st} — ${err}` : total ? `${label} · ${pct}%` : label;
   const progress = section.querySelector(".ota-progress");
-  if (progress && total) { progress.value = n; progress.max = total; }
+  if (progress && total) { progress.value = display; progress.max = total; }
 }
 
 // macOS putting the display to sleep throttles the BLE write loop enough to
@@ -79,6 +91,8 @@ async function streamOtaBytes(entry, bytes) {
   // never trips the in-flight stall check but accumulates by commit. Until
   // we have a proper drop-detect-and-resend protocol, WithResponse is the
   // correct default: slower (ESP32 1.6 MB ≈ 3-5 min) but reliable.
+  entry.otaSent = 0;
+  patchOtaSection(entry);
   try { await ch.writeValueWithResponse(new Uint8Array([0x00])); } catch {}
   const begin = new Uint8Array(5);
   begin[0] = 0x01;
@@ -91,8 +105,16 @@ async function streamOtaBytes(entry, bytes) {
     frame[0] = 0x02;
     frame.set(slice, 1);
     await ch.writeValueWithResponse(frame);
+    // Per-chunk render — more responsive than firmware notify, and accurate:
+    // writeValueWithResponse only resolves AFTER the firmware's onWrite
+    // callback returns (ATT_WRITE_RSP is sent post-callback), so this byte
+    // count reflects bytes the firmware has actually processed.
+    entry.otaSent = i + slice.length;
+    patchOtaSection(entry);
   }
   await ch.writeValueWithResponse(new Uint8Array([0x03]));
+  entry.otaSent = bytes.length;
+  patchOtaSection(entry);
 }
 
 async function buildBundle(entry, manifestUrl) {
