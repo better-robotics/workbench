@@ -276,10 +276,19 @@ _motor_left_drv: Motor | None = None
 _motor_right_drv: Motor | None = None
 if MOTORS_ENABLED:
     try:
-        _motor_left_drv  = Motor(forward=MOTORS_PINS["left"]["in1"],
-                                 backward=MOTORS_PINS["left"]["in2"])
-        _motor_right_drv = Motor(forward=MOTORS_PINS["right"]["in1"],
-                                 backward=MOTORS_PINS["right"]["in2"])
+        # Optional ENA/ENB pins let the user control speed via the driver
+        # board's enable line instead of PWMing the direction pins. When
+        # set, gpiozero routes PWM to the enable pin; IN1/IN2 stay digital.
+        # When unset (default), PWM is on the direction pins and the
+        # board's ENA/ENB jumpers are expected to be on (always-enabled).
+        _left_pins = MOTORS_PINS["left"]
+        _right_pins = MOTORS_PINS["right"]
+        _left_kwargs  = {"forward": _left_pins["in1"],  "backward": _left_pins["in2"]}
+        _right_kwargs = {"forward": _right_pins["in1"], "backward": _right_pins["in2"]}
+        if "ena" in _left_pins:  _left_kwargs["enable"]  = _left_pins["ena"]
+        if "enb" in _right_pins: _right_kwargs["enable"] = _right_pins["enb"]
+        _motor_left_drv  = Motor(**_left_kwargs)
+        _motor_right_drv = Motor(**_right_kwargs)
     except Exception as e:
         log.warning("motor init failed: %s", e)
         _motor_left_drv = _motor_right_drv = None
