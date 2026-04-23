@@ -756,11 +756,13 @@ static void snapshotTask(void* param) {
     snapshotDataChar->setValue(chunk, 1 + take);
     snapshotDataChar->notify();
     sent += take;
-    // 25 ms covers Mac/Chrome's typical 30 ms connection interval. Earlier
-    // 6 ms was too aggressive — Bluedroid's notify queue (~7 entries) would
-    // overflow and silently drop late chunks, leaving the dashboard stuck
-    // mid-transfer. Slower but reliable: ~9 KB JPEG ≈ 50 chunks ≈ 1.3 s.
-    vTaskDelay(pdMS_TO_TICKS(25));
+    // Sender rate must stay ≤ the central's notify-delivery rate (one notify
+    // per connection event). Mac/Chrome negotiates ~30 ms, so a 25 ms delay
+    // is FASTER than delivery — Bluedroid's ~7-entry tx queue drifts full
+    // over ~1 s of transfer and silently drops the tail (saw stalls at
+    // ~6.5 KB / 9 KB JPEGs). 40 ms keeps a safe margin above the interval;
+    // ~9 KB JPEG ≈ 50 chunks ≈ 2 s, which is fine for a single snapshot.
+    vTaskDelay(pdMS_TO_TICKS(40));
   }
 
   // Commit: opcode 0x03, no payload. Dashboard validates received == total.
