@@ -8,6 +8,7 @@ import { $ } from "./dom.js";
 
 let _wired = false;
 let _port = null;
+let _consoleEl = null;
 
 function setStatus(msg) {
   const el = $("esp-serial-status");
@@ -24,20 +25,28 @@ async function connect() {
     else setStatus("disconnected");
     return;
   }
-  // Don't call port.open() — ewt-console opens it itself with the right baud
-  // and signal flags. Just hand it the SerialPort and it takes over.
-  const console = $("esp-serial-console");
-  console.port = _port;
+  // Create <ewt-console> fresh with port set BEFORE the element is inserted
+  // into the DOM — its connectedCallback runs the moment we appendChild and
+  // assumes a port exists. Static-HTML insertion crashes ewt internally.
+  _consoleEl = document.createElement("ewt-console");
+  _consoleEl.port = _port;
+  _consoleEl.setAttribute("allow-input", "");
+  const host = $("esp-serial-console-host");
+  host.innerHTML = "";
+  host.appendChild(_consoleEl);
   $("esp-serial-connect").textContent = "Disconnect";
   setStatus("connected");
 }
 
 async function disconnect() {
-  const console = $("esp-serial-console");
-  // ewt-console closes the underlying port when port is cleared / element
-  // is removed. Setting to null is the cleanest detach.
-  if (console) console.port = null;
+  if (_consoleEl) {
+    // Removing the element fires disconnectedCallback in ewt-console, which
+    // closes the underlying port. Belt-and-braces: try the port.close too.
+    try { _consoleEl.remove(); } catch {}
+    _consoleEl = null;
+  }
   if (_port) { try { await _port.close(); } catch {} _port = null; }
+  $("esp-serial-console-host").innerHTML = "";
   $("esp-serial-connect").textContent = "Connect";
   setStatus("disconnected");
 }

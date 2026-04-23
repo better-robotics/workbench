@@ -202,7 +202,12 @@
     <button class="secondary sm" id="esp-serial-connect">Connect</button>
     <span class="meta" id="esp-serial-status">disconnected</span>
   </div>
-  <ewt-console id="esp-serial-console" class="esp-serial-console" allow-input></ewt-console>
+  <!-- Host for <ewt-console>. We don't put the element here statically — its
+       connectedCallback fires on page load with no port set and crashes
+       inside esp-web-tools (Cannot read properties of undefined / 'debug').
+       Created dynamically in esp-serial.js on Connect, with port already
+       assigned. -->
+  <div id="esp-serial-console-host" class="esp-serial-console"></div>
 </dialog>
 
 <dialog id="recovery-modal" class="prepare-dialog">
