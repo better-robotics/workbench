@@ -28,6 +28,10 @@ export const HEARTBEAT_CHAR_UUID      = "b6e8d5f3-2c9d-4bba-ae5e-6f9b8c7d5eb1";
 // 0xff err+text.
 export const SNAPSHOT_REQUEST_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da0";
 export const SNAPSHOT_DATA_CHAR_UUID    = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da1";
+// Camera profile picker — write JSON {"profile":"compact|standard|full"}.
+// Firmware persists to Preferences and restarts. Current profile + available
+// profile names live in fw-info's camera cap entry.
+export const CAMERA_PROFILE_CHAR_UUID    = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da2";
 
 // Chunked-frame protocol shared by OTA and camera signaling: begin carries a
 // u32 big-endian length, chunks append, commit parses + acts, stop tears down.

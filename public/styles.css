@@ -603,6 +603,23 @@ details.tray.has-alert > summary::after {
 }
 .cap-body { margin-top: 10px; }
 @media (prefers-reduced-motion: reduce) { .cap-chevron { transition: none; } }
+
+/* Camera profile picker — sits at the bottom of the camera body when fw-info
+   advertises a profile menu. Compact: label + select inline + meta hint. */
+.cap-profile {
+  margin-top: 10px;
+  font-size: 13px;
+}
+.cap-profile label { display: inline-flex; align-items: center; gap: 6px; }
+.cap-profile select {
+  font-size: 13px;
+  padding: 2px 6px;
+  background: var(--surface);
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  color: var(--ink);
+}
+.cap-profile .meta { display: block; margin-top: 4px; }
 .robot.highlight { background: #fff8e1; transition: background 1.5s; }
 
 /* Top-level robot state (installing, rebooting, …). Live = pulsing accent

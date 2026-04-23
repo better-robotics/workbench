@@ -53,6 +53,12 @@
 // d9a/d9b WebRTC signaling pair on Pi — different intent, different protocol.
 #define SNAPSHOT_REQUEST_CHAR_UUID "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da0"
 #define SNAPSHOT_DATA_CHAR_UUID    "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da1"
+// Camera profile picker — write JSON {"profile":"compact|standard|full"}.
+// Firmware persists to Preferences and restarts; profile applies on next
+// boot. Three discrete operating points instead of N free knobs because
+// users have use cases (weak WiFi / standard / camera-heavy demo), not
+// individual sliders for framesize/quality/fb_count.
+#define CAMERA_PROFILE_CHAR_UUID   "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da2"
 
 // Motor watchdog: every write resets the timer; silence reverts to (0, 0).
 // Safe default on disconnect — no redundant channel required.
@@ -103,7 +109,28 @@ static const unsigned long TELEMETRY_INTERVAL_MS = 10000;
 
 BLECharacteristic* snapshotRequestChar = nullptr;
 BLECharacteristic* snapshotDataChar    = nullptr;
+BLECharacteristic* cameraProfileChar   = nullptr;
 static TaskHandle_t snapshotTaskHandle = nullptr;
+
+// Camera profile — three discrete operating points the user can pick.
+// Persisted to Preferences ("cam"/"profile"); applied at initCamera time.
+// Compact saves DMA heap (matters when WiFi is marginal); full pushes
+// resolution at the cost of buffers + bandwidth. Standard is the default.
+enum CamProfile { CAM_COMPACT = 0, CAM_STANDARD = 1, CAM_FULL = 2 };
+static CamProfile cameraProfile = CAM_STANDARD;
+static const char* cameraProfileName(CamProfile p) {
+  switch (p) {
+    case CAM_COMPACT:  return "compact";
+    case CAM_STANDARD: return "standard";
+    case CAM_FULL:     return "full";
+  }
+  return "standard";
+}
+static CamProfile cameraProfileFromName(const String& s) {
+  if (s == "compact")  return CAM_COMPACT;
+  if (s == "full")     return CAM_FULL;
+  return CAM_STANDARD;
+}
 // Snapshot chunk size — must fit under MTU-3. Matches public/ble.js CHUNK_BYTES
 // (180), which is conservative for desktop Chrome's negotiated MTU (~185).
 static const size_t SNAPSHOT_CHUNK_BYTES = 180;
@@ -286,20 +313,38 @@ static bool initCamera() {
   config.pin_reset    = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
   config.pixel_format = PIXFORMAT_JPEG;
-  config.frame_size   = FRAMESIZE_VGA;   // 640×480. DMA is 32 KB regardless.
-  config.jpeg_quality = 12;              // lower = higher quality
-  // fb_count=1 even with PSRAM. Double-buffering costs ~10 KB of DRAM in
-  // driver state and buys nothing at our stream rate.
-  config.fb_count     = 1;
+  // Profile-driven framesize / quality. fb_count stays 1 regardless —
+  // double-buffering costs ~10 KB of DRAM in driver state and buys nothing
+  // at our stream rates. Full pushes 2 only when PSRAM is present.
+  switch (cameraProfile) {
+    case CAM_COMPACT:
+      config.frame_size = FRAMESIZE_QVGA;  // 320×240
+      config.jpeg_quality = 15;
+      config.fb_count = 1;
+      break;
+    case CAM_FULL:
+      config.frame_size = FRAMESIZE_SVGA;  // 800×600
+      config.jpeg_quality = 10;
+      config.fb_count = psramFound() ? 2 : 1;
+      break;
+    case CAM_STANDARD:
+    default:
+      config.frame_size = FRAMESIZE_VGA;   // 640×480 — preserves prior default.
+      config.jpeg_quality = 12;
+      config.fb_count = 1;
+      break;
+  }
   config.fb_location  = psramFound() ? CAMERA_FB_IN_PSRAM : CAMERA_FB_IN_DRAM;
   config.grab_mode    = CAMERA_GRAB_LATEST;
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
     cameraInitError = (int)err;
-    Serial.printf("camera init failed: 0x%x (psram=%d)\n", err, psramFound());
+    Serial.printf("camera init failed: 0x%x (psram=%d, profile=%s)\n",
+                  err, psramFound(), cameraProfileName(cameraProfile));
     return false;
   }
-  Serial.printf("camera ok, psram=%d\n", psramFound());
+  Serial.printf("camera ok, psram=%d, profile=%s\n",
+                psramFound(), cameraProfileName(cameraProfile));
   return true;
 }
 
@@ -493,7 +538,12 @@ static void publishFwInfo() {
   info += ",{\"name\":\"wifi\",\"type\":\"wifi-scan\"}";
   info += ",{\"name\":\"motors\",\"type\":\"signed-pair\",\"range\":[-100,100]}";
   if (cameraReady) {
-    info += ",{\"name\":\"camera\",\"type\":\"mjpeg-stream\",\"port\":81,\"path\":\"/stream\"}";
+    info += ",{\"name\":\"camera\",\"type\":\"mjpeg-stream\",\"port\":81,\"path\":\"/stream\"";
+    // Profile metadata so the dashboard can render the picker. `profile`
+    // is the current one; `profiles` is the menu of options to offer.
+    info += ",\"profile\":\"";
+    info += cameraProfileName(cameraProfile);
+    info += "\",\"profiles\":[\"compact\",\"standard\",\"full\"]}";
     // Snapshot is BLE-only and works without WiFi — distinct cap so the
     // dashboard can render it independently of the live-stream card.
     info += ",{\"name\":\"snapshot\",\"type\":\"ble-snapshot\"}";
@@ -791,6 +841,33 @@ class SnapshotRequestCallbacks : public BLECharacteristicCallbacks {
   }
 };
 
+// Camera profile picker. Write {"profile":"compact|standard|full"}; the
+// firmware persists to Preferences and restarts so a fresh setup() applies
+// the new profile (initCamera reads cameraProfile at boot, no hot-swap).
+class CameraProfileCallbacks : public BLECharacteristicCallbacks {
+  void onWrite(BLECharacteristic* c) override {
+    String v = c->getValue();
+    int q = v.indexOf("\"profile\"");
+    if (q < 0) { Serial.println("camera-profile: bad payload"); return; }
+    int colon = v.indexOf(':', q);
+    int firstQ = v.indexOf('"', colon);
+    int lastQ  = v.indexOf('"', firstQ + 1);
+    if (firstQ < 0 || lastQ < 0) { Serial.println("camera-profile: bad payload"); return; }
+    String name = v.substring(firstQ + 1, lastQ);
+    CamProfile next = cameraProfileFromName(name);
+    if (next == cameraProfile) {
+      Serial.printf("camera-profile: already %s, no-op\n", cameraProfileName(next));
+      return;
+    }
+    prefs.begin("cam", false);
+    prefs.putInt("profile", (int)next);
+    prefs.end();
+    Serial.printf("camera-profile: %s → %s, restarting\n",
+                  cameraProfileName(cameraProfile), cameraProfileName(next));
+    otaRestartPending = true;  // loop() handles the restart with a 500ms drain
+  }
+};
+
 void setup() {
   Serial.begin(115200);
   pinMode(LED_PIN, OUTPUT);
@@ -825,6 +902,13 @@ void setup() {
   //      kernel-object heap got squeezed; with WiFi pre-allocated and
   //      camera using PSRAM-resident frame buffers, there's enough left.
   WiFi.mode(WIFI_STA);
+
+  // Camera profile is read once at boot — changing it via the BLE write
+  // char persists to Preferences and restarts the device so a fresh setup()
+  // re-runs initCamera with the new profile.
+  prefs.begin("cam", true);   // read-only
+  cameraProfile = (CamProfile)prefs.getInt("profile", (int)CAM_STANDARD);
+  prefs.end();
 
   cameraReady = initCamera();
 
@@ -932,6 +1016,14 @@ void setup() {
       BLECharacteristic::PROPERTY_NOTIFY
     );
     snapshotDataChar->addDescriptor(new BLE2902());
+
+    // Camera profile picker — write JSON to change. Firmware restarts on
+    // change so the new profile takes effect via a fresh initCamera.
+    cameraProfileChar = service->createCharacteristic(
+      CAMERA_PROFILE_CHAR_UUID,
+      BLECharacteristic::PROPERTY_WRITE
+    );
+    cameraProfileChar->setCallbacks(new CameraProfileCallbacks());
   }
 
   service->start();

@@ -1,9 +1,15 @@
 // Expected schema shape:
-//   { name: "camera", type: "mjpeg-stream", port: 81, path: "/stream" }
+//   { name: "camera", type: "mjpeg-stream", port: 81, path: "/stream",
+//     profile?: "compact|standard|full",
+//     profiles?: ["compact", "standard", "full"] }
 // Unlike the Pi webrtc-installable cap, there's no BLE signaling — the
 // dashboard just opens http://<ip>:<port><path> with a plain <img>. Works
 // only when the dashboard's browser and the robot share a network.
+// Profile picker is rendered when the schema carries a `profiles` list;
+// writes go to CAMERA_PROFILE_CHAR_UUID, firmware persists + restarts.
+import { CAMERA_PROFILE_CHAR_UUID } from "../../ble.js";
 import { escapeHtml } from "../../dom.js";
+import { logFor } from "../../log.js";
 import {
   stopWatching as visionStop,
   renderPerceptionRow,
@@ -34,14 +40,22 @@ export function makeMjpegStreamCap(schema) {
   const actionPrompt = `${name}-prompt`;
   const label = name[0].toUpperCase() + name.slice(1);
 
+  const profileField = `${name}ProfileChar`;
+  const actionProfile = `${name}-profile`;
   return {
     name,
     schema,
-    initEntry: () => ({ [runningField]: false, [watchingField]: false }),
-    async probe() { /* HTTP on LAN — no BLE char to probe. */ },
+    initEntry: () => ({ [runningField]: false, [watchingField]: false, [profileField]: null }),
+    async probe(entry, service) {
+      // Optional — only ESP32 advertises the profile schema, only ESP32
+      // exposes the char. Failure to find it just means no picker UI.
+      try { entry[profileField] = await service.getCharacteristic(CAMERA_PROFILE_CHAR_UUID); }
+      catch { entry[profileField] = null; }
+    },
     cleanup(entry)  {
       entry[runningField] = false;
       if (entry[watchingField]) { visionStop(entry.id); entry[watchingField] = false; }
+      entry[profileField] = null;
     },
 
     renderSection(entry) {
@@ -68,6 +82,22 @@ export function makeMjpegStreamCap(schema) {
         running, watching, watchingAction: actionWatch,
       });
       const promptField = running ? renderPerceptionPromptField(entry, { editAction: actionPrompt }) : "";
+      // Profile picker: only when fw-info advertises profiles + the char
+      // probe found the write target. Compact dropdown right under the
+      // stream (or status); writes restart the device, so don't ship this
+      // for non-ESP32 caps.
+      const profiles = Array.isArray(schema.profiles) ? schema.profiles : null;
+      const currentProfile = schema.profile;
+      const profileRow = (profiles && entry[profileField])
+        ? `<div class="cap-profile">
+             <label>Camera profile
+               <select data-action="${actionProfile}">
+                 ${profiles.map(p => `<option value="${escapeHtml(p)}" ${p === currentProfile ? "selected" : ""}>${escapeHtml(p)}</option>`).join("")}
+               </select>
+             </label>
+             <span class="meta">changing profile restarts the robot</span>
+           </div>`
+        : "";
       const stateText = !url ? "Waiting for WiFi"
                       : running ? "streaming"
                       : "ready";
@@ -76,7 +106,7 @@ export function makeMjpegStreamCap(schema) {
         label,
         state: stateText,
         action,
-        body: `${body}${watchRow}${promptField}`,
+        body: `${body}${watchRow}${promptField}${profileRow}`,
       });
     },
 
@@ -94,6 +124,27 @@ export function makeMjpegStreamCap(schema) {
         watchingAction: actionWatch, watchingField, onRender: renderEntry,
       });
       wirePerceptionPrompt(entry, node, { editAction: actionPrompt, onRender: renderEntry });
+      // Profile picker: write the new profile JSON; firmware restarts so
+      // the BLE link drops shortly after the ack. Confirm before firing —
+      // restart is a heavy thing and the user might have hit it by mistake.
+      const sel = node.querySelector(`[data-action="${actionProfile}"]`);
+      if (sel) sel.addEventListener("change", async () => {
+        const next = sel.value;
+        if (next === schema.profile) return;
+        if (!confirm(`Switch camera to "${next}" profile?\n\nRobot will restart to apply (~30 s).`)) {
+          sel.value = schema.profile || "";
+          return;
+        }
+        try {
+          await entry[profileField].writeValueWithResponse(
+            new TextEncoder().encode(JSON.stringify({ profile: next })),
+          );
+          logFor(entry, `camera profile → ${next} (robot restarting)`);
+        } catch (err) {
+          logFor(entry, `profile write failed: ${err.message}`);
+          sel.value = schema.profile || "";
+        }
+      });
     },
   };
 }
