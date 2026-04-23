@@ -169,6 +169,30 @@ export async function sendPairById(id, capName, left, right) {
   if (entry) await setPairValue(entry, capName, left, right);
 }
 
+// LLM pulse-motor write — 4-byte payload [l, r, dur_hi, dur_lo]. Firmware
+// parses the wider length as a time-bounded pulse and auto-stops at
+// duration. Dashboard-side clamps are defense-in-depth; the firmware
+// enforces the actual LLM caps (magnitude 40, duration 2000ms) regardless.
+// See .claude/CLAUDE.md → Control-loop invariants.
+export async function pulseMotors(id, left, right, durationMs) {
+  const entry = state.devices.get(id);
+  if (!entry?.motorsChar) return { ok: false, error: "no motors characteristic on this robot" };
+  const l = Math.max(-40, Math.min(40, Math.round(Number(left) || 0)));
+  const r = Math.max(-40, Math.min(40, Math.round(Number(right) || 0)));
+  const d = Math.max(50, Math.min(2000, Math.round(Number(durationMs) || 0)));
+  const buf = new Uint8Array(4);
+  buf[0] = l & 0xff;
+  buf[1] = r & 0xff;
+  buf[2] = (d >> 8) & 0xff;
+  buf[3] = d & 0xff;
+  try {
+    await entry.motorsChar.writeValueWithResponse(buf);
+    return { ok: true, applied: { l, r, duration_ms: d } };
+  } catch (err) {
+    return { ok: false, error: String(err.message || err) };
+  }
+}
+
 // ─── Keyboard (WASD / arrows) ────────────────────────────────────────────
 // Global listener. Sends motor commands to the first connected robot that
 // exposes the motors cap. Ignores keydown while a text input / textarea /

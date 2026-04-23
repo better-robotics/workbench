@@ -47,6 +47,14 @@
 // Safe default on disconnect — no redundant channel required.
 const unsigned long MOTOR_WATCHDOG_MS = 500;
 
+// Control-loop invariants — see .claude/CLAUDE.md. LLM-issued motion is a
+// 4-byte motor-char payload [l, r, dur_hi, dur_lo] that the firmware auto-
+// stops after dur_ms. Magnitude + duration are clamped to these caps
+// regardless of what the dashboard sent; firmware is the safety floor,
+// not Pip / Claude.
+const int8_t  LLM_MAX_SPEED        = 40;
+const uint16_t LLM_MAX_DURATION_MS = 2000;
+
 // Shared BLE OTA protocol (matches firmware/pi_robot/pi_robot.py):
 //   ota-data   (write)    — binary frames with 1-byte opcode:
 //       0x00                 abort — drop any in-flight Update state
@@ -86,6 +94,13 @@ BLECharacteristic* motorChar      = nullptr;
 int8_t motorLeft = 0;
 int8_t motorRight = 0;
 unsigned long motorLastWriteAt = 0;
+// Active pulse tracking — LLM 4-byte writes set motorPulseEndAt; loop()
+// stops motors when millis() passes it. motorPulseId is bumped by every
+// motor write so a joystick or newer pulse invalidates the earlier one's
+// end-time check (newer write always wins).
+uint32_t motorPulseId = 0;
+uint32_t motorActivePulseId = 0;
+unsigned long motorPulseEndAt = 0;
 
 bool otaInProgress = false;
 size_t otaExpected = 0;
@@ -599,11 +614,34 @@ static void applyMotors(int8_t left, int8_t right) {
 }
 
 class MotorCallbacks : public BLECharacteristicCallbacks {
+  // Two payload shapes, parity with pi_robot.py:
+  //   2 bytes [l, r]                 — persistent (user joystick). Watchdog
+  //                                    handles auto-stop on silence.
+  //   4 bytes [l, r, dur_hi, dur_lo] — time-bounded pulse (LLM). Clamped
+  //                                    to LLM_MAX_SPEED / LLM_MAX_DURATION_MS.
+  //                                    loop() auto-stops at motorPulseEndAt.
+  // Every write bumps motorPulseId so a newer write invalidates an earlier
+  // pulse's pending stop.
   void onWrite(BLECharacteristic* ch) override {
     String v = ch->getValue();
-    if (v.length() < 2) return;
     motorLastWriteAt = millis();
-    applyMotors((int8_t)v[0], (int8_t)v[1]);
+    motorPulseId++;
+    if (v.length() == 2) {
+      applyMotors((int8_t)v[0], (int8_t)v[1]);
+    } else if (v.length() == 4) {
+      int8_t l = (int8_t)v[0];
+      int8_t r = (int8_t)v[1];
+      if (l < -LLM_MAX_SPEED) l = -LLM_MAX_SPEED;
+      if (l >  LLM_MAX_SPEED) l =  LLM_MAX_SPEED;
+      if (r < -LLM_MAX_SPEED) r = -LLM_MAX_SPEED;
+      if (r >  LLM_MAX_SPEED) r =  LLM_MAX_SPEED;
+      uint16_t dur = ((uint8_t)v[2] << 8) | (uint8_t)v[3];
+      if (dur < 50)                     dur = 50;
+      if (dur > LLM_MAX_DURATION_MS)    dur = LLM_MAX_DURATION_MS;
+      applyMotors(l, r);
+      motorActivePulseId = motorPulseId;
+      motorPulseEndAt = millis() + dur;
+    }
   }
 };
 
@@ -780,6 +818,17 @@ void loop() {
       && millis() - motorLastWriteAt > MOTOR_WATCHDOG_MS) {
     applyMotors(0, 0);
     Serial.printf("motor watchdog: stopped\n");
+  }
+
+  // LLM pulse auto-stop. Only fires if we're still the active pulse; a
+  // newer joystick write or pulse would have bumped motorPulseId and
+  // invalidated this end-time.
+  if (motorPulseEndAt > 0
+      && motorActivePulseId == motorPulseId
+      && millis() >= motorPulseEndAt) {
+    applyMotors(0, 0);
+    motorPulseEndAt = 0;
+    Serial.printf("motor pulse ended\n");
   }
 
   if (wifiPhase == PHASE_SCANNING) {
