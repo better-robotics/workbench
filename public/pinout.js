@@ -62,49 +62,143 @@ function claimsFromEntry(entry) {
   return claims;
 }
 
-// SVG representation of the Pi 40-pin header. Looks like a physical header
-// (green PCB, black plastic strip, gold pin dots) so users mentally match it
-// to the board in front of them. Later phases attach click-to-pulse and
-// live pin-state here — the SVG substrate makes animations cheap and
-// keyboard/screen-reader semantics honest.
-function renderBoard(claims) {
-  // Coordinate grid is fixed; CSS scales the <svg> to container width.
-  // Columns (left-to-right):
-  //   0–120  left claim badge (right-aligned at 118)
-  //   120–180 left GPIO label (right-aligned at 178)
-  //   180–210 left pin dot (cx 195)
-  //   210–240 physical pin number (cx 225)
-  //   240–270 right pin dot (cx 255)
-  //   270–330 right GPIO label (left-aligned at 272)
-  //   330–450 right claim badge (left-aligned at 332)
-  const W = 450;
-  const ROW_H = 24;
-  const PAD_Y = 14;
-  const H = PAD_Y * 2 + ROW_H * 20;
+// Shared Pi-header SVG geometry — exposed so the combined "Pi + driver board"
+// view (renderBoardWithDriver) can compute wire endpoints in the same
+// coordinate space.
+const PI_W = 450;
+const PI_ROW_H = 24;
+const PI_PAD_Y = 14;
+const PI_H = PI_PAD_Y * 2 + PI_ROW_H * 20;   // 508
+const PI_LEFT_CX  = 195;
+const PI_RIGHT_CX = 255;
+const PI_PIN_R = 7;
+
+// Returns: { cx, cy } for a physical pin on the Pi header.
+function piPinCenter(phys) {
+  const idx = PINS.findIndex(([p]) => p === phys);
+  if (idx < 0) return null;
+  const row = Math.floor(idx / 2);
+  const cx = (idx % 2 === 0) ? PI_LEFT_CX : PI_RIGHT_CX;
+  const cy = PI_PAD_Y + row * PI_ROW_H + PI_ROW_H / 2;
+  return { cx, cy };
+}
+
+// Inner fragment of Pi rows — shared between renderBoard (Pi alone) and the
+// combined Pi+driver view. Keeps the single source of truth for pin layout.
+function piRowsFragment(claims) {
   const rows = [];
   for (let i = 0; i < PINS.length; i += 2) {
     const [lp, ll, lk] = PINS[i];
     const [rp, rl, rk] = PINS[i + 1];
     const lc = claims[lp];
     const rc = claims[rp];
-    const y = PAD_Y + (i / 2) * ROW_H + ROW_H / 2;
+    const y = PI_PAD_Y + (i / 2) * PI_ROW_H + PI_ROW_H / 2;
     rows.push(`
       <g class="pin-row">
         ${lc ? `<text class="pin-claim" x="118" y="${y}" text-anchor="end">${escapeHtml(lc.cap)} · ${escapeHtml(lc.role)}</text>` : ""}
         <text class="pin-label" x="178" y="${y}" text-anchor="end">${escapeHtml(ll)}</text>
-        <circle class="pin-dot kind-${lk} ${lc ? "claimed" : ""}" cx="195" cy="${y}" r="7" data-phys="${lp}"><title>${escapeHtml(ll)} (physical ${lp})${lc ? " — " + escapeHtml(lc.cap) + " " + escapeHtml(lc.role) : ""}</title></circle>
+        <circle class="pin-dot kind-${lk} ${lc ? "claimed" : ""}" cx="${PI_LEFT_CX}" cy="${y}" r="${PI_PIN_R}" data-phys="${lp}"><title>${escapeHtml(ll)} (physical ${lp})${lc ? " — " + escapeHtml(lc.cap) + " " + escapeHtml(lc.role) : ""}</title></circle>
         <text class="pin-num" x="225" y="${y}" text-anchor="middle">${lp}·${rp}</text>
-        <circle class="pin-dot kind-${rk} ${rc ? "claimed" : ""}" cx="255" cy="${y}" r="7" data-phys="${rp}"><title>${escapeHtml(rl)} (physical ${rp})${rc ? " — " + escapeHtml(rc.cap) + " " + escapeHtml(rc.role) : ""}</title></circle>
+        <circle class="pin-dot kind-${rk} ${rc ? "claimed" : ""}" cx="${PI_RIGHT_CX}" cy="${y}" r="${PI_PIN_R}" data-phys="${rp}"><title>${escapeHtml(rl)} (physical ${rp})${rc ? " — " + escapeHtml(rc.cap) + " " + escapeHtml(rc.role) : ""}</title></circle>
         <text class="pin-label" x="272" y="${y}" text-anchor="start">${escapeHtml(rl)}</text>
         ${rc ? `<text class="pin-claim" x="332" y="${y}" text-anchor="start">${escapeHtml(rc.cap)} · ${escapeHtml(rc.role)}</text>` : ""}
       </g>
     `);
   }
+  return rows.join("");
+}
+
+// SVG representation of the Pi 40-pin header. Looks like a physical header
+// (green PCB, black plastic strip, gold pin dots) so users mentally match it
+// to the board in front of them. Later phases attach click-to-pulse and
+// live pin-state here — the SVG substrate makes animations cheap and
+// keyboard/screen-reader semantics honest.
+function renderBoard(claims) {
   return `
     <div class="pinout-svg-wrap">
-      <svg class="pinout-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Raspberry Pi 40-pin header with current pin assignments">
-        <rect class="pinout-strip" x="180" y="${PAD_Y - 4}" width="90" height="${H - 2 * PAD_Y + 8}" rx="3"/>
-        ${rows.join("")}
+      <svg class="pinout-svg" viewBox="0 0 ${PI_W} ${PI_H}" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Raspberry Pi 40-pin header with current pin assignments">
+        <rect class="pinout-strip" x="180" y="${PI_PAD_Y - 4}" width="90" height="${PI_H - 2 * PI_PAD_Y + 8}" rx="3"/>
+        ${piRowsFragment(claims)}
+      </svg>
+    </div>
+  `;
+}
+
+// Combined view: Pi header on top, H-bridge driver board below, wires drawn
+// from Pi GPIOs to driver IN/EN terminals based on the current motors_pins
+// config. Same coordinate system throughout so wires are just paths between
+// known (cx, cy) points — no DOM measurements, no cross-SVG math.
+//
+// Driver layout: six labeled terminals in a row (ENA, IN1, IN2, IN3, IN4, ENB).
+// ENA flanks motor-A's INs, ENB flanks motor-B's INs — mirrors the physical
+// L298N silkscreen. Terminals omit the power row (12V/5V/GND) since those
+// aren't user-configurable through this UI.
+//
+// Wires:
+//   IN pins  → blue solid (direction control)
+//   EN pins  → purple dashed (optional speed control; dashed signals optional)
+// Low opacity keeps wires visually secondary to the pin dots themselves.
+const DRIVER_GAP = 60;
+const DRIVER_Y   = PI_H + DRIVER_GAP;          // 568
+const DRIVER_H   = 150;
+const TOTAL_H    = DRIVER_Y + DRIVER_H;        // 718
+const TERM_R     = 7;
+const TERMINAL_XS = [45, 117, 189, 261, 333, 405];
+const TERMINAL_ROLES = ["ena", "in1", "in2", "in3", "in4", "enb"];
+const TERMINAL_LABELS = { ena: "ENA", in1: "IN1", in2: "IN2", in3: "IN3", in4: "IN4", enb: "ENB" };
+const TERM_CY = DRIVER_Y + 85;                  // 653
+// motors_pins path (role from flattenPins) → driver terminal role.
+const ROLE_TO_TERMINAL = {
+  "left in1":  "in1",
+  "left in2":  "in2",
+  "left ena":  "ena",
+  "right in1": "in3",
+  "right in2": "in4",
+  "right enb": "enb",
+};
+
+function renderBoardWithDriver(claims, motors) {
+  const driverPcb = `
+    <rect class="driver-pcb" x="15" y="${DRIVER_Y}" width="${PI_W - 30}" height="${DRIVER_H}" rx="6"/>
+    <text class="driver-title" x="${PI_W / 2}" y="${DRIVER_Y + 22}" text-anchor="middle">H-bridge driver inputs</text>
+  `;
+
+  const terminals = TERMINAL_ROLES.map((role, i) => {
+    const cx = TERMINAL_XS[i];
+    const kind = role.startsWith("en") ? "enable" : "input";
+    return `
+      <text class="driver-label" x="${cx}" y="${TERM_CY - 14}" text-anchor="middle">${TERMINAL_LABELS[role]}</text>
+      <circle class="driver-pin ${kind}" cx="${cx}" cy="${TERM_CY}" r="${TERM_R}" data-role="${role}"/>
+    `;
+  }).join("");
+
+  const wires = [];
+  for (const [role, gpio] of flattenPins(motors || {})) {
+    const driverRole = ROLE_TO_TERMINAL[role];
+    if (!driverRole) continue;
+    const phys = GPIO_TO_PHYS.get(gpio);
+    if (!phys) continue;
+    const piPt = piPinCenter(phys);
+    if (!piPt) continue;
+    const termIdx = TERMINAL_ROLES.indexOf(driverRole);
+    const termCx = TERMINAL_XS[termIdx];
+    const startX = piPt.cx, startY = piPt.cy + PI_PIN_R;
+    const endX   = termCx,  endY   = TERM_CY - TERM_R;
+    // Cubic Bézier with control points at the vertical midpoint of the span
+    // gives a smooth S-curve regardless of horizontal offset.
+    const midY = (startY + endY) / 2;
+    const wireClass = driverRole.startsWith("en") ? "wire-enable" : "wire-input";
+    wires.push(`<path class="motor-wire ${wireClass}" d="M${startX},${startY} C${startX},${midY} ${endX},${midY} ${endX},${endY}"/>`);
+  }
+
+  return `
+    <div class="pinout-svg-wrap">
+      <svg class="pinout-svg" viewBox="0 0 ${PI_W} ${TOTAL_H}" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Raspberry Pi header with H-bridge driver wiring">
+        <rect class="pinout-strip" x="180" y="${PI_PAD_Y - 4}" width="90" height="${PI_H - 2 * PI_PAD_Y + 8}" rx="3"/>
+        ${piRowsFragment(claims)}
+        ${driverPcb}
+        ${terminals}
+        ${wires.join("")}
       </svg>
     </div>
   `;
@@ -210,7 +304,7 @@ function renderEdit(entry) {
   ].join("");
   const conflicts = hard;  // only hard blocks Save
   $("pinout-body").innerHTML = `
-    ${renderBoard(claims)}
+    ${renderBoardWithDriver(claims, motors)}
     <div class="pinout-edit">
       <div class="pinout-edit-section">
         <label class="pinout-edit-row">
