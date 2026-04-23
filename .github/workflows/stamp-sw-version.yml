@@ -12,15 +12,19 @@ name: Stamp SW version
 on:
   push:
     branches: [main]
+    # GH Actions doesn't accept both `paths` and `paths-ignore` on the same
+    # event — exclusions go inside `paths` as `!` negations. Order matters:
+    # later patterns refine earlier ones.
     paths:
       - 'public/**'
-    paths-ignore:
-      # OTA bundles + their manifests have their own freshness story; not
-      # part of the cached dashboard shell.
-      - 'public/firmware/**'
-      # Excluding sw.js avoids the self-reference loop (changing the file
-      # would always re-trigger this workflow).
-      - 'public/sw.js'
+      # OTA bundles have their own freshness story; not part of the cached
+      # dashboard shell.
+      - '!public/firmware/**'
+      # Excluding sw.js avoids the self-reference loop — stamping its own
+      # VERSION would re-trigger this workflow forever (the [skip ci] tag
+      # on the resulting commit prevents the actual loop, but better to
+      # not depend on that).
+      - '!public/sw.js'
   workflow_dispatch: {}
 
 jobs:
