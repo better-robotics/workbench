@@ -50,13 +50,31 @@ async function connect() {
 }
 
 async function disconnect() {
+  // Ordering matters: remove the element FIRST so ewt-console's
+  // disconnectedCallback cancels its reader and releases the lock on
+  // port.readable. THEN close the port. If we close first (or in parallel),
+  // close() rejects or hangs because the reader still holds the lock, and
+  // the port ends up in an "open" limbo — the install-dialog's later
+  // port.open() then throws InvalidStateError ("port is already open").
   if (_consoleEl) {
-    // Removing the element fires disconnectedCallback in ewt-console, which
-    // closes the underlying port. Belt-and-braces: try the port.close too.
     try { _consoleEl.remove(); } catch {}
     _consoleEl = null;
+    // disconnectedCallback runs synchronously on removal, but reader
+    // cancellation is async. Give the microtask queue a beat to drain.
+    await new Promise((r) => setTimeout(r, 50));
   }
-  if (_port) { try { await _port.close(); } catch {} _port = null; }
+  if (_port) {
+    // Two-attempt close: if the first throws (reader still locked, rare),
+    // wait a bit longer and retry. If the second still fails, give up —
+    // state is wedged but better than hanging forever. Won't clobber
+    // future flash attempts because we still null out _port.
+    try { await _port.close(); }
+    catch {
+      await new Promise((r) => setTimeout(r, 500));
+      try { await _port.close(); } catch {}
+    }
+    _port = null;
+  }
   $("esp-serial-console-host").innerHTML = "";
   $("esp-serial-connect").textContent = "Connect";
   setStatus("disconnected");
