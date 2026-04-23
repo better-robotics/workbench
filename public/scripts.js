@@ -1,9 +1,6 @@
-// User scripts run in the browser, not on the Pi. See USER-CODE.md.
-//
-// The robot API mirrors the BLE capability surface. Motor writes go through
-// pulseMotors (pulse-bounded ±40 / 50–2000ms), same caps the LLM is bound by
-// — user scripts are "another planner" under the same control-loop invariants
-// as Pip. See .claude/CLAUDE.md → Control-loop invariants.
+// Browser-resident user scripts. See USER-CODE.md (architectural decision)
+// and .claude/CLAUDE.md → Control-loop invariants (motor writes go through
+// pulseMotors's LLM-grade caps, same floor Pip is bound by).
 import { $ } from "./dom.js";
 import { state } from "./state.js";
 import { setToggleValue } from "./capabilities/runtime/toggle.js";
@@ -376,7 +373,6 @@ export function init() {
   _wired = true;
   $("scripts-close").addEventListener("click", () => $("scripts-modal").close());
   $("scripts-run").addEventListener("click", runScript);
-  // Populate templates dropdown once.
   const sel = $("scripts-template");
   sel.innerHTML = TEMPLATES.map(t =>
     `<option value="${t.id}">${t.name}</option>`
@@ -384,7 +380,6 @@ export function init() {
   sel.addEventListener("change", () => {
     if (sel.value) { loadTemplate(sel.value); sel.value = ""; }
   });
-  // Cmd/Ctrl-Enter to run from inside the editor.
   $("scripts-editor").addEventListener("keydown", (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();

@@ -501,6 +501,25 @@ details.tray[open] > :not(summary) { margin-top: 12px; }
 
 /* User-script editor: see USER-CODE.md. Browser-resident, no Pi upload. */
 .scripts-modal { width: min(820px, 92vw); }
+/* Native <select> defaults to OS chrome that doesn't respect the dark theme.
+   appearance:none strips it; the SVG chevron is inlined as background-image so
+   we don't need to wire a separate icon mount. */
+.scripts-template-select {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 30px 6px 10px;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%23999' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+.scripts-template-select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .scripts-editor {
   width: 100%;
   min-height: 280px;
