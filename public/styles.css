@@ -370,6 +370,17 @@ button.icon:hover { background: var(--line); color: var(--ink); }
   font-variant-numeric: tabular-nums;
 }
 
+/* Primary action (Connect / Pair / Re-pair / Disconnect) lives on its own row
+   below the identity + meta. Reads as the card's CTA, not as a sibling of the
+   menu button. Right-aligned so the button is at the eye's natural landing
+   spot after scanning the card top-down. The ⋯ menu stays inline with the
+   identity row — different intent (more options vs. primary action). */
+.robot-cta {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
 /* Whole row is a generous click target — cursor hints it, but the visual
    hover lives on the label-btn only (the row whitespace is forgiveness, not
    affordance; the band extending under buttons that aren't toggles would
