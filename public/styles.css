@@ -350,13 +350,13 @@ button.icon:hover { background: var(--line); color: var(--ink); }
 .robot {
   padding: 14px 18px 14px 21px;  /* +3px left to clear the stripe */
   border-left: 3px solid var(--border-subtle);
-  transition: border-left-color 0.2s ease;
+  /* No transition on stripe color — status changes are rare (a few per
+     session) and the animated repaint earns no perceptible value. */
 }
 .robot.status-connected     { border-left-color: var(--success); }
 .robot.status-connecting    { border-left-color: var(--duke-persimmon); }
 .robot.status-error         { border-left-color: var(--danger); }
 .robot.status-firmware-down { border-left-color: var(--duke-persimmon); }
-@media (prefers-reduced-motion: reduce) { .robot { transition: none; } }
 
 /* Identity row gets a touch more presence as the card's headline.
    .robot-meta is the secondary line under it (WiFi state, uptime, etc) —

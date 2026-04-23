@@ -82,6 +82,20 @@ async function releaseWakeLock() {
   if (wakeLock) { try { await wakeLock.release(); } catch {} wakeLock = null; }
 }
 
+// Coalesce per-chunk patchOtaSection calls to one paint per frame. A 1.6 MB
+// OTA fires ~9000 chunks; without throttling that's ~9000 querySelector +
+// DOM-write tuples for an animation that the screen can't show faster than
+// ~60 fps anyway. RAF caps us at ~60 paints/sec naturally and drops the rest.
+let _otaPendingPatch = false;
+function patchOtaSectionThrottled(entry) {
+  if (_otaPendingPatch) return;
+  _otaPendingPatch = true;
+  requestAnimationFrame(() => {
+    _otaPendingPatch = false;
+    patchOtaSection(entry);
+  });
+}
+
 async function streamOtaBytes(entry, bytes) {
   const ch = entry.otaDataChar;
   // All chunks go WithResponse. WithoutResponse speedup was observed
@@ -105,16 +119,15 @@ async function streamOtaBytes(entry, bytes) {
     frame[0] = 0x02;
     frame.set(slice, 1);
     await ch.writeValueWithResponse(frame);
-    // Per-chunk render — more responsive than firmware notify, and accurate:
-    // writeValueWithResponse only resolves AFTER the firmware's onWrite
-    // callback returns (ATT_WRITE_RSP is sent post-callback), so this byte
-    // count reflects bytes the firmware has actually processed.
+    // Per-chunk increment + RAF-coalesced patch — accurate (the ack means
+    // the firmware processed the chunk, since ATT_WRITE_RSP is sent post-
+    // callback) and cheap (one paint per frame, not 9000 paints over 30s).
     entry.otaSent = i + slice.length;
-    patchOtaSection(entry);
+    patchOtaSectionThrottled(entry);
   }
   await ch.writeValueWithResponse(new Uint8Array([0x03]));
   entry.otaSent = bytes.length;
-  patchOtaSection(entry);
+  patchOtaSection(entry);  // final state — render synchronously, not throttled.
 }
 
 async function buildBundle(entry, manifestUrl) {
