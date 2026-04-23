@@ -507,14 +507,17 @@ details.tray.has-alert > summary::after {
 
 #robot-list {
   display: grid;
-  /* 400px minmax gives the 'dot + name + ESP32 pill + Connect button' row enough
-     slack that "BetterRobot-XXXX" doesn't wrap at typical ID lengths. */
-  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+  /* Card now puts CTA on its own row, so the identity line only has to fit
+     "name + type badge + ⋯" — much less width than the old inline-action
+     layout demanded. 300 px min lets more cards-per-row on typical screens;
+     individual .robot caps via max-width so a single-robot view doesn't
+     stretch absurdly wide on a big monitor. */
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 16px;
   align-items: start;  /* cards aren't forced to the tallest row-mate */
   margin-bottom: 16px;
 }
-#robot-list > .card { margin-bottom: 0; }
+#robot-list > .card { margin-bottom: 0; max-width: 440px; }
 
 .robot-controls {
   margin-top: 12px;
