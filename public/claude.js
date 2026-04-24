@@ -271,10 +271,17 @@ async function _anthropicAskWithTools(messages, { system, tools, executor, maxIt
       try {
         const result = await executor(tu.name, tu.input);
         onToolEnd?.({ name: tu.name, input: tu.input, result, error: null, durationMs: performance.now() - startedAt });
+        // _pipContent sentinel: executor wants to return Anthropic content
+        // blocks directly (e.g. {type:"image"} from view_robot_frame) instead
+        // of a JSON-stringified object. Passed through so Claude sees the
+        // image natively in its next turn.
+        const content = (result && result._pipContent)
+          ? result._pipContent
+          : JSON.stringify(result);
         toolResults.push({
           type: "tool_result",
           tool_use_id: tu.id,
-          content: JSON.stringify(result),
+          content,
         });
       } catch (err) {
         const error = String(err.message || err);
