@@ -283,6 +283,13 @@ function stopQrScan() {
 function wireReconnect() {
   $("phone-scan-btn")?.addEventListener("click", startQrScan);
   $("phone-scanner-cancel")?.addEventListener("click", stopQrScan);
+  // Surface the "Open dashboard view" escape hatch only on devices that
+  // can actually run the dashboard (Chrome desktop / Android). iPhone
+  // Safari has no Web Bluetooth — sending users there is a footgun.
+  if (typeof navigator !== "undefined" && navigator.bluetooth) {
+    const link = $("phone-dashboard-link");
+    if (link) link.hidden = false;
+  }
 }
 
 // LAN discovery — desktops with an open Pair dialog on the same wifi

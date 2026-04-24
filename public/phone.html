@@ -55,6 +55,10 @@
       <button id="phone-scanner-cancel" class="secondary sm">Cancel</button>
     </div>
     <div class="hint phone-scanner-fallback" id="phone-scanner-fallback" hidden></div>
+    <!-- Footer escape hatch for the rare user who wanted the dashboard.
+         Hidden unless Web Bluetooth is available (no point sending iPhone
+         Safari users to a page they can't use). phone.js unhides. -->
+    <a id="phone-dashboard-link" class="phone-dashboard-link" href="./?desktop=1" hidden>Open dashboard view</a>
   </section>
   <section class="phone-scene" id="phone-scene" hidden>
     <div class="phone-scene-label" id="phone-scene-source">Camera</div>

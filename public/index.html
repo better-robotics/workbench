@@ -6,6 +6,21 @@
   <title>BetterRobotics</title>
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#000000">
+  <!-- Phones land on phone.html by default. The dashboard needs Web
+       Bluetooth (Chrome desktop / Android only), and the phone surface
+       is what mobile users want anyway. ?desktop in the URL keeps them
+       here — for the rare case someone wants the desktop view on a tablet
+       or to debug. Inline + at the top of <head> so the redirect happens
+       before any heavy assets fetch on the mobile network. -->
+  <script>
+    (function () {
+      var isMobile = /Mobi|iPad|iPhone|iPod|Android/i.test(navigator.userAgent);
+      var explicit = /[?&]desktop\b/.test(location.search);
+      if (isMobile && !explicit) {
+        location.replace('phone.html' + location.hash);
+      }
+    })();
+  </script>
   <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
   <link rel="stylesheet" href="styles.css">
