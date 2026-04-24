@@ -95,6 +95,36 @@ if [ -f "$BOOTFS/dashboard.pub" ]; then
   note dashboard_key_staged
 fi
 
+# Robot peer identity. Ed25519 keypair written once and preserved across
+# re-images (delete peer-key.json manually to rotate). Stored as raw
+# 32-byte seed / 32-byte pubkey, base64-encoded, JSON schema:
+#   { "priv_b64": "...", "pub_b64": "..." }
+# Extraction relies on RFC 8410 DER layout — OpenSSL emits a fixed 16-byte
+# PKCS#8 prefix then the 32-byte seed (private), and a fixed 12-byte SPKI
+# prefix then the 32-byte pubkey. `tail -c 32` peels off the raw bytes
+# without pulling in a PEM parser.
+PEER_KEY_DIR=/var/lib/pi-robot
+PEER_KEY_FILE=$PEER_KEY_DIR/peer-key.json
+install -d -m 700 -o "$USER_NAME" -g "$USER_NAME" "$PEER_KEY_DIR"
+if [ ! -f "$PEER_KEY_FILE" ]; then
+    TMP_PRIV=$(mktemp) && TMP_PUB=$(mktemp)
+    if openssl genpkey -algorithm ed25519 -outform DER -out "$TMP_PRIV" 2>/dev/null \
+       && openssl pkey -in "$TMP_PRIV" -inform DER -pubout -outform DER -out "$TMP_PUB" 2>/dev/null; then
+        PRIV_B64=$(tail -c 32 "$TMP_PRIV" | base64 | tr -d '\n')
+        PUB_B64=$(tail -c 32 "$TMP_PUB"  | base64 | tr -d '\n')
+        umask 077
+        printf '{"priv_b64":"%s","pub_b64":"%s"}\n' "$PRIV_B64" "$PUB_B64" > "$PEER_KEY_FILE"
+        chown "$USER_NAME:$USER_NAME" "$PEER_KEY_FILE"
+        chmod 600 "$PEER_KEY_FILE"
+        note peer_key_generated
+    else
+        note peer_key_failed "openssl ed25519 generation failed — wifi ads will omit pubkey"
+    fi
+    rm -f "$TMP_PRIV" "$TMP_PUB"
+else
+    note peer_key_present "preserving existing identity"
+fi
+
 # USB composite gadget (ECM ethernet + ACM serial). Independent of
 # pi-robot: a crashed firmware still exposes `ssh pi@10.55.0.1` over usb0
 # AND a raw serial login at /dev/ttyGS0 reachable via the dashboard's

@@ -30,8 +30,24 @@ DISCOVER_URL = "https://signal.neevs.io/discover"
 TTL_MS = 60_000          # signal lobby caps at 5 min; 60s gives fast disappear
 REPUBLISH_S = 25         # well below TTL so a missed PUT doesn't drop us off
 RECONNECT_MAX_S = 60
+# Identity written by firstrun.sh (openssl ed25519). Schema:
+#   { "priv_b64": "...", "pub_b64": "..." }
+# Read once at startup — firstrun is idempotent but we don't want a file
+# read on every PUT. Field is additive: pre-pubkey robots simply omit it.
+PEER_KEY_FILE = "/var/lib/pi-robot/peer-key.json"
 
 _started_at = time.monotonic()
+
+
+def _load_pubkey() -> str | None:
+    try:
+        with open(PEER_KEY_FILE) as f:
+            return json.load(f).get("pub_b64") or None
+    except (OSError, ValueError):
+        return None
+
+
+_pubkey = _load_pubkey()
 
 
 def _device_name() -> str:
@@ -70,17 +86,20 @@ def _pi_robot_state() -> str:
 
 def _ad_payload() -> bytes:
     name = _device_name()
+    data = {
+        "app": "better-robotics-robot",
+        "robotId": name,
+        "label": name,
+        "ip": _ip(),
+        "host": socket.gethostname(),
+        "uptime_s": int(time.monotonic() - _started_at),
+        "pi_robot": _pi_robot_state(),
+    }
+    if _pubkey:
+        data["pubkey"] = _pubkey
     return json.dumps({
         "id": f"better-robotics-robot:{name}",
-        "data": {
-            "app": "better-robotics-robot",
-            "robotId": name,
-            "label": name,
-            "ip": _ip(),
-            "host": socket.gethostname(),
-            "uptime_s": int(time.monotonic() - _started_at),
-            "pi_robot": _pi_robot_state(),
-        },
+        "data": data,
         "ttl": TTL_MS,
     }).encode("utf-8")
 
