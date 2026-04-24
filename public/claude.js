@@ -231,7 +231,7 @@ export async function askWithTools(messages, opts = {}) {
   return _withLocalFallback(() => _anthropicAskWithTools(messages, opts), () => localAskWithTools(messages, opts));
 }
 
-async function _anthropicAskWithTools(messages, { system, tools, executor, maxIterations = 5, maxTokens = 1024, onToolStart, onToolEnd, shouldAbort, onMaxIterations } = {}) {
+async function _anthropicAskWithTools(messages, { system, tools, executor, maxIterations = 10, maxTokens = 1024, onToolStart, onToolEnd, shouldAbort, onMaxIterations } = {}) {
   const convo = [...messages];
   let i = 0;
   let budget = maxIterations;
@@ -316,7 +316,7 @@ async function _anthropicAskWithTools(messages, { system, tools, executor, maxIt
 // requires JSON.parse before passing to the executor. We catch parse
 // failures the same way as upstream errors — surfaces a tool_result that
 // represents the failure rather than crashing the loop.
-async function _openaiAskWithTools(messages, { system, tools, executor, maxIterations = 5, maxTokens = 1024, onToolStart, onToolEnd, shouldAbort, onMaxIterations } = {}) {
+async function _openaiAskWithTools(messages, { system, tools, executor, maxIterations = 10, maxTokens = 1024, onToolStart, onToolEnd, shouldAbort, onMaxIterations } = {}) {
   // Translate Anthropic-style messages (where the "system" prompt is a
   // separate field, and tool messages have content arrays) into OpenAI's
   // flat messages-with-system-as-first-message shape. The caller's

@@ -199,7 +199,7 @@ export async function localAsk(userText, { system, maxTokens } = {}) {
   }
 }
 
-export async function localAskWithTools(messages, { system, tools, executor, maxIterations = 5, maxTokens, onToolStart, onToolEnd, shouldAbort, onMaxIterations } = {}) {
+export async function localAskWithTools(messages, { system, tools, executor, maxIterations = 10, maxTokens, onToolStart, onToolEnd, shouldAbort, onMaxIterations } = {}) {
   void maxTokens;
   try {
     await ensureLoaded();
