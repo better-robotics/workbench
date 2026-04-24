@@ -21,7 +21,7 @@ import {
 let _askInChat = null;
 export function setAskInChatHandler(fn) { _askInChat = fn; }
 import { detectOnce, GROUNDING_ENABLED } from "./grounding.js";
-import { wrapExecutor } from "./replay.js";
+import { wrapExecutor, getRecentActions } from "./replay.js";
 
 const ALL_TOOLS = [
   {
@@ -227,6 +227,17 @@ const ALL_TOOLS = [
     },
     annotations: { readOnlyHint: false, idempotentHint: true, destructiveHint: false, openWorldHint: false },
   },
+  {
+    name: "get_recent_actions",
+    description: "Recall the last N tool calls this session made. Use when the user asks 'what did you just try' or when you need to avoid repeating something that failed.",
+    input_schema: {
+      type: "object",
+      properties: {
+        limit: { type: "integer", description: "How many recent actions to return (default 5, max 50).", default: 5 },
+      },
+    },
+    annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false },
+  },
 ];
 
 // Hide disabled tools from Pip so it doesn't waste tokens proposing calls
@@ -431,13 +442,44 @@ async function dispatch(name, input) {
       e.cameraWatching = false;
       return { ok: true };
     }
+    case "get_recent_actions": {
+      const limit = Math.min(Math.max(Number(input?.limit) || 5, 1), 50);
+      const session = (typeof window !== "undefined") ? window.replaySession : null;
+      if (!session) return { error: "replay session id unavailable" };
+      const recs = await getRecentActions(session, limit);
+      return { text: formatRecentActions(recs) };
+    }
     default:
       return { error: `unknown tool: ${name}` };
   }
 }
 
-// replay.wrapExecutor persists every call (input + output + timing) to
-// IndexedDB so a past session can be re-evaluated offline against a new
-// prompt or model — comma.ai's replay-your-drive pattern, scoped down.
-// Transparent to callers; wrapped executor has the same signature.
+function formatRecentActions(recs) {
+  if (!recs || recs.length === 0) return "0 recent actions.";
+  const lines = recs.map((r) => {
+    const status = r.error ? `err: ${truncate(String(r.error), 80)}` : "ok";
+    const dur = r.durationMs == null ? "?" : `${r.durationMs}ms`;
+    const head = `- ${r.name} (${status}, ${dur})`;
+    const inStr = compactJson(r.input);
+    const outStr = r.error ? "" : compactJson(r.output);
+    const tail = outStr ? `${inStr} -> ${outStr}` : inStr;
+    return `${head}: ${tail}`;
+  });
+  return `${recs.length} recent actions (newest first):\n${lines.join("\n")}`;
+}
+
+function compactJson(v) {
+  if (v === undefined) return "";
+  try {
+    const s = JSON.stringify(v);
+    return truncate(s ?? "", 300);
+  } catch {
+    return truncate(String(v), 300);
+  }
+}
+
+function truncate(s, n) {
+  return s.length > n ? `${s.slice(0, n - 1)}…` : s;
+}
+
 export const executor = wrapExecutor(dispatch);

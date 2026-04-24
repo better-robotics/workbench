@@ -109,6 +109,53 @@ export async function allRecords() {
   });
 }
 
+// Episodic memory for Pip: returns up to `n` (capped at 50) most-recent
+// records for the current session, newest-first, with heavy payloads
+// stripped so they don't re-enter the context window. Image data URLs and
+// any string field over ~500 chars are replaced with "[image]" / "[large]".
+export async function getRecentActions(sessionId, n = 10) {
+  if (!sessionId) return [];
+  const limit = Math.min(Math.max(Number(n) || 10, 1), 50);
+  const db = await openDb();
+  const records = await new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readonly");
+    const idx = tx.objectStore(STORE).index("sessionId");
+    const req = idx.getAll(IDBKeyRange.only(sessionId));
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+  records.sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
+  return records.slice(0, limit).map(sanitizeRecord);
+}
+
+function sanitizeRecord(r) {
+  return {
+    name: r.name,
+    durationMs: r.durationMs ?? null,
+    error: r.error ?? null,
+    input: sanitizeValue(r.input),
+    output: sanitizeValue(r.output),
+  };
+}
+
+function sanitizeValue(v) {
+  if (v == null) return v;
+  if (typeof v === "string") return summarizeString(v);
+  if (Array.isArray(v)) return v.map(sanitizeValue);
+  if (typeof v === "object") {
+    const out = {};
+    for (const [k, val] of Object.entries(v)) out[k] = sanitizeValue(val);
+    return out;
+  }
+  return v;
+}
+
+function summarizeString(s) {
+  if (s.startsWith("data:image/")) return "[image]";
+  if (s.length > 500) return "[large]";
+  return s;
+}
+
 export async function downloadReplay(filename = null) {
   const records = await allRecords();
   const blob = new Blob([JSON.stringify(records, null, 2)], { type: "application/json" });
