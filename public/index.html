@@ -36,7 +36,11 @@
 <body>
 <div class="app">
 <header class="topbar">
-  <h1 class="topbar-title"><span class="logo-accent">Better</span><span class="logo-base">Robotics</span></h1>
+  <h1 class="topbar-title">
+    <button class="topbar-title-btn" id="app-menu-btn" type="button" aria-label="About this app" aria-haspopup="menu">
+      <span class="logo-accent">Better</span><span class="logo-base">Robotics</span><svg class="icon-svg topbar-title-caret"><use href="icons.svg#icon-chevron-down"/></svg>
+    </button>
+  </h1>
   <div class="topbar-spacer"></div>
   <div class="topbar-actions">
     <button class="icon" id="voice-btn" aria-label="Voice commands" hidden><svg class="icon-svg"><use href="icons.svg#icon-mic"/></svg></button>
@@ -116,7 +120,15 @@
   <button class="menu-item" id="menu-recovery" title="USB-C serial recovery console — works when BLE is dead">Recovery console</button>
   <button class="menu-item" id="menu-esp-serial" title="ESP32 serial monitor — watch boot logs over USB">ESP32 serial</button>
   <button class="menu-item" id="menu-scripts" title="Write JS that drives connected robots — runs in this tab, no upload">Scripts</button>
+</div>
+
+<div id="app-menu" class="menu" popover="manual">
+  <div class="menu-meta">
+    <span class="menu-meta-label">Version</span>
+    <span class="menu-meta-value" id="app-menu-version">—</span>
+  </div>
   <button class="menu-item" id="menu-install" hidden>Install app</button>
+  <a class="menu-item" id="menu-repo" href="https://github.com/jonasneves/better-robotics" target="_blank" rel="noopener">GitHub repo</a>
 </div>
 
 <div id="install-ios-popover" class="help-popover" popover>

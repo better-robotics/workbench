@@ -84,6 +84,27 @@ html, body {
   letter-spacing: -0.01em;  /* tighter tracking reads as wordmark */
   margin: 0;
 }
+.topbar-title-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: none;
+  padding: 4px 6px;
+  margin: -4px -6px;
+  border-radius: 6px;
+  font: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.topbar-title-btn:hover { background: var(--line); }
+.topbar-title-caret {
+  width: 12px;
+  height: 12px;
+  opacity: 0.5;
+  margin-left: 2px;
+}
 /* Wordmark: "Better" (bold Duke navy/light-blue) + "Robotics" (regular ink).
    Hue shift (blue vs base text) + weight gives clear separation without color noise. */
 .topbar-title .logo-accent { font-weight: 700; color: var(--brand-heading); }
@@ -306,6 +327,16 @@ button.icon:hover { background: var(--line); color: var(--ink); }
 .menu-item:hover { background: var(--line); }
 .menu-item.destructive { color: var(--danger); }
 .menu-item.destructive:hover { background: rgba(215, 0, 21, 0.08); }
+a.menu-item { text-decoration: none; }
+.menu-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+.menu-meta-value { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
 .status {
   display: inline-flex;

@@ -1239,8 +1239,34 @@ document.addEventListener("DOMContentLoaded", () => {
     mod.init();
     mod.openScriptsDialog();
   });
+  $("app-menu-btn").addEventListener("click", (e) => {
+    const menu = $("app-menu");
+    if (menu.matches(":popover-open")) { menu.hidePopover(); return; }
+    const rect = e.currentTarget.getBoundingClientRect();
+    menu.style.top = `${rect.bottom + 6}px`;
+    menu.style.left = `${Math.max(8, rect.left)}px`;
+    menu.style.right = "auto";
+    if (menu.showPopover) menu.showPopover();
+  });
+  document.addEventListener("click", (e) => {
+    const menu = $("app-menu");
+    if (!menu.matches(":popover-open")) return;
+    if (e.target.closest("#app-menu")) return;
+    if (e.target.closest("#app-menu-btn")) return;
+    menu.hidePopover();
+  });
+  document.addEventListener("keydown", (e) => {
+    const menu = $("app-menu");
+    if (e.key === "Escape" && menu.matches(":popover-open")) menu.hidePopover();
+  });
+  $("menu-repo").addEventListener("click", () => $("app-menu").hidePopover());
+  // Read VERSION from sw.js (CI stamps it there on every dashboard-asset change).
+  fetch("sw.js").then(r => r.ok ? r.text() : "").then(t => {
+    const m = t.match(/VERSION\s*=\s*"([^"]+)"/);
+    if (m) $("app-menu-version").textContent = m[1];
+  }).catch(() => {});
   $("menu-install").addEventListener("click", async () => {
-    $("avatar-menu").hidePopover();
+    $("app-menu").hidePopover();
     if (_deferredInstallPrompt) {
       // Chromium: calling prompt() is a one-shot. After user choice, drop the
       // handle — a fresh beforeinstallprompt fires later if they dismiss.
