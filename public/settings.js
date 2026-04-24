@@ -7,9 +7,13 @@ export const settings = Object.assign(
   //   "local" (Phase 3, LFM2.5-1.2B-Thinking-ONNX in-browser).
   // pipApiKey:    Anthropic key — only used when pipBackend === "anthropic".
   // pipOpenaiKey: OpenAI key   — only used when pipBackend === "openai".
-  // Both stored in localStorage — browser-only, never leaves origin, but treat
-  // like passwords (don't share your browser).
-  { passiveScan: false, voice: false, pipBackend: "bridge", pipApiKey: "", pipOpenaiKey: "" },
+  // pipLocalInstalled: true once the local model has loaded successfully at
+  //   least once. Weights are in IndexedDB cache after that; silent fallback
+  //   to local is safe without a surprise download. Flipped by local-llm.js
+  //   on its first "ready" state transition.
+  // Both keys stored in localStorage — browser-only, never leaves origin, but
+  // treat like passwords (don't share your browser).
+  { passiveScan: false, voice: false, pipBackend: "bridge", pipApiKey: "", pipOpenaiKey: "", pipLocalInstalled: false },
   JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}"),
 );
 

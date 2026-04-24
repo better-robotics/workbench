@@ -146,10 +146,23 @@ function logBackendError(label, res) {
 
 // Public API — protocol dispatch happens here. Both backends ultimately
 // return text or null; the caller never sees protocol details.
+//
+// Silent local-fallback: if the user's chosen backend returns null (transport
+// failure, bridge missing, API key rejected, etc.) and the local model has
+// been installed (weights are in IndexedDB), retry via localAsk. Keeps Pip
+// answering on cafe wifi / extension-less tabs / API outages, but only once
+// the user has opted in by installing local at least once.
 export async function ask(userText, opts = {}) {
-  if (settings.pipBackend === "openai") return _openaiAsk(userText, opts);
+  if (settings.pipBackend === "openai") return _withLocalFallback(() => _openaiAsk(userText, opts), () => localAsk(userText, opts));
   if (settings.pipBackend === "local")  return localAsk(userText, opts);
-  return _anthropicAsk(userText, opts);
+  return _withLocalFallback(() => _anthropicAsk(userText, opts), () => localAsk(userText, opts));
+}
+
+async function _withLocalFallback(primary, fallback) {
+  const result = await primary();
+  if (result != null || !settings.pipLocalInstalled) return result;
+  console.info("[claude] primary backend returned null — falling back to local model");
+  return fallback();
 }
 
 async function _anthropicAsk(userText, { system, maxTokens = 200 } = {}) {
@@ -213,9 +226,9 @@ async function _openaiAsk(userText, { system, maxTokens = 200 } = {}) {
 //                                             stop and return the canned
 //                                             "(reached iteration limit)".
 export async function askWithTools(messages, opts = {}) {
-  if (settings.pipBackend === "openai") return _openaiAskWithTools(messages, opts);
+  if (settings.pipBackend === "openai") return _withLocalFallback(() => _openaiAskWithTools(messages, opts), () => localAskWithTools(messages, opts));
   if (settings.pipBackend === "local")  return localAskWithTools(messages, opts);
-  return _anthropicAskWithTools(messages, opts);
+  return _withLocalFallback(() => _anthropicAskWithTools(messages, opts), () => localAskWithTools(messages, opts));
 }
 
 async function _anthropicAskWithTools(messages, { system, tools, executor, maxIterations = 5, maxTokens = 1024, onToolStart, onToolEnd, shouldAbort, onMaxIterations } = {}) {

@@ -1,3 +1,5 @@
+import { settings, saveSettings } from "./settings.js";
+
 // LFM2.5-1.2B-Thinking-ONNX in-browser backend for Pip. Loaded lazily — the
 // dashboard does not pay the ~1.2 GB Q4 download until the user clicks
 // Install in Settings → Pip backend → Local.
@@ -71,6 +73,12 @@ export async function loadModel() {
       progress_callback: onProgress,
     });
     setState({ status: "ready", progress: 100, file: "" });
+    // Persist that weights are in IndexedDB now — enables silent fallback
+    // from other backends on transport failure (claude.js ask/askWithTools).
+    if (!settings.pipLocalInstalled) {
+      settings.pipLocalInstalled = true;
+      saveSettings();
+    }
   })().catch((err) => {
     _loadingPromise = null;
     _model = null;
