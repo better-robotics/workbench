@@ -29,7 +29,7 @@ jobs:
       - name: Install arduino-cli
         uses: arduino/setup-arduino-cli@v2
 
-      - name: Install ESP32 Arduino core
+      - name: Install ESP32 Arduino core + NimBLE
         run: |
           arduino-cli core update-index \
             --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
@@ -37,6 +37,10 @@ jobs:
           # when installSignature() is called before begin() (PR #12425).
           arduino-cli core install esp32:esp32@3.3.8 \
             --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          # NimBLE-Arduino — replaces built-in Bluedroid, reclaims ~58 KB DRAM
+          # on classic ESP32 so WiFi gets all 4 RX buffers. Pin to 2.5.0
+          # (1.4.x aborts esp_bt_controller_init on arduino-esp32 3.x / IDF 5.x).
+          arduino-cli lib install "NimBLE-Arduino"@2.5.0
 
       - name: Publish ESP32 firmware
         run: make publish-firmware

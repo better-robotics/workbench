@@ -1,10 +1,17 @@
 // Better Robotics — robot firmware. Mirrors firmware/pi_robot/pi_robot.py.
 // LED_PIN defaults to the red LED on ESP32-CAM-MB (GPIO 33, active-low).
 
-#include <BLEDevice.h>
-#include <BLEServer.h>
-#include <BLEUtils.h>
-#include <BLE2902.h>
+// NimBLE-Arduino (h2zero, 2.5.0) replaces Arduino's built-in Bluedroid
+// BLEDevice API. BLE* aliases still resolve to NimBLE* classes so most
+// call sites are unchanged. Property constants are NIMBLE_PROPERTY::*,
+// CCCDs auto-register (no more BLE2902), createService allocates handles
+// dynamically (no budget). 2.x callback signatures add NimBLEConnInfo&
+// (and int reason for onDisconnect). Reclaims ~58 KB of internal DRAM on
+// classic ESP32-CAM — heap 19→77 KB, largest DMA block 7→70 KB at end of
+// setup — so WiFi init gets all 4 RX buffers instead of starving out.
+// 1.4.x aborts esp_bt_controller_init with ESP_ERR_INVALID_STATE on
+// arduino-esp32 3.x (IDF 5.x); 2.x is the IDF-5-native line.
+#include <NimBLEDevice.h>
 #include <WiFi.h>
 #include <Preferences.h>
 #include <Update.h>
@@ -589,8 +596,10 @@ static size_t        chunkLastReported = 0;
 static unsigned long chunkLastProgress = 0;
 
 class OtaDataCallbacks : public BLECharacteristicCallbacks {
-  void onWrite(BLECharacteristic* ch) override {
-    String v = ch->getValue();
+  void onWrite(BLECharacteristic* ch, NimBLEConnInfo& /*info*/) override {
+    // std::string (not Arduino String) — OTA chunks are raw bytes with
+    // embedded nulls. String(const char*) would truncate at the first \0.
+    std::string v = ch->getValue();
     if (v.length() == 0) return;
     uint8_t op = (uint8_t)v[0];
     if (op == 0x00) {
@@ -661,15 +670,15 @@ class OtaDataCallbacks : public BLECharacteristicCallbacks {
 // (BlueZ keeps advertising by default) and the operator can reconnect
 // without power-cycling the device.
 class ServerCallbacks : public BLEServerCallbacks {
-  void onDisconnect(BLEServer* /*srv*/) override {
+  void onDisconnect(BLEServer* /*srv*/, NimBLEConnInfo& /*info*/, int /*reason*/) override {
     BLEDevice::startAdvertising();
     Serial.println("client disconnected; advertising resumed");
   }
 };
 
 class LedCallbacks : public BLECharacteristicCallbacks {
-  void onWrite(BLECharacteristic* ch) override {
-    String value = ch->getValue();
+  void onWrite(BLECharacteristic* ch, NimBLEConnInfo& /*info*/) override {
+    std::string value = ch->getValue();
     if (value.length() > 0) applyLed(value[0] != 0);
   }
 };
@@ -696,8 +705,10 @@ class MotorCallbacks : public BLECharacteristicCallbacks {
   //                                    loop() auto-stops at motorPulseEndAt.
   // Every write bumps motorPulseId so a newer write invalidates an earlier
   // pulse's pending stop.
-  void onWrite(BLECharacteristic* ch) override {
-    String v = ch->getValue();
+  void onWrite(BLECharacteristic* ch, NimBLEConnInfo& /*info*/) override {
+    // std::string — motor payload is 2 or 4 raw bytes; a stop command is
+    // {0, 0} and Arduino String(const char*) would read that as empty.
+    std::string v = ch->getValue();
     motorLastWriteAt = millis();
     motorPulseId++;
     if (v.length() == 2) {
@@ -720,28 +731,29 @@ class MotorCallbacks : public BLECharacteristicCallbacks {
 };
 
 class WifiScanCallbacks : public BLECharacteristicCallbacks {
-  void onRead(BLECharacteristic* /*ch*/) override { startScan(); }
+  void onRead(BLECharacteristic* /*ch*/, NimBLEConnInfo& /*info*/) override { startScan(); }
 };
 
 class WifiJoinCallbacks : public BLECharacteristicCallbacks {
-  void onWrite(BLECharacteristic* ch) override {
-    String value = ch->getValue();
+  void onWrite(BLECharacteristic* ch, NimBLEConnInfo& /*info*/) override {
+    std::string value = ch->getValue();
     // Payload spec: {"s":"...","p":"..."}.
-    int sIdx = value.indexOf("\"s\"");
-    int pIdx = value.indexOf("\"p\"");
-    if (sIdx < 0) { publishStatus("failed", "", "missing ssid"); return; }
-    auto extract = [&](int keyIdx) -> String {
-      int colon = value.indexOf(':', keyIdx);
-      if (colon < 0) return "";
-      int q1 = value.indexOf('"', colon);
-      if (q1 < 0) return "";
-      int q2 = value.indexOf('"', q1 + 1);
-      while (q2 > 0 && value[q2 - 1] == '\\') q2 = value.indexOf('"', q2 + 1);
-      if (q2 < 0) return "";
-      return value.substring(q1 + 1, q2);
+    const size_t npos = std::string::npos;
+    size_t sIdx = value.find("\"s\"");
+    size_t pIdx = value.find("\"p\"");
+    if (sIdx == npos) { publishStatus("failed", "", "missing ssid"); return; }
+    auto extract = [&](size_t keyIdx) -> String {
+      size_t colon = value.find(':', keyIdx);
+      if (colon == npos) return "";
+      size_t q1 = value.find('"', colon);
+      if (q1 == npos) return "";
+      size_t q2 = value.find('"', q1 + 1);
+      while (q2 != npos && q2 > 0 && value[q2 - 1] == '\\') q2 = value.find('"', q2 + 1);
+      if (q2 == npos) return "";
+      return String(value.substr(q1 + 1, q2 - q1 - 1).c_str());
     };
     String ssid = extract(sIdx);
-    String pass = (pIdx >= 0) ? extract(pIdx) : "";
+    String pass = (pIdx != npos) ? extract(pIdx) : "";
     if (ssid.length() == 0) { publishStatus("failed", "", "missing ssid"); return; }
     startJoin(ssid, pass);
   }
@@ -827,8 +839,8 @@ static void snapshotTask(void* param) {
 }
 
 class SnapshotRequestCallbacks : public BLECharacteristicCallbacks {
-  void onWrite(BLECharacteristic* c) override {
-    String v = c->getValue();
+  void onWrite(BLECharacteristic* c, NimBLEConnInfo& /*info*/) override {
+    std::string v = c->getValue();
     // Single byte 0x01 = capture. Any other opcode reserved for future use.
     if (v.length() < 1 || (uint8_t)v[0] != 0x01) return;
     if (snapshotTaskHandle != nullptr) {
@@ -845,15 +857,16 @@ class SnapshotRequestCallbacks : public BLECharacteristicCallbacks {
 // firmware persists to Preferences and restarts so a fresh setup() applies
 // the new profile (initCamera reads cameraProfile at boot, no hot-swap).
 class CameraProfileCallbacks : public BLECharacteristicCallbacks {
-  void onWrite(BLECharacteristic* c) override {
-    String v = c->getValue();
-    int q = v.indexOf("\"profile\"");
-    if (q < 0) { Serial.println("camera-profile: bad payload"); return; }
-    int colon = v.indexOf(':', q);
-    int firstQ = v.indexOf('"', colon);
-    int lastQ  = v.indexOf('"', firstQ + 1);
-    if (firstQ < 0 || lastQ < 0) { Serial.println("camera-profile: bad payload"); return; }
-    String name = v.substring(firstQ + 1, lastQ);
+  void onWrite(BLECharacteristic* c, NimBLEConnInfo& /*info*/) override {
+    std::string v = c->getValue();
+    const size_t npos = std::string::npos;
+    size_t q = v.find("\"profile\"");
+    if (q == npos) { Serial.println("camera-profile: bad payload"); return; }
+    size_t colon = v.find(':', q);
+    size_t firstQ = (colon == npos) ? npos : v.find('"', colon);
+    size_t lastQ  = (firstQ == npos) ? npos : v.find('"', firstQ + 1);
+    if (firstQ == npos || lastQ == npos) { Serial.println("camera-profile: bad payload"); return; }
+    String name(v.substr(firstQ + 1, lastQ - firstQ - 1).c_str());
     CamProfile next = cameraProfileFromName(name);
     if (next == cameraProfile) {
       Serial.printf("camera-profile: already %s, no-op\n", cameraProfileName(next));
@@ -885,25 +898,19 @@ void setup() {
   char name[32];
   snprintf(name, sizeof(name), "BetterRobot-%04X", (uint16_t)(chipid & 0xFFFF));
 
-  // Allocation order is the whole trick on classic ESP32-CAM where
-  // BLE + WiFi + esp32-camera compete for ~250 KB of DRAM:
-  //   1) Camera first — claims its 32 KB contiguous DMA buffer while the
-  //      heap is still unfragmented. JPEG DMA must live in internal DRAM
-  //      (PSRAM isn't DMA-coherent on classic ESP32) and the driver allocates
-  //      this lazily in esp_camera_init().
-  //   2) BLE next — bluedroid's ~50 KB heap + semaphores for each char fit
-  //      comfortably in the remaining ~210 KB. Previously we had camera
-  //      compete AFTER BLE and BLE char creation would crash in
-  //      FreeRTOS::Semaphore() with `xQueueGenericSend NULL pxQueue` (a
-  //      failed xSemaphoreCreateBinary returning NULL).
-  //   3) WiFi last — driver up on whatever's left; if it's marginal, the
-  //      user at least still has a working BLE peripheral to diagnose with.
-  // Tried `WiFi.mode(WIFI_STA)` at the top of setup() (commit 2f0b69c,
-  // "connection-first init") to give WiFi its 4 RX DMA buffers before
-  // camera + BLE fragmented the heap — it broke BLE init on hardware
-  // (same NULL pxQueue crash as camera-after-BLE). Do not re-try without
-  // first moving BLE stack init above both; the WiFi-marginal state is
-  // livable, a dead BLE peripheral is not.
+  // Allocation order on classic ESP32-CAM where BLE + WiFi + esp32-camera
+  // compete for ~250 KB of DRAM. BLE before WiFi — Bluedroid AND NimBLE
+  // both need their kernel-object pool to fit while heap is mostly fresh,
+  // and WiFi.init is forgiving about being last (it just comes up with
+  // fewer RX buffers). The reverse order panics BLE (FreeRTOS NULL pxQueue
+  // crash on Bluedroid; silent advertising failure on NimBLE).
+  //   1) Camera — 32 KB DMA buffer in internal DRAM (PSRAM isn't DMA-
+  //      coherent on classic ESP32); framebuffers live in PSRAM.
+  //   2) BLE (NimBLE) — host stack + per-char semaphores.
+  //   3) WiFi — whatever's left. Marginal on this board; WiFi may come
+  //      up with only 1 of 4 RX buffers or fail to init entirely
+  //      (ESP_ERR_WIFI_NOT_INIT / 0x3001). Use the "compact" camera
+  //      profile to free DRAM if WiFi needs breathing room.
 
   // Camera profile is read once at boot — changing it via the BLE write
   // char persists to Preferences and restarts the device so a fresh setup()
@@ -917,43 +924,33 @@ void setup() {
   BLEDevice::init(name);
   BLEServer* server = BLEDevice::createServer();
   server->setCallbacks(new ServerCallbacks());
-  // Default numHandles (15) silently drops characteristics past the cap.
-  // Each characteristic = 2 handles (decl + val); each CCCD (2902) = 1 more.
-  // Current count: 33 with camera-ready branch (cameraProfileChar pushed us
-  // over 32, which presents as "BLE won't load"). 40 leaves headroom for ~4
-  // more chars; exceeding the budget gives no error, chars just vanish.
-  BLEService* service = server->createService(BLEUUID(SERVICE_UUID), 40, 0);
+  BLEService* service = server->createService(SERVICE_UUID);
 
   ledChar = service->createCharacteristic(
     LED_CHAR_UUID,
-    BLECharacteristic::PROPERTY_READ
-      | BLECharacteristic::PROPERTY_WRITE
-      | BLECharacteristic::PROPERTY_NOTIFY
+    NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::NOTIFY
   );
-  ledChar->addDescriptor(new BLE2902());
   ledChar->setCallbacks(new LedCallbacks());
   uint8_t initial = 0;
   ledChar->setValue(&initial, 1);
 
   wifiScanChar = service->createCharacteristic(
     WIFI_SCAN_CHAR_UUID,
-    BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+    NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
   );
-  wifiScanChar->addDescriptor(new BLE2902());
   wifiScanChar->setCallbacks(new WifiScanCallbacks());
   wifiScanChar->setValue("[]");
 
   wifiJoinChar = service->createCharacteristic(
     WIFI_JOIN_CHAR_UUID,
-    BLECharacteristic::PROPERTY_WRITE
+    NIMBLE_PROPERTY::WRITE
   );
   wifiJoinChar->setCallbacks(new WifiJoinCallbacks());
 
   wifiStatusChar = service->createCharacteristic(
     WIFI_STATUS_CHAR_UUID,
-    BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+    NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
   );
-  wifiStatusChar->addDescriptor(new BLE2902());
   wifiStatusChar->setValue("{\"st\":\"idle\"}");
 
   otaDataChar = service->createCharacteristic(
@@ -961,15 +958,14 @@ void setup() {
     // WRITE | WRITE_NR — without-response lets the dashboard stream chunks
     // without per-frame ATT acks once we reintroduce the WithoutResponse
     // client-side. Advertising both keeps WithResponse as a fallback.
-    BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR
+    NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR
   );
   otaDataChar->setCallbacks(new OtaDataCallbacks());
 
   otaStatusChar = service->createCharacteristic(
     OTA_STATUS_CHAR_UUID,
-    BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+    NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
   );
-  otaStatusChar->addDescriptor(new BLE2902());
   otaStatusChar->setValue("{\"st\":\"idle\"}");
 
   fwInfoChar = service->createCharacteristic(
@@ -978,18 +974,14 @@ void setup() {
     // runtime). Today camera is init'd in setup() so the initial read already
     // has everything; dashboard subscribes defensively but won't see updates
     // in normal operation.
-    BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+    NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
   );
-  fwInfoChar->addDescriptor(new BLE2902());
   publishFwInfo();
 
   motorChar = service->createCharacteristic(
     MOTOR_CHAR_UUID,
-    BLECharacteristic::PROPERTY_READ
-      | BLECharacteristic::PROPERTY_WRITE
-      | BLECharacteristic::PROPERTY_NOTIFY
+    NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::NOTIFY
   );
-  motorChar->addDescriptor(new BLE2902());
   motorChar->setCallbacks(new MotorCallbacks());
   uint8_t motorInit[2] = { 0, 0 };
   motorChar->setValue(motorInit, 2);
@@ -1000,32 +992,30 @@ void setup() {
   // recovery plane. JSON: {uptime_ms, free_heap, free_psram, reset_reason, sha}.
   telemetryChar = service->createCharacteristic(
     TELEMETRY_CHAR_UUID,
-    BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+    NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
   );
-  telemetryChar->addDescriptor(new BLE2902());
   telemetryChar->setValue("{}");
 
   // BLE snapshot — see snapshotTask() for the wire format. Two chars: a
   // single-byte write trigger and a notify-only outbound stream. Only
-  // registered if the camera came up; saves handles otherwise (we're at 32).
+  // registered if the camera came up.
   if (cameraReady) {
     snapshotRequestChar = service->createCharacteristic(
       SNAPSHOT_REQUEST_CHAR_UUID,
-      BLECharacteristic::PROPERTY_WRITE
+      NIMBLE_PROPERTY::WRITE
     );
     snapshotRequestChar->setCallbacks(new SnapshotRequestCallbacks());
 
     snapshotDataChar = service->createCharacteristic(
       SNAPSHOT_DATA_CHAR_UUID,
-      BLECharacteristic::PROPERTY_NOTIFY
+      NIMBLE_PROPERTY::NOTIFY
     );
-    snapshotDataChar->addDescriptor(new BLE2902());
 
     // Camera profile picker — write JSON to change. Firmware restarts on
     // change so the new profile takes effect via a fresh initCamera.
     cameraProfileChar = service->createCharacteristic(
       CAMERA_PROFILE_CHAR_UUID,
-      BLECharacteristic::PROPERTY_WRITE
+      NIMBLE_PROPERTY::WRITE
     );
     cameraProfileChar->setCallbacks(new CameraProfileCallbacks());
   }
@@ -1034,15 +1024,14 @@ void setup() {
   bleServiceStarted = true;
 
   BLEAdvertising* adv = BLEDevice::getAdvertising();
+  adv->setName(name);
   adv->addServiceUUID(SERVICE_UUID);
-  adv->setScanResponse(true);
-  BLEDevice::startAdvertising();
+  adv->enableScanResponse(true);
+  adv->start();
 
   Serial.printf("\nAdvertising as %s\n", name);
 
-  // WiFi last in the allocation order (see the comment at the top of setup).
-  // `WiFi.mode(WIFI_STA)` runs esp_wifi_init + esp_wifi_start; after it
-  // returns the driver is up and the 4 static RX buffers are allocated.
+  // WiFi last. `WiFi.mode(WIFI_STA)` runs esp_wifi_init + esp_wifi_start.
   // setSleep(false) keeps the radio awake during BLE windows (default DTIM
   // sleep drops beacons and makes scans come back empty). Max TX power
   // helps cut through the antenna shadow from an attached camera module.
