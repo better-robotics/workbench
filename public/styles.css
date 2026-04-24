@@ -2053,8 +2053,38 @@ body.phone {
   font: inherit;
   font-size: 15px;
   cursor: pointer;
+  min-height: 44px;
 }
 .phone-nearby-btn:hover { background: var(--surface-raised, var(--surface)); }
+/* Trust-state affordances — filled = trusted (primary action), outlined =
+   unknown (needs verification), alert = identity changed. The user reads
+   the affordance shape before the text. */
+.phone-nearby-btn.trusted {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  font-weight: 500;
+}
+.phone-nearby-btn.unknown {
+  background: transparent;
+  color: var(--ink);
+  border-style: dashed;
+}
+.phone-nearby-btn.alert {
+  background: color-mix(in srgb, #c0392b 14%, transparent);
+  border-color: color-mix(in srgb, #c0392b 50%, transparent);
+  color: var(--ink);
+}
+.phone-nearby-alert {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, #c0392b 35%, transparent);
+  background: color-mix(in srgb, #c0392b 8%, transparent);
+}
+.phone-nearby-alert p { margin: 0; font-size: 13px; line-height: 1.4; color: var(--ink); }
 .phone-dashboard-link {
   display: block;
   margin-top: 14px;
@@ -2082,6 +2112,14 @@ body.phone {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+/* Identity-changed alert variant — same shape, warning palette. The
+   alert form is meaningful without colour alone (text reads "identity
+   changed"), so colour-blind users still get the signal. */
+.presence-badge.alert {
+  background: color-mix(in srgb, #c0392b 16%, transparent);
+  color: #c0392b;
+}
+.presence-badge.alert::before { background: #c0392b; }
 .presence-badge::before {
   content: "";
   width: 6px;
@@ -2095,6 +2133,12 @@ body.phone {
   0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 50%, transparent); }
   70%  { box-shadow: 0 0 0 6px transparent; }
   100% { box-shadow: 0 0 0 0 transparent; }
+}
+/* Respect prefers-reduced-motion: the pulse is decorative — the badge
+   appearing is the actual signal — so we suppress the animation rather
+   than slow it down. */
+@media (prefers-reduced-motion: reduce) {
+  .presence-badge::before, .pair-presence::before { animation: none; }
 }
 
 /* Pair dialog: phone-ready hint appears above the QR. When set, the
@@ -2110,6 +2154,10 @@ body.phone {
   color: var(--ink);
   font-size: 14px;
 }
+.pair-presence.alert {
+  background: color-mix(in srgb, #c0392b 12%, transparent);
+}
+.pair-presence.alert::before { background: #c0392b; }
 .pair-presence::before {
   content: "";
   width: 8px;

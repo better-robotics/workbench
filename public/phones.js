@@ -14,13 +14,17 @@ import { hostPairingRoom } from "./pairing.js";
 import { sendPairById, pickMotorsTarget } from "./capabilities/runtime/signed-pair.js";
 import { getLaptopStream, onLaptopChange } from "./helpers.js";
 import { discover } from "./discover.js";
+import { getMyPubkeyB64 } from "./peer-key.js";
+import { trust as trustDevice, classify as classifyAd } from "./trust.js";
 
 // Single shared lobby instance — desktop publishes a pairing ad while the
 // dialog is open so a phone on the same wifi can land directly on the
 // pairing room without scanning the QR. Removed on cancel/connect so a
-// stale ad doesn't survive past its room.
+// stale ad doesn't survive past its room. Signed mode: ads carry our
+// device pubkey so the phone can recognize "this is the Mac I paired
+// before" across sessions.
 let _lobby = null;
-function getLobby() { return _lobby || (_lobby = discover()); }
+function getLobby() { return _lobby || (_lobby = discover({ sign: true })); }
 function deviceLabel() {
   const ua = (typeof navigator !== "undefined" && navigator.userAgent) || "";
   if (/Mac/i.test(ua)) return "Mac";
@@ -145,40 +149,69 @@ function closePairing() {
 }
 
 // Count of phones currently broadcasting "ready to pair" on this wifi.
-// Drives both the helpers-heading presence badge and the pair-dialog
-// switch from "QR primary" to "phone is right there, just tap it on
-// the phone screen" mode.
+// Classifies each into trusted/unknown/identity-changed; the dashboard
+// renders the badge with the trust state, and the pair-dialog uses it
+// to decide whether to collapse the QR (only for trusted phones — an
+// unknown phone needs the QR to establish trust).
 function renderPhonePresence(ads) {
   const phones = (ads || []).filter(a => a.data && a.data.app === "better-robotics-phone-ready");
-  const count = phones.length;
-  // Helpers heading badge — passive indicator, visible whenever at least
-  // one unpaired phone is on the wifi.
+  const classified = phones.map(classifyAd);
+  const trusted = classified.filter(c => c.state === "trusted");
+  const identityChanged = classified.filter(c => c.state === "identity-changed");
+  const total = classified.length;
+
+  // Helpers heading badge — passive indicator. Trusted phones earn the
+  // friendly badge; an identity-change anywhere flips it to alert mode.
   const badge = $("phone-presence");
   if (badge) {
-    if (count > 0) {
-      badge.hidden = false;
-      const label = phones[0].data.label || "Phone";
-      badge.textContent = count === 1 ? `${label} on wifi` : `${count} phones on wifi`;
-    } else {
+    if (total === 0) {
       badge.hidden = true;
+      badge.classList.remove("alert");
+    } else if (identityChanged.length > 0) {
+      badge.hidden = false;
+      badge.classList.add("alert");
+      badge.textContent = `${identityChanged[0].label || "Phone"} identity changed`;
+    } else {
+      badge.hidden = false;
+      badge.classList.remove("alert");
+      const label = (trusted[0] || classified[0]).label || "Phone";
+      badge.textContent = total === 1
+        ? `${label}${trusted.length ? "" : " (new)"} on wifi`
+        : `${total} phones on wifi`;
     }
   }
-  // Pair dialog: when phone-ready peers exist, surface that and de-emphasize
-  // the QR. The room is already advertised on the lobby — the phone just
-  // needs to tap "Pair with this computer" on its own screen.
+
+  // Pair dialog presence pane — only collapse the QR for trusted phones.
+  // An unknown phone needs the QR to bind trust; collapsing it would
+  // strand the user (P4 in the audit).
   const dialog = $("pair-dialog");
   const hint = $("pair-presence-text");
   if (dialog) {
     const presence = $("pair-presence");
     if (presence) {
-      presence.hidden = count === 0;
-      if (count > 0 && hint) {
-        hint.textContent = count === 1
-          ? `${phones[0].data.label || "Phone"} ready — tap "Pair with this computer" on it.`
-          : `${count} phones ready — tap "Pair with this computer" on the one you want.`;
+      if (total === 0) {
+        presence.hidden = true;
+        presence.classList.remove("alert");
+      } else if (identityChanged.length > 0) {
+        presence.hidden = false;
+        presence.classList.add("alert");
+        if (hint) hint.textContent = `${identityChanged[0].label || "Phone"}'s identity changed since last pair — re-scan the QR to confirm it's the same device.`;
+      } else if (trusted.length > 0) {
+        presence.hidden = false;
+        presence.classList.remove("alert");
+        if (hint) hint.textContent = trusted.length === 1
+          ? `${trusted[0].label || "Phone"} ready — tap "Pair with this computer" on it.`
+          : `${trusted.length} paired phones ready — tap "Pair with this computer" on the one you want.`;
+      } else {
+        presence.hidden = false;
+        presence.classList.remove("alert");
+        if (hint) hint.textContent = `New phone on wifi — scan the QR with it to pair for the first time.`;
       }
     }
-    dialog.classList.toggle("has-ready-phones", count > 0);
+    // Only collapse QR when ALL ready phones are trusted (and at least one
+    // exists). Unknown or identity-changed → keep QR visible.
+    const allTrusted = total > 0 && trusted.length === total;
+    dialog.classList.toggle("has-ready-phones", allTrusted);
   }
 }
 
@@ -201,8 +234,14 @@ async function beginPairing() {
   });
   _pendingSession = session;
 
+  // Bind trust to the QR. The pubkey in the URL is the in-person consent:
+  // the phone scans it, stores our pubkey as trusted, and from then on can
+  // recognize our discovery ads (signed with the same key) as "my Mac"
+  // without prompting again. Coffee-shop attacker can publish ads with
+  // their own key but can't impersonate ours without the QR.
+  const myPubkey = await getMyPubkeyB64();
   const url = new URL("phone.html", window.location.href);
-  url.hash = `pair=${session.roomId}`;
+  url.hash = `pair=${session.roomId}&pk=${myPubkey}`;
   const urlText = url.toString();
 
   // qrcode-generator is loaded globally in index.html.
@@ -239,7 +278,19 @@ async function beginPairing() {
     statusEl.textContent = "Connected";
     log("phone paired", "phone");
 
-    peer.onMessage((msg) => onPhoneMessage(id, peer, msg));
+    // Tell the phone our pubkey + label so it can confirm trust against
+    // what the QR encoded (and learn a friendly name to display). Sent
+    // immediately on pair so the phone has it before any data flow.
+    try { peer.send({ type: "pair-keys", pubkey: myPubkey, label: deviceLabel() }); } catch {}
+    peer.onMessage((msg) => {
+      // Phone returns the favor with its own pubkey + label. Trust it now —
+      // the QR-bound WebRTC channel is the in-person evidence.
+      if (msg && msg.type === "pair-keys" && msg.pubkey) {
+        trustDevice(msg.pubkey, msg.label || "Phone");
+        return;
+      }
+      onPhoneMessage(id, peer, msg);
+    });
     // Status events from the pairing layer: reconnecting is transient, failed
     // is terminal. We only drop the phone from the UI on terminal; reconnecting
     // just re-renders the card with the new state badge so the user can see

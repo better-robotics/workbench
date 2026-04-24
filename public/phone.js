@@ -2,6 +2,8 @@ import { $ } from "./dom.js";
 import { joinPairingRoom } from "./pairing.js";
 import { attachJoypad } from "./joypad.js";
 import { discover } from "./discover.js";
+import { getMyPubkeyB64 } from "./peer-key.js";
+import { trust as trustDevice, classify as classifyAd } from "./trust.js";
 
 let _peer = null;
 let _pending = false;
@@ -283,23 +285,24 @@ function stopQrScan() {
 function wireReconnect() {
   $("phone-scan-btn")?.addEventListener("click", startQrScan);
   $("phone-scanner-cancel")?.addEventListener("click", stopQrScan);
-  // Surface the "Open dashboard view" escape hatch only on devices that
-  // can actually run the dashboard (Chrome desktop / Android). iPhone
-  // Safari has no Web Bluetooth — sending users there is a footgun.
-  if (typeof navigator !== "undefined" && navigator.bluetooth) {
-    const link = $("phone-dashboard-link");
-    if (link) link.hidden = false;
-  }
+  // Always surface the "Open dashboard view" escape hatch — hiding it on
+  // browsers without Web Bluetooth (the previous behaviour) hid it
+  // exactly when the user was most likely to need an escape from the
+  // mobile redirect. The dashboard's own "unsupported" surface explains
+  // what's missing if they land somewhere it doesn't work.
+  const link = $("phone-dashboard-link");
+  if (link) link.hidden = false;
 }
 
 // LAN discovery — desktops with an open Pair dialog on the same wifi
-// broadcast a pair room. Render each as a one-tap join button so the
-// reconnect surface offers "skip the QR" before the camera scan.
+// broadcast a pair room. Render each with a trust-aware affordance:
+//   trusted          → filled "Pair with Mac" button, taps directly to pair
+//   unknown          → outlined "Mac — pair to trust" button, taps to QR scan
+//   identity-changed → inline alert with re-pair-via-QR action
 //
-// We also PUBLISH a "phone-ready" ad while we're in this state so
-// dashboards on the same wifi can surface "iPhone on wifi" without the
-// user having to open a pair dialog first. Symmetric presence: each side
-// knows the other is around without anyone clicking anything.
+// We also PUBLISH a "phone-ready" ad in signed mode while we're in this
+// state — our pubkey rides along, so the desktop dashboard can recognize
+// "this is my phone" across sessions instead of just "some phone".
 let _lobby = null;
 function deviceLabel() {
   const ua = (typeof navigator !== "undefined" && navigator.userAgent) || "";
@@ -308,15 +311,60 @@ function deviceLabel() {
   if (/Android/i.test(ua)) return "Android";
   return "Phone";
 }
+
+function _renderUnknownAffordance(list, ad) {
+  // Tapping an unknown ad opens the QR scanner instead of pairing
+  // directly. The QR is the in-person consent that binds the pubkey
+  // we'll then trust on subsequent ads.
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "phone-nearby-btn unknown";
+  btn.textContent = `${ad.data.label || "Computer"} — scan QR to pair`;
+  btn.addEventListener("click", () => startQrScan());
+  list.appendChild(btn);
+}
+
+function _renderTrustedAffordance(list, ad) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "phone-nearby-btn trusted";
+  btn.textContent = `Pair with ${ad.data.label || "this computer"}`;
+  btn.addEventListener("click", () => {
+    // Same destination as scanning the QR. The pubkey from this ad is
+    // already trusted, so we don't need the QR's pubkey-binding step —
+    // but the URL still carries pk so a re-load lands the same way.
+    const pk = ad.data._pubkey ? "&pk=" + ad.data._pubkey : "";
+    location.replace(location.pathname + "#pair=" + ad.data.roomId + pk);
+    location.reload();
+  });
+  list.appendChild(btn);
+}
+
+function _renderIdentityChangedAffordance(list, ad, prior) {
+  const wrap = document.createElement("div");
+  wrap.className = "phone-nearby-alert";
+  const msg = document.createElement("p");
+  msg.textContent = `${ad.data.label || "This computer"}'s identity changed since last pair. Could be a browser reset — or someone else publishing under the same name. Re-scan its QR to confirm.`;
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "phone-nearby-btn alert";
+  btn.textContent = "Scan QR to re-pair";
+  btn.addEventListener("click", () => startQrScan());
+  wrap.appendChild(msg);
+  wrap.appendChild(btn);
+  list.appendChild(wrap);
+}
+
 function startNearbyDiscovery() {
   if (_lobby) return;  // idempotent — init might call us twice across reconnects
-  _lobby = discover();
+  _lobby = discover({ sign: true });
   const wrap = $("phone-nearby");
   const list = $("phone-nearby-list");
 
   // Publish "I'm a phone, ready to pair." Random per page-load is fine —
   // server TTL clears stale ads from prior tabs/reloads. Dashboards on
-  // the same wifi pick this up and show a passive presence indicator.
+  // the same wifi pick this up and (in signed mode) recognize the
+  // pubkey if we've paired before.
   const phoneAdId = "better-robotics-phone-ready:" + (crypto.randomUUID?.() || Math.random().toString(36).slice(2));
   _lobby.publish(phoneAdId, {
     app: "better-robotics-phone-ready",
@@ -330,17 +378,10 @@ function startNearbyDiscovery() {
     if (!desktops.length) { wrap.hidden = true; return; }
     wrap.hidden = false;
     for (const ad of desktops) {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "phone-nearby-btn";
-      btn.textContent = `Pair with ${ad.data.label || "this computer"}`;
-      btn.addEventListener("click", () => {
-        // Same code path as scanning the QR: navigate to the same URL the
-        // QR encodes. location.replace avoids a back-button trap.
-        location.replace(location.pathname + "#pair=" + ad.data.roomId);
-        location.reload();
-      });
-      list.appendChild(btn);
+      const c = classifyAd(ad);
+      if (c.state === "trusted") _renderTrustedAffordance(list, ad);
+      else if (c.state === "identity-changed") _renderIdentityChangedAffordance(list, ad, c.trust);
+      else _renderUnknownAffordance(list, ad);
     }
   });
 }
@@ -355,7 +396,19 @@ async function init() {
     startNearbyDiscovery();
     return;
   }
-  const roomId = match[1];
+  // Hash format is now `pair=<roomId>(&pk=<pubkey>)?`. The pk is the
+  // in-person trust binding: scanning a QR with pk = consenting that
+  // this pubkey belongs to the device that printed the QR. Stored
+  // before WebRTC even starts so the trust holds even if pair fails.
+  const params = new URLSearchParams(match[1]);
+  const roomId = (match[1].split("&")[0]) || "";
+  const remotePk = params.get("pk");
+  if (remotePk) {
+    // Label is unknown until the data channel exchanges it. "Computer"
+    // is a placeholder; the pair-keys handshake replaces it with what
+    // the desktop calls itself ("Mac", "Windows", …).
+    trustDevice(remotePk, "Computer");
+  }
   try {
     setStatus("connecting", "Connecting…");
     // Route pair stages through setMessage so the user sees where we're
@@ -367,7 +420,23 @@ async function init() {
     setStatus("connected", "Connected");
     setMessage("Hi — I'm Pip, running on your desktop. Ask me something.");
     hideReconnect();
-    _peer.onMessage(onPeerMessage);
+    // Send the desktop our pubkey + label so it can trust us on future
+    // discovery without re-scanning. Sent as soon as the channel is up.
+    try {
+      const myPk = await getMyPubkeyB64();
+      _peer.send({ type: "pair-keys", pubkey: myPk, label: deviceLabel() });
+    } catch {}
+    _peer.onMessage((msg) => {
+      // Desktop may send its own pubkey + label as part of pair-keys —
+      // upgrade the trust entry from the placeholder label to the real
+      // one (and re-trust the pubkey if the QR didn't carry pk for some
+      // reason, e.g. a legacy QR from before signed mode).
+      if (msg && msg.type === "pair-keys" && msg.pubkey) {
+        trustDevice(msg.pubkey, msg.label || "Computer");
+        return;
+      }
+      onPeerMessage(msg);
+    });
     _peer.onTrack(onPeerTrack);
     // Transient state: pairing.js handles ICE restart internally. We only
     // change the visible status, keep input enabled so typed messages queue

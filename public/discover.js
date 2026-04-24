@@ -10,13 +10,24 @@
 // capability — defense-in-depth comes from your room-level auth, not from
 // the discovery layer.
 //
-// Usage:
+// Usage (anonymous mode):
 //   import { discover } from './discover.js';
-//   const lobby = discover();                 // default signal.neevs.io
+//   const lobby = discover();
 //   const stop = lobby.onChange(ads => render(ads));
 //   lobby.publish('my-id', { app: 'foo', roomId: 'abc' }, 60_000);
 //   lobby.remove('my-id');
 //   lobby.close();
+//
+// Usage (signed mode — opt-in):
+//   const lobby = discover({ sign: true });
+//   await lobby.publish(...);  // ad gets _pubkey + _sig fields auto-attached
+//   lobby.onChange(ads => ...);  // unsigned + invalid-sig ads are dropped
+// Consumers build trust on top: the verified _pubkey is the "is this the
+// device I paired before" continuity primitive. peer-key.js manages the
+// device key. See better-robotics/public/phone.js for an integration that
+// pairs trust via QR (the QR encodes the publisher's pubkey).
+
+import { getMyPubkeyB64, signBytes, verifyBytes, canonical } from './peer-key.js';
 
 const DEFAULT_SIGNAL_URL = 'https://signal.neevs.io';
 const RECONNECT_BASE_MS  = 1500;
@@ -26,11 +37,30 @@ const HEARTBEAT_MS       = 20_000;
 // we're still connected. Half of DEFAULT_AD_TTL with margin.
 const REPUBLISH_MS       = 25_000;
 
+// The signed-mode envelope: `_pubkey` and `_sig` get added to data; the
+// signature covers canonical({id, data without _sig/_pubkey, pubkey}).
+// `_pubkey` is base64url SPKI raw — the trust-store key consumers use.
+async function _envelopeForPublish(id, data) {
+  const pubkey = await getMyPubkeyB64();
+  const bytes = new TextEncoder().encode(canonical({ id, data, pubkey }));
+  const sig = await signBytes(bytes);
+  return { ...data, _pubkey: pubkey, _sig: sig };
+}
+
+async function _verifyAd(ad) {
+  const data = ad && ad.data;
+  if (!data || !data._sig || !data._pubkey) return false;
+  const { _sig, _pubkey, ...rest } = data;
+  const bytes = new TextEncoder().encode(canonical({ id: ad.id, data: rest, pubkey: _pubkey }));
+  return verifyBytes(bytes, _sig, _pubkey);
+}
+
 export class DiscoveryClient {
   constructor(opts) {
     opts = opts || {};
     const base = (opts.signalUrl || DEFAULT_SIGNAL_URL).replace(/^http/, 'ws');
     this._url = base + '/discover/ws';
+    this._sign = !!opts.sign;
     this._ws = null;
     this._ads = [];
     this._listeners = new Set();
@@ -51,7 +81,8 @@ export class DiscoveryClient {
     this._ws.addEventListener('open', () => {
       this._reconnectDelay = RECONNECT_BASE_MS;
       // Re-publish anything we had before the disconnect — the server may
-      // have lost our entries on close.
+      // have lost our entries on close. _sendPublish handles the sign
+      // wrap if signed mode is on.
       for (const [id, payload] of this._myAds) {
         this._sendPublish(id, payload.data, payload.ttl);
       }
@@ -59,14 +90,21 @@ export class DiscoveryClient {
       this._startRepublish();
     });
 
-    this._ws.addEventListener('message', (e) => {
+    this._ws.addEventListener('message', async (e) => {
       let msg;
       try { msg = JSON.parse(e.data); } catch { return; }
-      if (msg.type === 'ads') {
-        this._ads = Array.isArray(msg.ads) ? msg.ads : [];
-        for (const fn of this._listeners) {
-          try { fn(this._ads); } catch {}
-        }
+      if (msg.type !== 'ads') return;
+      const raw = Array.isArray(msg.ads) ? msg.ads : [];
+      // In signed mode, drop ads with no signature or invalid signature.
+      // Verification is async (Web Crypto), so we await — order preserved.
+      let ads = raw;
+      if (this._sign) {
+        const checks = await Promise.all(raw.map(_verifyAd));
+        ads = raw.filter((_, i) => checks[i]);
+      }
+      this._ads = ads;
+      for (const fn of this._listeners) {
+        try { fn(this._ads); } catch {}
       }
     });
 
@@ -119,9 +157,15 @@ export class DiscoveryClient {
     if (this._republishTimer) { clearInterval(this._republishTimer); this._republishTimer = null; }
   }
 
-  _sendPublish(id, data, ttl) {
+  async _sendPublish(id, data, ttl) {
     if (!this._ws || this._ws.readyState !== 1) return;
-    try { this._ws.send(JSON.stringify({ type: 'publish', id, data, ttl })); } catch {}
+    let payload = data;
+    if (this._sign) {
+      try { payload = await _envelopeForPublish(id, data); }
+      catch { return; }  // signing failed — better to drop than send unsigned
+      if (!this._ws || this._ws.readyState !== 1) return;
+    }
+    try { this._ws.send(JSON.stringify({ type: 'publish', id, data: payload, ttl })); } catch {}
   }
 
   // ── Public API ────────────────────────────────────────────────
