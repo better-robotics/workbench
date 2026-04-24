@@ -22,6 +22,22 @@ const _laptop = {
 
 let _videoEls = new Map();  // helperId → <video> element (live laptop cam)
 
+// Subscribers fired whenever the laptop camera transitions (idle/starting/
+// live/error). phones.js uses this to push the live stream to paired phones.
+const _laptopChangeListeners = new Set();
+export function onLaptopChange(cb) {
+  _laptopChangeListeners.add(cb);
+  return () => _laptopChangeListeners.delete(cb);
+}
+export function getLaptopStream() {
+  return _laptop.status === "live" ? _laptop.stream : null;
+}
+function emitLaptopChange() {
+  for (const cb of _laptopChangeListeners) {
+    try { cb(getLaptopStream()); } catch (err) { console.warn("[helpers] laptop listener", err); }
+  }
+}
+
 export function initHelpers() {
   setPhonesChangeHandler(() => render());
   render();
@@ -83,6 +99,7 @@ async function startLaptopCam() {
     _laptop.trackSettings = track ? track.getSettings() : null;
     track?.addEventListener("ended", () => stopLaptopCam());
     render();
+    emitLaptopChange();
     return { ok: true };
   } catch (err) {
     _laptop.status = "error";
@@ -104,6 +121,7 @@ function stopLaptopCam() {
   _laptop.error = null;
   _videoEls.delete(LAPTOP_ID);
   render();
+  emitLaptopChange();
 }
 
 function captureLaptopFrame(maxDim = 640, quality = 0.8) {

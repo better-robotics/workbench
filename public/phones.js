@@ -12,6 +12,7 @@ import { $ } from "./dom.js";
 import { log } from "./log.js";
 import { hostPairingRoom } from "./pairing.js";
 import { sendPairById, pickMotorsTarget } from "./capabilities/runtime/signed-pair.js";
+import { getLaptopStream, onLaptopChange } from "./helpers.js";
 
 const _phones = new Map();  // roomId → { id, label, peer, connectedAt, status, statusDetail }
 // askId → { resolve, timeout, phoneId } — outstanding ask_human requests.
@@ -87,6 +88,31 @@ export function initPhones() {
   if (closeBtn) closeBtn.addEventListener("click", closePairing);
   const cancelBtn = $("pair-cancel-btn");
   if (cancelBtn) cancelBtn.addEventListener("click", closePairing);
+  // Laptop camera → phone(s) bridge: whenever the laptop transitions, sync
+  // every paired phone's media tracks. Goes both ways — going live adds
+  // tracks, stopping removes them. Phones connected later pick up the live
+  // stream in onPhonePaired.
+  onLaptopChange((stream) => {
+    for (const p of _phones.values()) syncPhoneMedia(p, stream);
+  });
+}
+
+// Per-phone book-keeping for the RTCRtpSenders we've added (so we can
+// removeTrack when the source goes away). One sender per laptop track.
+function syncPhoneMedia(phone, stream) {
+  if (!phone || phone.status === "failed") return;
+  // Remove anything we previously added.
+  if (phone.laptopSenders?.length) {
+    for (const s of phone.laptopSenders) phone.peer.removeTrack(s);
+    phone.laptopSenders = [];
+  }
+  if (!stream) return;
+  const senders = [];
+  for (const t of stream.getVideoTracks()) {
+    const s = phone.peer.addTrack(t, stream);
+    if (s) senders.push(s);
+  }
+  phone.laptopSenders = senders;
 }
 
 function closePairing() {
@@ -177,6 +203,10 @@ async function beginPairing() {
     // robot disconnects the phone will keep showing the old name until it
     // sends a drive message that fails silently. Acceptable for v1.
     sendTargetInfo(peer);
+    // Phase A media: if the laptop is already streaming, pipe its tracks to
+    // this fresh phone. Future sources (robot cam, other phones) plug into
+    // syncPhoneMedia the same way.
+    syncPhoneMedia(_phones.get(id), getLaptopStream());
     renderPhones();
     _pendingSession = null;
     // Let the user see the "Connected" text briefly before the dialog closes.

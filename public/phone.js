@@ -89,6 +89,29 @@ function showAsk(msg) {
   if (free.hidden === false) setTimeout(() => freeInput.focus(), 50);
 }
 
+// Mount an incoming media stream into the phone's <video> sink. The pairing
+// layer fires onTrack for each track; both video tracks of one stream share
+// the same MediaStream object, so we can blindly assign streams[0].
+function onPeerTrack(e) {
+  const v = $("phone-cam");
+  const section = $("phone-cam-section");
+  const stream = e.streams?.[0];
+  if (!stream) return;
+  if (v.srcObject !== stream) v.srcObject = stream;
+  section.hidden = false;
+  // When the remote ends the track (laptop user clicked Stop), hide the
+  // section so the phone doesn't show a frozen last frame as if it were live.
+  for (const t of stream.getTracks()) {
+    t.addEventListener("ended", () => {
+      // If all tracks are ended, hide. Other tracks may still be live.
+      if (stream.getTracks().every(t2 => t2.readyState === "ended")) {
+        section.hidden = true;
+        v.srcObject = null;
+      }
+    });
+  }
+}
+
 function onPeerMessage(msg) {
   if (msg.type === "ask") { showAsk(msg); return; }
   if (msg.type === "chat-reply") {
@@ -149,11 +172,100 @@ function wireBackgroundStop() {
   });
 }
 
+// Reconnect / QR-scan surface. Shown when there's no pair code, or after
+// a connection failure. Lets the user re-pair without bouncing back to the
+// desktop. BarcodeDetector path covers Chrome/Edge; iOS Safari falls back
+// to "use your Camera app" since BarcodeDetector isn't available there and
+// vendoring jsQR for that case isn't worth the bytes today.
+let _scanStream = null;
+let _scanRaf = 0;
+
+function showReconnect(message) {
+  $("phone-reconnect").hidden = false;
+  $("phone-reconnect-message").textContent = message || "";
+  $("phone-cam-section").hidden = true;
+}
+function hideReconnect() {
+  stopQrScan();
+  $("phone-reconnect").hidden = true;
+  $("phone-scanner").hidden = true;
+}
+
+async function startQrScan() {
+  const supported = "BarcodeDetector" in window;
+  if (!supported) {
+    $("phone-scanner-fallback").hidden = false;
+    return;
+  }
+  try {
+    _scanStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "environment" } },
+      audio: false,
+    });
+  } catch (err) {
+    $("phone-scanner-fallback").hidden = false;
+    $("phone-scanner-fallback").textContent = `Couldn't open camera: ${err.message || err}. Use your phone's Camera app to scan the QR.`;
+    return;
+  }
+  $("phone-scanner").hidden = false;
+  $("phone-scan-btn").hidden = true;
+  const v = $("phone-scanner-video");
+  v.srcObject = _scanStream;
+  await v.play().catch(() => {});
+
+  const detector = new BarcodeDetector({ formats: ["qr_code"] });
+  const tick = async () => {
+    if (!_scanStream) return;
+    try {
+      const codes = await detector.detect(v);
+      const url = codes.find(c => /^https?:/i.test(c.rawValue || ""))?.rawValue;
+      if (url) {
+        stopQrScan();
+        // Same-origin pair URL → navigate (location.replace avoids a back-button
+        // trap on the broken state). Cross-origin → user picked the wrong QR;
+        // surface a hint rather than navigating away from this app.
+        try {
+          const target = new URL(url);
+          if (target.origin === location.origin && target.hash.startsWith("#pair=")) {
+            location.replace(url);
+            return;
+          }
+          $("phone-reconnect-message").textContent = `That QR points to ${target.host}, not this dashboard. Scan the QR shown on the desktop running BetterRobotics.`;
+        } catch {
+          $("phone-reconnect-message").textContent = "That QR isn't a pair link.";
+        }
+        return;
+      }
+    } catch { /* per-frame errors happen during pause / track ends — ignore */ }
+    _scanRaf = requestAnimationFrame(tick);
+  };
+  tick();
+}
+
+function stopQrScan() {
+  if (_scanRaf) { cancelAnimationFrame(_scanRaf); _scanRaf = 0; }
+  if (_scanStream) {
+    for (const t of _scanStream.getTracks()) { try { t.stop(); } catch {} }
+    _scanStream = null;
+  }
+  const v = $("phone-scanner-video");
+  if (v) v.srcObject = null;
+  $("phone-scanner").hidden = true;
+  $("phone-scan-btn").hidden = false;
+}
+
+function wireReconnect() {
+  $("phone-scan-btn")?.addEventListener("click", startQrScan);
+  $("phone-scanner-cancel")?.addEventListener("click", stopQrScan);
+}
+
 async function init() {
+  wireReconnect();
   const match = location.hash.match(/^#pair=(.+)$/);
   if (!match) {
-    setStatus("error", "No pairing code");
-    setMessage("This page needs a pairing code. Open the dashboard on your desktop and tap “Pair phone” to generate one.");
+    setStatus("error", "Not paired");
+    setMessage("Tap “Scan QR to connect” below, or open the dashboard on your desktop and tap “Pair phone” to generate a code.");
+    showReconnect("No pairing code yet.");
     return;
   }
   const roomId = match[1];
@@ -167,7 +279,9 @@ async function init() {
     });
     setStatus("connected", "Connected");
     setMessage("Hi — I'm Pip, running on your desktop. Ask me something.");
+    hideReconnect();
     _peer.onMessage(onPeerMessage);
+    _peer.onTrack(onPeerTrack);
     // Transient state: pairing.js handles ICE restart internally. We only
     // change the visible status, keep input enabled so typed messages queue
     // until the channel is back — the peer.send() no-ops while closed and
@@ -185,8 +299,10 @@ async function init() {
     });
     _peer.onClose(() => {
       setStatus("error", "Disconnected");
-      setMessage("Connection lost. Re-open the pair QR on the desktop to reconnect.");
+      setMessage("Connection lost.");
       $("phone-input").disabled = true;
+      $("phone-cam-section").hidden = true;
+      showReconnect("Lost the desktop. Scan a fresh QR to reconnect.");
     });
     $("phone-form").addEventListener("submit", handleSubmit);
     $("phone-input").disabled = false;
@@ -196,6 +312,7 @@ async function init() {
   } catch (err) {
     setStatus("error", "Failed");
     setMessage(`Couldn't pair: ${err.message || err}`);
+    showReconnect("Pair failed — try a fresh QR from the desktop.");
   }
 }
 

@@ -2049,6 +2049,58 @@ body.phone {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);
 }
 .phone-input:disabled { opacity: 0.55; }
+/* Live remote camera (desktop → phone). One source at a time today. */
+.phone-cam-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.phone-cam {
+  width: 100%;
+  border-radius: 12px;
+  background: #000;
+  display: block;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+}
+.phone-cam-label { padding-left: 4px; }
+/* Reconnect surface — visible only when not paired or after a drop. Hosts
+   the QR scanner so the user can re-pair without going back to the desktop. */
+.phone-reconnect {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.phone-reconnect-message { color: var(--ink-muted); font-size: 14px; line-height: 1.45; }
+.phone-scanner {
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #000;
+  aspect-ratio: 1 / 1;
+}
+.phone-scanner-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+/* Visible target rectangle so the user knows where to point. Pure CSS —
+   the QR detector reads the entire frame, the box is just a hint. */
+.phone-scanner-frame {
+  position: absolute;
+  inset: 15%;
+  border: 2px solid color-mix(in srgb, var(--accent) 80%, white);
+  border-radius: 8px;
+  pointer-events: none;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35);
+}
+#phone-scanner-cancel { position: absolute; right: 8px; top: 8px; }
+.phone-scanner-fallback { padding: 4px; }
 /* Scene push from desktop's VLM — shown under the chat as a live caption. */
 .phone-scene {
   padding: 10px 12px;

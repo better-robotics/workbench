@@ -168,9 +168,42 @@ class Peer {
       }
     });
 
+    // Media-track plumbing for desktop → phone camera streaming. Desktop
+    // initiates negotiation when it addTrack()s; phone's existing offer
+    // handler in _applySignal answers it. Only desktop drives this — phone
+    // is receive-only for now, so no glare to worry about.
+    this._onTrack = null;
+    this._pendingTracks = [];
+    this._negotiating = false;
+    // Buffer track events that arrive before the consumer wires onTrack —
+    // happens when desktop initiates a renegotiation immediately after the
+    // channel opens, before phone.js has its handlers attached.
+    pc.addEventListener("track", (e) => {
+      if (this._onTrack) { try { this._onTrack(e); } catch {} }
+      else this._pendingTracks.push(e);
+    });
+    pc.addEventListener("negotiationneeded", () => this._renegotiate());
+
     this._startHeartbeat();
     this._installSignalHandlers();
     this._installVisibilityRecovery();
+  }
+
+  async _renegotiate() {
+    // Only desktop initiates media-add renegotiation. Phone is receive-only.
+    if (!this._myPeerId.startsWith("desktop-")) return;
+    if (this._negotiating) return;
+    if (this._pc.signalingState !== "stable") return;
+    this._negotiating = true;
+    try {
+      const offer = await this._pc.createOffer();
+      await this._pc.setLocalDescription(offer);
+      this._ws.send(JSON.stringify({ type: "signal", peer: this._myPeerId, data: { offer } }));
+    } catch (err) {
+      console.warn("[pair] renegotiate failed", err);
+    } finally {
+      this._negotiating = false;
+    }
   }
 
   _setStatus(status, detail) {
@@ -332,6 +365,24 @@ class Peer {
   onMessage(cb) { this._onMessage = cb; }
   onStatus(cb)  { this._onStatus = cb; try { cb(this._status); } catch {} }  // fire initial
   onClose(cb)   { this._onClose = cb; }
+  onTrack(cb)   {
+    this._onTrack = cb;
+    if (this._pendingTracks.length) {
+      const queued = this._pendingTracks;
+      this._pendingTracks = [];
+      for (const e of queued) { try { cb(e); } catch {} }
+    }
+  }
+  // addTrack returns the RTCRtpSender so caller can later removeTrack(sender).
+  // Triggers negotiationneeded → _renegotiate. Caller does not await.
+  addTrack(track, stream) {
+    if (this._pc.signalingState === "closed") return null;
+    return this._pc.addTrack(track, stream);
+  }
+  removeTrack(sender) {
+    if (!sender || this._pc.signalingState === "closed") return;
+    try { this._pc.removeTrack(sender); } catch {}
+  }
   close() {
     this._setStatus("failed", "Closed by caller");
     this._finalClose();

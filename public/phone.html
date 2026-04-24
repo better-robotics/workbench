@@ -21,10 +21,33 @@
     <div id="phone-echo" class="phone-echo" hidden></div>
     <p id="phone-message" class="phone-message">Connecting to your desktop…</p>
   </section>
+  <!-- Live camera stream from the desktop (laptop helper today; robot cam
+       and other helpers will plug into the same <video> sink). One source
+       at a time — desktop chooses for now, picker comes later. -->
+  <section class="phone-cam-section" id="phone-cam-section" hidden>
+    <video class="phone-cam" id="phone-cam" autoplay playsinline muted></video>
+    <div class="hint phone-cam-label" id="phone-cam-label">Camera</div>
+  </section>
   <form id="phone-form" class="phone-form">
     <input id="phone-input" class="phone-input" type="text" autocomplete="off"
            placeholder="Ask Pip…" maxlength="4000" aria-label="Ask Pip" disabled>
   </form>
+
+  <!-- Reconnect surface — shown when there's no pair code in the URL, or
+       after a connection drop. Lets the user re-pair without bouncing back
+       to the desktop: scan the QR with the phone's own camera. -->
+  <section class="phone-reconnect" id="phone-reconnect" hidden>
+    <div class="phone-reconnect-message" id="phone-reconnect-message"></div>
+    <button id="phone-scan-btn">Scan QR to connect</button>
+    <div class="phone-scanner" id="phone-scanner" hidden>
+      <video class="phone-scanner-video" id="phone-scanner-video" playsinline muted></video>
+      <div class="phone-scanner-frame"></div>
+      <button id="phone-scanner-cancel" class="secondary sm">Cancel</button>
+    </div>
+    <div class="hint phone-scanner-fallback" id="phone-scanner-fallback" hidden>
+      Live QR scanning isn't supported in this browser. Open your phone's Camera app, point it at the QR on the desktop, and tap the link it offers.
+    </div>
+  </section>
   <section class="phone-scene" id="phone-scene" hidden>
     <div class="phone-scene-label" id="phone-scene-source">Camera</div>
     <div class="phone-scene-text" id="phone-scene-text"></div>
