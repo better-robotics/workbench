@@ -33,6 +33,12 @@ const CACHE = `dashboard-${VERSION}`;
 // "/" would resolve to the origin root, not the SW scope.
 const BOOTSTRAP = [
   "./", "./index.html", "./app.js", "./styles.css", "./icons.svg",
+  // PWA install assets — home-screen icon + manifest must be cached for
+  // an installed app to cold-boot offline.
+  "./manifest.json", "./icon.svg",
+  // Phone companion is installable too (iOS A2HS target); phone.html is
+  // the scope-root start_url when installed from /phone.html.
+  "./phone.html", "./phone.js",
   // Dynamic-imported by app.js. Precaching them means the first time the
   // user opens Recovery / Scripts / Pinout / ESP serial / SD prep, the
   // module loads from cache instead of doing a network round-trip — and

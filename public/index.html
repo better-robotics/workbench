@@ -6,6 +6,13 @@
   <title>BetterRobotics</title>
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#000000">
+  <!-- iOS doesn't read manifest icons for Add-to-Home-Screen; apple-touch-icon
+       is the only path. Share link + "apple-mobile-web-app-*" keep the
+       installed card looking standalone. -->
+  <link rel="apple-touch-icon" href="icon.svg">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="BetterRobotics">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <!-- Phones land on phone.html by default. The dashboard needs Web
        Bluetooth (Chrome desktop / Android only), and the phone surface
        is what mobile users want anyway. ?desktop in the URL keeps them
@@ -109,6 +116,13 @@
   <button class="menu-item" id="menu-recovery" title="USB-C serial recovery console — works when BLE is dead">Recovery console</button>
   <button class="menu-item" id="menu-esp-serial" title="ESP32 serial monitor — watch boot logs over USB">ESP32 serial</button>
   <button class="menu-item" id="menu-scripts" title="Write JS that drives connected robots — runs in this tab, no upload">Scripts</button>
+  <button class="menu-item" id="menu-install" hidden>Install app</button>
+</div>
+
+<div id="install-ios-popover" class="help-popover" popover>
+  <strong>Install on iPhone / iPad</strong><br>
+  Tap the <strong>Share</strong> button in Safari, then <strong>Add to Home Screen</strong>.<br>
+  (Web Bluetooth isn't on iOS — the phone companion at phone.html is the useful install target for iOS.)
 </div>
 
 <div id="robot-menu" class="menu" popover="manual">

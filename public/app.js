@@ -1056,6 +1056,34 @@ if ("serviceWorker" in navigator) {
   });
 }
 
+// PWA install — must listen at module top: beforeinstallprompt fires
+// once, very early (before DOMContentLoaded in Chrome), and the event
+// is lost if no handler catches it. Menu item wiring below (inside
+// DOMContentLoaded) reads this deferred handle.
+let _deferredInstallPrompt = null;
+function isStandalone() {
+  return window.matchMedia?.("(display-mode: standalone)").matches
+      || window.navigator.standalone === true;
+}
+function isIOS() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+}
+function updateInstallMenuItem() {
+  const btn = document.getElementById("menu-install");
+  if (!btn) return;
+  if (isStandalone()) { btn.hidden = true; return; }
+  btn.hidden = !(_deferredInstallPrompt || isIOS());
+}
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  _deferredInstallPrompt = e;
+  updateInstallMenuItem();
+});
+window.addEventListener("appinstalled", () => {
+  _deferredInstallPrompt = null;
+  updateInstallMenuItem();
+});
+
 function showSwUpdateBanner(worker) {
   if (document.getElementById("sw-update-banner")) return;  // already shown
   const bar = document.createElement("div");
@@ -1192,6 +1220,23 @@ document.addEventListener("DOMContentLoaded", () => {
     mod.init();
     mod.openScriptsDialog();
   });
+  $("menu-install").addEventListener("click", async () => {
+    $("avatar-menu").hidePopover();
+    if (_deferredInstallPrompt) {
+      // Chromium: calling prompt() is a one-shot. After user choice, drop the
+      // handle — a fresh beforeinstallprompt fires later if they dismiss.
+      _deferredInstallPrompt.prompt();
+      try { await _deferredInstallPrompt.userChoice; } catch {}
+      _deferredInstallPrompt = null;
+      updateInstallMenuItem();
+      return;
+    }
+    if (isIOS()) {
+      const pop = document.getElementById("install-ios-popover");
+      if (pop?.showPopover) pop.showPopover();
+    }
+  });
+  updateInstallMenuItem();
   $("label-close").addEventListener("click", () => $("label-modal").close());
   $("label-copy").addEventListener("click", async () => {
     try {

@@ -2131,6 +2131,15 @@ body.phone {
   text-decoration: underline;
   opacity: 0.6;
 }
+.phone-install {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  text-align: center;
+}
+.phone-install .hint { font-size: 12px; margin: 0; }
 
 /* Presence — desktop subscribes to "phone-ready" ads on the same wifi
    and surfaces this small badge so the user can see discovery is live

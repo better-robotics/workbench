@@ -9,6 +9,41 @@ let _peer = null;
 let _pending = false;
 let _joypad = null;
 
+// Install prompt. Chromium (Android Chrome) fires beforeinstallprompt; iOS
+// Safari never does — we show manual Share→Add-to-Home-Screen copy.
+let _deferredInstallPrompt = null;
+function _isStandalone() {
+  return window.matchMedia?.("(display-mode: standalone)").matches
+      || window.navigator.standalone === true;
+}
+function _isIOS() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+}
+function _renderInstall() {
+  const wrap = $("phone-install");
+  if (!wrap) return;
+  if (_isStandalone()) { wrap.hidden = true; return; }
+  const hint = $("phone-install-hint");
+  if (_deferredInstallPrompt) {
+    hint.textContent = "Opens natively and reconnects faster.";
+    wrap.hidden = false;
+  } else if (_isIOS()) {
+    hint.textContent = "Tap Share, then Add to Home Screen.";
+    wrap.hidden = false;
+  } else {
+    wrap.hidden = true;
+  }
+}
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  _deferredInstallPrompt = e;
+  _renderInstall();
+});
+window.addEventListener("appinstalled", () => {
+  _deferredInstallPrompt = null;
+  _renderInstall();
+});
+
 function setStatus(state, text) {
   const dot = $("phone-status-dot");
   dot.className = `dot${state ? ` ${state}` : ""}`;
@@ -292,6 +327,16 @@ function wireReconnect() {
   // what's missing if they land somewhere it doesn't work.
   const link = $("phone-dashboard-link");
   if (link) link.hidden = false;
+  $("phone-install-btn")?.addEventListener("click", async () => {
+    if (_deferredInstallPrompt) {
+      _deferredInstallPrompt.prompt();
+      try { await _deferredInstallPrompt.userChoice; } catch {}
+      _deferredInstallPrompt = null;
+      _renderInstall();
+    }
+    // iOS: no programmatic trigger. The hint already tells the user what to do.
+  });
+  _renderInstall();
 }
 
 // LAN discovery — request/accept flow.
@@ -512,4 +557,11 @@ if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", init);
 } else {
   init();
+}
+
+// Register SW so phone.html is installable + works offline after first visit.
+// No update banner here (the phone surface is thin); controllerchange reloads
+// on its own when the dashboard bumps the SW version.
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
 }
