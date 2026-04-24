@@ -35,7 +35,7 @@ function trackSceneAsk(robotId) {
   return arr.length;
 }
 export function setAskInChatHandler(fn) { _askInChat = fn; }
-import { detectOnce, GROUNDING_ENABLED } from "./grounding.js";
+import { detectOnce, GROUNDING_ENABLED, isGroundingFailed } from "./grounding.js";
 import { wrapExecutor, getRecentActions } from "./replay.js";
 
 const ALL_TOOLS = [
@@ -284,7 +284,7 @@ export function isVisionAvailable() {
 // pipVisionEnabled comes from settings and can flip between asks.
 export function getTools() {
   return ALL_TOOLS.filter(t => {
-    if (t.name === "get_robot_detections" && !GROUNDING_ENABLED) return false;
+    if (t.name === "get_robot_detections" && (!GROUNDING_ENABLED || isGroundingFailed())) return false;
     if (t.name === "view_robot_frame" && !isVisionAvailable()) return false;
     return true;
   });
@@ -441,7 +441,15 @@ async function dispatch(name, input) {
       if (queries.length === 0) return { error: "queries is required (up to 5 short noun phrases)" };
       try {
         const detections = await detectOnce(entry, queries);
-        if (detections === null) return { error: "couldn't capture a frame — camera element missing or CORS-tainted" };
+        if (detections === null) {
+          // Two null paths: sticky init/inference failure, or frame capture
+          // failed. Both look the same to Pip — detector isn't usable.
+          // System prompt's "no detector → ask_human" hard rule kicks in.
+          const why = isGroundingFailed()
+            ? "detector unavailable this session (WebGPU/model init failed — check browser console)"
+            : "couldn't capture a frame — camera element missing or Watch off";
+          return { error: why };
+        }
         return { detections };
       } catch (err) {
         return { error: `detector failed: ${String(err.message || err)}` };

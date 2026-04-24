@@ -25,9 +25,15 @@ const DEFAULT_TOPK = 5;
 let _pipe = null;
 let _loadingPromise = null;
 let _onProgress = () => {};
+// Sticky failure flag — once init has failed across all backends, or an
+// inference has blown up, stop retrying. Subsequent detectOnce returns null
+// so pip-tools surfaces "detector unavailable" cleanly; Pip's system prompt
+// then follows the "no detector → ask_human" hard rule instead of looping.
+let _pipeFailed = false;
 
 export function onGroundingProgress(cb) { _onProgress = cb || (() => {}); }
 export function isGroundingLoaded() { return !!_pipe; }
+export function isGroundingFailed() { return _pipeFailed; }
 
 // Called from perception.js startWatching so detector + VLM loads share
 // the same user-gated moment. Fire-and-forget; errors surface at tool-call
@@ -39,26 +45,44 @@ export function preloadGrounding() {
   ensurePipe().catch(() => {});
 }
 
+// q4f16 is fastest but needs the WebGPU shader-f16 extension (absent on
+// some Intel iGPUs + older Android GPUs — symptom there is an opaque
+// "Cannot read properties of undefined" inside the pipeline because a
+// binding never resolved). Cascade from fastest-but-pickiest to
+// broadest-but-slowest so install-once-work-everywhere is the default.
+const INIT_ATTEMPTS = [
+  { device: "webgpu", dtype: "q4f16" },
+  { device: "webgpu", dtype: "q4"    },
+  { device: "webgpu"                 },
+  {                                  },
+];
+
 async function ensurePipe() {
+  if (_pipeFailed) return null;
   if (_pipe) return _pipe;
   if (_loadingPromise) return _loadingPromise;
   _loadingPromise = (async () => {
     const { pipeline } = await import(TRANSFORMERS_URL);
-    try {
-      _pipe = await pipeline("zero-shot-object-detection", MODEL_ID, {
-        device: "webgpu",
-        dtype: MODEL_DTYPE,
-        progress_callback: (p) => { try { _onProgress(p); } catch {} },
-      });
-    } catch {
-      // WASM fallback — no dtype hint (q4f16 is WebGPU-oriented); lets
-      // transformers.js pick a WASM-compatible variant automatically.
-      _pipe = await pipeline("zero-shot-object-detection", MODEL_ID, {
-        progress_callback: (p) => { try { _onProgress(p); } catch {} },
-      });
+    const errors = [];
+    for (const attempt of INIT_ATTEMPTS) {
+      try {
+        _pipe = await pipeline("zero-shot-object-detection", MODEL_ID, {
+          ...attempt,
+          progress_callback: (p) => { try { _onProgress(p); } catch {} },
+        });
+        return _pipe;
+      } catch (err) {
+        errors.push(`${attempt.device || "auto"}/${attempt.dtype || "auto"}: ${err && err.message || err}`);
+      }
     }
-    return _pipe;
-  })();
+    _pipeFailed = true;
+    console.warn("[grounding] init failed across all backends:", errors.join(" | "));
+    return null;
+  })().catch((err) => {
+    _pipeFailed = true;
+    console.warn("[grounding] init threw:", err && err.message || err);
+    return null;
+  });
   return _loadingPromise;
 }
 
@@ -73,14 +97,27 @@ function normalizeQuery(q) {
 }
 
 export async function detectOnce(entry, queries, { threshold = DEFAULT_THRESHOLD, topk = DEFAULT_TOPK } = {}) {
+  if (_pipeFailed) return null;
   if (!Array.isArray(queries) || queries.length === 0) return [];
   const canvas = drawFrameToCanvas(entry, MAX_DIM);
   if (!canvas) return null;
   const pipe = await ensurePipe();
+  if (!pipe) return null;   // init cascade exhausted; caller treats as "no detector"
   const imageUrl = canvas.toDataURL("image/jpeg", 0.85);
   const normalized = queries.map(normalizeQuery).filter(Boolean);
   if (normalized.length === 0) return [];
-  const raw = await pipe(imageUrl, normalized, { threshold, topk });
+  let raw;
+  try {
+    raw = await pipe(imageUrl, normalized, { threshold, topk });
+  } catch (err) {
+    // Runtime inference failure (mid-session). Mark sticky so we stop
+    // trying — otherwise Pip loops through failed calls and burns tokens.
+    _pipeFailed = true;
+    _pipe = null;
+    _loadingPromise = null;
+    console.warn("[grounding] inference failed, disabling detector for the session:", err && err.message || err);
+    return null;
+  }
   const W = canvas.width, H = canvas.height;
   return raw.map(r => {
     const x0 = r.box.xmin / W;
