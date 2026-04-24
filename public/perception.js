@@ -23,7 +23,6 @@
 import { state } from "./state.js";
 import { escapeHtml } from "./dom.js";
 import { broadcastSceneToPhones } from "./phones.js";
-import { preloadGrounding } from "./grounding.js";
 
 const MODEL_ID = "LiquidAI/LFM2.5-VL-450M-ONNX";
 const DTYPE = { vision_encoder: "fp16", embed_tokens: "fp16", decoder_model_merged: "q4" };
@@ -175,16 +174,11 @@ export async function startWatching(entry, opts = {}) {
   _loops.set(entry.id, loop);
   try { await ensureModel(onProgress); }
   catch (err) { _loops.delete(entry.id); throw err; }
-  // Detector download kicks off AFTER the VLM is up, not alongside it.
-  // Parallel init of two transformers.js pipelines can race on shared
-  // onnxruntime-web backend state — a detector-session failure was
-  // surfacing as a VLM startup error through that shared path. Sequential
-  // keeps the architectural principle (perception owns the preload, not
-  // Pip's tool calls) without coupling the two loads' failure modes.
-  // Fire-and-forget: any detector-load failure surfaces when Pip calls
-  // get_robot_detections, not here. Opt out entirely via
-  // ?no-grounding-preload (see DEV.md).
-  preloadGrounding();
+  // Grounding detector loads lazily on first get_robot_detections call,
+  // NOT here. Fire-and-forget preload races against the first VLM tick on
+  // onnxruntime-web's shared backend state — surfaces as "memory access
+  // out of bounds" mid-inference. Cold-start hit on first Pip detection
+  // call is the acceptable trade vs. crashing the VLM loop.
 
   const tick = async () => {
     if (loop.stopped) return;

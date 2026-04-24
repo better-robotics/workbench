@@ -10,6 +10,7 @@ import { pulseMotors } from "./capabilities/runtime/signed-pair.js";
 import {
   getLatestScene as getRobotScene,
   isWatching as isWatchingRobot,
+  isModelLoaded as isVlmLoaded,
   observeOnce,
   captureFrameDataUrl,
   startWatching,
@@ -120,7 +121,7 @@ const ALL_TOOLS = [
   },
   {
     name: "view_robot_frame",
-    description: "Attaches the robot's current camera frame to your next reasoning step so you see the pixels directly — no VLM intermediary. Only in your tool list when the user explicitly enabled it AND the backend supports images. WHEN TO USE (first choice, not last resort): questions about fine visual details the VLM can't reliably capture — specific colors / shades, counts of small items, readable text in the frame, visible condition ('is it dirty', 'are there scratches', 'are there white dots'), identifying one object among visually-similar ones. One frame + your own eyes beats 3 ask_robot_scene follow-ups that the VLM can't answer. WHEN NOT TO USE: ambient 'what's there' (get_robot_scene is cheaper and already runs), precise spatial localization (prefer get_robot_detections — your visual bbox estimates are NOT pixel-accurate), chaining multiple frame views in one turn (one frame per question is the budget). Requires Watch to be on for a frame to exist. Each call sends an image to the backend (cost + network + frames leave the device — the user opted in). Returns the frame as an image attached to the tool result; your next turn sees it natively.",
+    description: "Attaches the robot's current camera frame to your next reasoning step so you see the pixels directly — no VLM intermediary. Only in your tool list when the user explicitly enabled it AND the backend supports images. WHEN TO USE (first choice, not last resort): questions about fine visual details the VLM can't reliably capture — specific colors / shades, counts of small items, readable text in the frame, visible condition ('is it dirty', 'are there scratches', 'are there white dots'), identifying one object among visually-similar ones. One frame + your own eyes beats 3 ask_robot_scene follow-ups that the VLM can't answer. WHEN NOT TO USE: ambient 'what's there' (get_robot_scene is cheaper and already runs), precise spatial localization (prefer get_robot_detections — your visual bbox estimates are NOT pixel-accurate), chaining multiple frame views in one turn (one frame per question is the budget). Only needs the camera to be streaming (card open, camera connected) — Live scene / Watch is NOT required. Each call sends an image to the backend (cost + network + frames leave the device — the user opted in). Returns the frame as an image attached to the tool result; your next turn sees it natively.",
     input_schema: {
       type: "object",
       properties: {
@@ -496,9 +497,14 @@ async function dispatch(name, input) {
       const e = state.devices.get(input.id);
       if (!e) return { error: `no robot with id ${input.id}` };
       if (isWatchingRobot(input.id)) return { ok: true, already_watching: true };
+      // First-time start downloads a 770 MB VLM — way too long to block a
+      // tool turn. Ask the user to toggle it themselves (progress bar is
+      // visible on the camera card). After that, the model is cached and
+      // future starts are fast, so we execute directly.
+      if (!isVlmLoaded()) {
+        return { error: "VLM not loaded yet — ask the user to tick 'Live scene' on the camera card once (first start downloads ~770 MB; cached after). After that you can call start_live_scene directly." };
+      }
       try {
-        // Mirror the cap's toggle so the next renderEntry shows the checkbox
-        // checked. Cap reads entry.cameraWatching (capName + "Watching").
         e.cameraWatching = true;
         await startWatching(e);
         return { ok: true };
