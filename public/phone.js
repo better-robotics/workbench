@@ -242,13 +242,18 @@ async function startQrScan() {
       const result = window.jsQR(img.data, w, h, { inversionAttempts: "dontInvert" });
       if (result?.data) {
         stopQrScan();
-        // Same-origin pair URL → navigate (location.replace avoids a back-
-        // button trap on the broken state). Cross-origin → user picked the
-        // wrong QR; surface a hint rather than navigating away from this app.
+        // Same-origin pair URL → navigate. Cross-origin → user picked the
+        // wrong QR; surface a hint rather than bouncing them out.
         try {
           const target = new URL(result.data, location.href);
           if (target.origin === location.origin && target.hash.startsWith("#pair=")) {
+            // location.replace() does NOT reload when the new URL only
+            // differs by fragment — it fires hashchange and keeps the JS
+            // state, so init()/joinPairingRoom never see the new roomId.
+            // Force a reload so the page restarts with the fresh hash.
+            // Same pattern the nearby-pair button uses.
             location.replace(target.toString());
+            location.reload();
             return;
           }
           showScanError(`That QR points to ${target.host}, not this dashboard.`);
