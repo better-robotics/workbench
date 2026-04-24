@@ -545,11 +545,20 @@ async function startNearbyDiscovery() {
 
   const wrap = $("phone-nearby");
   const list = $("phone-nearby-list");
+  const emptyHint = $("phone-nearby-empty-hint");
   if (!wrap || !list) return;
+  // Empty-lobby hint after 10s surfaces the common culprit (iCloud Private
+  // Relay / VPN splits the phone onto a different public IP than the Mac,
+  // and the Lobby groups by public IP). Cleared as soon as any mac appears.
+  const hintTimer = setTimeout(() => {
+    if (emptyHint && wrap.hidden) emptyHint.hidden = false;
+  }, 10000);
   _lobby.onChange((ads) => {
     const macs = ads.filter(a => a.data && a.data.app === "better-robotics-mac" && a.data._pubkey);
     list.innerHTML = "";
     if (!macs.length) { wrap.hidden = true; return; }
+    clearTimeout(hintTimer);
+    if (emptyHint) emptyHint.hidden = true;
     wrap.hidden = false;
     for (const ad of macs) {
       const btn = document.createElement("button");

@@ -1806,6 +1806,10 @@ body.phone {
 .phone-nearby-status.alert {
   color: #c0392b;
 }
+.phone-nearby-empty-hint {
+  margin: 12px 2px;
+  line-height: 1.4;
+}
 .phone-dashboard-link {
   display: flex;
   align-items: center;
