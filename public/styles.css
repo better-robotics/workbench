@@ -1681,29 +1681,67 @@ dialog[open]::backdrop { opacity: 1; }
    hands), not controllable agents. Distinction is carried by a softer
    type-badge (no accent color) + tighter card padding + a gentler card
    surface so the eye finds robots first when both are present. */
+/* Helpers are operator-side leftovers (laptop cam, paired phones not yet
+   mounted on a robot) — the eye should land on the empty-state / robot
+   cards first, then notice helpers as a quiet list. Card chrome would
+   make them compete; rows separated by a divider read subordinate. */
 #helpers-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 12px;
-  align-items: start;
+  display: block;
   margin-bottom: 16px;
 }
-#helpers-list > .card { margin-bottom: 0; max-width: 440px; }
+#helpers-list > .card {
+  margin-bottom: 0;
+  max-width: none;
+}
 .card.helper {
-  background: color-mix(in srgb, var(--card) 60%, transparent);
-  padding: 10px 16px 10px 19px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  padding: 12px 0;
+  /* Status stripe from .robot would re-introduce a card-like edge — drop
+     it for helpers. Connection state surfaces via the meta line + type
+     badge instead. */
+  border-left: none;
+}
+#helpers-list > .card.helper:last-child {
+  border-bottom: none;
 }
 .helper .label-btn { font-size: 14px; }
 .helper-video {
-  width: 100%;
+  /* Live preview is a reference, not the focus. Capping keeps the row
+     reading as a row and not a video panel. Aspect-ratio respected by
+     letting width auto-fit within the cap. */
+  width: auto;
+  max-width: 280px;
+  max-height: 160px;
   border-radius: 8px;
   background: #000;
   display: block;
   margin-top: 8px;
 }
 .helpers-empty {
-  grid-column: 1 / -1;
-  padding: 4px 4px 0;
+  padding: 4px 0 0;
+}
+/* Mount picker on the phone helper card — quiet inline control under the
+   secondary row. The value is the current state (Operator vs Robot N) so
+   the picker doubles as status display. */
+.phone-mount {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  margin-left: 26px;  /* aligned under name + meta, clears the chevron column */
+  font-size: 12px;
+}
+.phone-mount > .meta { font-size: inherit; }
+.phone-mount select {
+  font: inherit;
+  padding: 1px 6px;
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  color: var(--ink);
 }
 
 /* ── Phone-side page (phone.html) ─────────────────────────────────────── */
