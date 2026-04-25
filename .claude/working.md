@@ -73,6 +73,57 @@ pin stubs are compiled in.
 based on availability. Currently picks one path; needs to try fastest
 available and fall back on error. Part of landing (B) and (C) cleanly.
 
+**F. Robot = composite of devices, not a single device.** Trigger:
+the operator can put a phone on top of a Pi rover and now it has a
+second camera; or pair an ESP32-cam onto the same chassis as a Pi.
+Today both cases force two top-level cards pretending to be two
+robots, and Pip can only reason about one camera at a time. The
+unit of work is a *robot* (the thing you task); a robot owns a list
+of *devices* (Pi as brain, ESP32 as a second camera, attached phone
+as a third). Helpers stay separate but narrow to operator-side only
+(laptop cam, unattached phones).
+
+Shape:
+- `state.robots: Map<robot_id, { devices: [...], capabilities: aggregated }>`.
+  Replaces `state.devices`. A device row tracks `host_robot_id` (null =
+  standalone helper). Phone moves between roles by changing this field —
+  no new pairing.
+- Visual: one card per *robot*, sub-rows per device-with-a-camera.
+  Helpers section shows only unattached devices.
+- Attach is a routing decision, not a permission decision (phone is
+  already paired Ed25519); no new trust gates.
+- Pip tool reshape: `get_robot_scene(robot_id)` returns labeled set
+  `{front: caption, mounted_phone: caption, esp32_cam: caption}`
+  rather than one caption. Planner reads side-by-side and notices
+  contradictions. Same shape for `ask_robot_scene` and
+  `get_robot_detections` (bboxes are per-camera; frames have
+  different geometry). VLM-text-only invariant unchanged.
+
+Phases:
+1. **State + visual rename.** `state.robots`, robot-card aggregates
+   sub-device rows, helpers section narrows. No Pip-tool change yet —
+   keep `get_robot_scene` returning the primary camera. Ships as a
+   refactor; nothing changes for single-Pi users.
+2. **Attach gesture.** "Attach to <robot>" on phone helper card,
+   "Detach" inside the robot card under the attached camera row.
+   Persistence: `host_robot_id` lives in IndexedDB alongside the
+   pair record.
+3. **Multi-camera Pip.** Tool outputs become labeled sets; update
+   tool descriptions. Add primary/secondary hint so the planner can
+   default to one when the question is unambiguous.
+
+Validation criterion: pair an ESP32-cam alongside a Pi, attach the
+phone, ask Pip "what's in front of you?" — Pip gets three captions
+back, reasons about which view to trust given the question. If
+shipping leaves Pip getting one caption, or the user has to pick the
+camera every turn, we missed.
+
+Skeptical angle worth holding: this is a load-bearing rename of the
+central abstraction. Phase 1 ships even without phase 3 landing
+(robot-as-composite reads cleaner regardless). Don't gate phases 1+2
+on phase 3 being "right" — phase 3 is best validated on real
+hardware sessions, not on imagined cases.
+
 ### Background-rank items (known, not urgent)
 
 ### 1. ESP32 URL-trigger OTA still fails with http -1 on CAM-MB (superseded by lane work)

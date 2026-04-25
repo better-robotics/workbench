@@ -99,10 +99,10 @@ function normalizeQuery(q) {
   return s.endsWith(".") ? s : `${s}.`;
 }
 
-export async function detectOnce(entry, queries, { threshold = DEFAULT_THRESHOLD, topk = DEFAULT_TOPK } = {}) {
+export async function detectOnce(entry, queries, { threshold = DEFAULT_THRESHOLD, topk = DEFAULT_TOPK, source = null } = {}) {
   if (_pipeFailed) return null;
   if (!Array.isArray(queries) || queries.length === 0) return [];
-  const canvas = drawFrameToCanvas(entry, MAX_DIM);
+  const canvas = drawFrameToCanvas(entry, MAX_DIM, source);
   if (!canvas) return null;
   const pipe = await ensurePipe();
   if (!pipe) return null;   // init cascade exhausted; caller treats as "no detector"

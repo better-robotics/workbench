@@ -26,11 +26,12 @@ import { initAssistant, handleRemoteChat, emitPipEvent } from "./assistant.js";
 import { initPhones, setPhoneChatHandler, broadcastTargetInfo } from "./phones.js";
 import { discover } from "./discover.js";
 import { getLoadState as getLocalLoadState, onLoadStateChange as onLocalLoadStateChange, loadModel as loadLocalModel } from "./local-llm.js";
-import { initHelpers } from "./helpers.js";
+import { initHelpers, setHelpersRobotRenderer, renderHelpers } from "./helpers.js";
 
 setLogRenderer((entry) => renderEntry(entry));
 setDisconnectHandler((id) => onDisconnected(id));
 setCapabilityRenderer((entry) => renderEntry(entry));
+setHelpersRobotRenderer((entry) => renderEntry(entry));
 
 // Compact telemetry line below the robot-state. Only shows when the robot
 // actually publishes (Pi from fw_version onward; ESP32 from telemetry char).
@@ -49,6 +50,24 @@ function telemetryHtml(entry) {
   // Always emit the wrapper (even empty) so patchTelemetryLine can fill it
   // without needing renderEntry. CSS :empty hides it when no data.
   return `<div class="telemetry">${escapeHtml(telemetryText(entry))}</div>`;
+}
+
+// A phone helper's camera mounted on this robot (phone-as-eye). The video
+// element is discoverable by perception.js's findCameraElement enumerator
+// via [data-attached-camera-id]. srcObject is bound by renderEntry after
+// innerHTML rebuild.
+function attachedCameraHtml(entry) {
+  if (!entry.attachedCameraStream) return "";
+  return `
+    <div class="cap-section attached-camera">
+      <div class="cap-header">
+        <div class="label">Phone camera (mounted)</div>
+      </div>
+      <div class="cap-body">
+        <video class="robot-camera" data-attached-camera-id="${escapeHtml(entry.id)}" autoplay playsinline muted></video>
+      </div>
+    </div>
+  `;
 }
 
 // The header meta line ("WiFi … · up …h · reset: …"). Reused by renderEntry
@@ -130,6 +149,10 @@ function setExpansionPref(id, expanded) {
 function computeExpanded(entry) {
   const live = entry.robotStatus;
   if (live && live.st && live.st !== "ready") return true;  // mid-flight work wins
+  // Force-expand when a phone helper just got mounted, otherwise the new
+  // camera section (and any Pip-readable view of it) lives in a collapsed
+  // body the user can't see. Same posture as live-busy: visibility wins.
+  if (entry.attachedCameraStream) return true;
   const prefs = loadExpansionPrefs();
   if (entry.id in prefs) return prefs[entry.id];
   return state.devices.size === 1;  // solo robot → expand; crowd → let user pick
@@ -388,6 +411,7 @@ async function connect(id) {
     entry.consecutiveFailures = 0;
     entry.lastConnectError = null;
     persist();
+    renderHelpers();  // phone "Mount camera" picker now has a new destination.
 
     // Read fw-info before cap probes — it carries the capability schema.
     // Also subscribe to notifications: ESP32 re-publishes fw-info after
@@ -559,6 +583,8 @@ function onDisconnected(id) {
   const entry = state.devices.get(id);
   if (!entry) return;
   entry.status = "idle";
+  // Picker on phone helper cards drops this robot now.
+  renderHelpers();
   // Phones see target=null and tuck the joypad / panic-stop away.
   try { broadcastTargetInfo(); } catch {}
   // Remember the last-known status for 30s so 'rebooting' → disconnect reads
@@ -879,9 +905,17 @@ function renderEntry(entry) {
         ${telemetryHtml(entry)}
         ${enrollHtml}
         ${sections}
+        ${attachedCameraHtml(entry)}
       </div>
     ` : ""}
   `;
+  // Bind the attached-camera MediaStream after innerHTML rebuild — srcObject
+  // can't survive an innerHTML reset, and querying for the new <video> needs
+  // the DOM to exist.
+  if (entry.attachedCameraStream) {
+    const v = entry.node.querySelector(`video[data-attached-camera-id="${entry.id}"]`);
+    if (v) v.srcObject = entry.attachedCameraStream;
+  }
   // Per-cap try/catch: one cap's wireActions throwing shouldn't silently
   // break wiring for every cap that comes after it. Surface the error so
   // future regressions are visible instead of mysteriously-not-working.

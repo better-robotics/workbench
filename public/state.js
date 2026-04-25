@@ -61,6 +61,13 @@ export function makeEntry(id, name, fwType = null, { autoReconnect = false, last
     cameraSignalChar: null, cameraStatusChar: null,
     cameraPc: null, cameraStream: null,
     cameraRecvBuf: null, cameraStatus: null,
+    // A paired phone's camera mounted on this robot (phone-as-eye). Set by
+    // helpers.js's "Attach to robot" gesture; consumed by perception.js +
+    // pip-tools so VLM/detector tools can reason over multiple cameras at
+    // once. Cleared on detach or phone disconnect. attachedFromPhoneId is
+    // the source phone's pairing roomId so detach can find it.
+    attachedCameraStream: null,
+    attachedFromPhoneId: null,
     lastEvent: null,
     capSchema: null,
     runtimeCaps: [],

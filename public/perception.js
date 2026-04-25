@@ -64,15 +64,35 @@ async function ensureModel(onProgress) {
   catch (err) { _loadingPromise = null; throw err; }
 }
 
-// Find the camera element this entry is rendering. Either:
+// Find the primary camera element this entry is rendering. Either:
 //   <img class="robot-camera">     (ESP32 MJPEG — CORS set by firmware)
 //   <video data-*-id="${id}">      (Pi WebRTC — MediaStream, always readable)
-// One card has at most one of either, so a naive selector within entry.node
-// is correct.
-function findCameraElement(entry) {
+// The "primary" excludes [data-attached-camera-id] — that one is a phone
+// helper mounted on the robot, surfaced via listCameraSources() instead.
+function findPrimaryCameraElement(entry) {
   const node = entry.node;
   if (!node) return null;
-  return node.querySelector("img.robot-camera") || node.querySelector("video[data-camera-id], video");
+  return node.querySelector("img.robot-camera:not([data-attached-camera-id])")
+      || node.querySelector("video[data-camera-id]:not([data-attached-camera-id])")
+      || node.querySelector("video:not([data-attached-camera-id])");
+}
+
+function findAttachedCameraElement(entry) {
+  const node = entry.node;
+  if (!node) return null;
+  return node.querySelector(`video[data-attached-camera-id="${entry.id}"]`);
+}
+
+// Enumerate camera sources for an entry, labeled. The watch loop runs
+// only on "primary"; one-shot Pip tools enumerate all sources via this.
+// Order matters — primary first so single-camera consumers stay correct.
+export function listCameraSources(entry) {
+  const out = [];
+  const primary = findPrimaryCameraElement(entry);
+  if (primary) out.push({ label: "primary", element: primary });
+  const attached = findAttachedCameraElement(entry);
+  if (attached) out.push({ label: "phone", element: attached });
+  return out;
 }
 
 function captureFrame(entry, maxDim = 512) {
@@ -92,11 +112,11 @@ export function captureFrameDataUrl(entry, maxDim = 320, quality = 0.75) {
   catch { return null; }
 }
 
-export function drawFrameToCanvas(entry, maxDim) {
-  const source = findCameraElement(entry);
-  if (!source) return null;
-  let w = source.naturalWidth || source.videoWidth;
-  let h = source.naturalHeight || source.videoHeight;
+export function drawFrameToCanvas(entry, maxDim, source = null) {
+  const el = source || findPrimaryCameraElement(entry);
+  if (!el) return null;
+  let w = el.naturalWidth || el.videoWidth;
+  let h = el.naturalHeight || el.videoHeight;
   if (!w || !h) return null;
   if (Math.max(w, h) > maxDim) {
     const s = maxDim / Math.max(w, h);
@@ -106,7 +126,7 @@ export function drawFrameToCanvas(entry, maxDim) {
   const canvas = document.createElement("canvas");
   canvas.width = w; canvas.height = h;
   try {
-    canvas.getContext("2d").drawImage(source, 0, 0, w, h);
+    canvas.getContext("2d").drawImage(el, 0, 0, w, h);
     return canvas;
   } catch {
     // Tainted canvas → firmware didn't serve CORS + the <img> is missing
@@ -115,9 +135,12 @@ export function drawFrameToCanvas(entry, maxDim) {
   }
 }
 
-async function runInference(entry, prompt) {
-  const frame = captureFrame(entry);
-  if (!frame) return null;
+async function runInference(entry, prompt, source = null) {
+  const canvas = drawFrameToCanvas(entry, 512, source);
+  if (!canvas) return null;
+  let frame;
+  try { frame = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height); }
+  catch { return null; }
   const image = new _tf.RawImage(frame.data, frame.width, frame.height, 4);
   const messages = [{
     role: "user",
@@ -153,9 +176,6 @@ function withTimeout(promise, ms, label) {
 export async function observeOnce(entry, prompt) {
   if (!_model) throw new Error("perception model not loaded — user needs to enable Watch on this robot first");
   const loop = _loops.get(entry.id);
-  // If the poll loop is mid-inference, wait for it to finish. One inference
-  // at a time on the GPU keeps things predictable. Bounded so a wedged loop
-  // tick can't keep observeOnce polling forever.
   if (loop?.running) {
     await withTimeout(new Promise((r) => {
       const check = () => (!loop.running ? r() : setTimeout(check, 100));
@@ -165,6 +185,43 @@ export async function observeOnce(entry, prompt) {
   if (loop) loop.running = true;
   try {
     return await withTimeout(runInference(entry, prompt), OBSERVE_TIMEOUT_MS, "VLM inference");
+  } finally {
+    if (loop) loop.running = false;
+  }
+}
+
+// Multi-camera variant: inference each camera the entry currently has,
+// return a labeled array. GPU is serial so cameras run sequentially —
+// linear cost in number of cameras. Same lock as observeOnce against the
+// poll loop. Single-camera entries return a one-element array; callers
+// can collapse to a flat shape when length === 1 if they prefer.
+export async function observeAllCameras(entry, prompt) {
+  if (!_model) throw new Error("perception model not loaded — user needs to enable Watch on this robot first");
+  const sources = listCameraSources(entry);
+  if (sources.length === 0) return [];
+  const loop = _loops.get(entry.id);
+  if (loop?.running) {
+    await withTimeout(new Promise((r) => {
+      const check = () => (!loop.running ? r() : setTimeout(check, 100));
+      check();
+    }), OBSERVE_TIMEOUT_MS, "waiting for poll-loop inference");
+  }
+  if (loop) loop.running = true;
+  try {
+    const out = [];
+    for (const { label, element } of sources) {
+      try {
+        const text = await withTimeout(
+          runInference(entry, prompt, element),
+          OBSERVE_TIMEOUT_MS,
+          `VLM inference (${label})`,
+        );
+        out.push({ label, text: text || null });
+      } catch (err) {
+        out.push({ label, text: null, error: err.message || String(err) });
+      }
+    }
+    return out;
   } finally {
     if (loop) loop.running = false;
   }

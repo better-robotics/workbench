@@ -12,7 +12,10 @@ import {
   isWatching as isWatchingRobot,
   isModelLoaded as isVlmLoaded,
   observeOnce,
+  observeAllCameras,
+  listCameraSources,
   captureFrameDataUrl,
+  drawFrameToCanvas,
   startWatching,
   stopWatching,
 } from "./perception.js";
@@ -113,7 +116,7 @@ const ALL_TOOLS = [
   // information (VLM can't localize); treat as semantic "I see X" only.
   {
     name: "get_robot_scene",
-    description: "Returns the latest VLM scene description for a robot's camera, plus how many seconds ago it was observed. Only works when the user has enabled 'Watch with Pip' on that robot's camera (otherwise returns {watching:false}). VLM is semantic only — it can say 'I see a wall' but NOT where the wall is in the frame. If a specific detail (color, count, small feature) matters to your answer, cross-check it with ask_robot_scene using a neutrally-framed follow-up.",
+    description: "Returns the latest VLM scene description for a robot's PRIMARY camera, plus how many seconds ago it was observed. Only works when the user has enabled 'Watch with Pip' on that robot's camera (otherwise returns {watching:false}). VLM is semantic only — it can say 'I see a wall' but NOT where the wall is in the frame. If a specific detail (color, count, small feature) matters to your answer, cross-check it with ask_robot_scene. Response also includes `available_cameras`: an array of camera labels the robot currently has (e.g. ['primary','phone'] when a phone helper is mounted on it). When > 1 camera is listed, prefer ask_robot_scene with camera='all' so you get every viewpoint, not just the cached primary one.",
     input_schema: {
       type: "object",
       properties: { id: { type: "string", description: "Robot id" } },
@@ -123,12 +126,13 @@ const ALL_TOOLS = [
   },
   {
     name: "ask_robot_scene",
-    description: "Runs ONE on-demand VLM inference on the robot's current camera frame with a question you supply. Use this to cross-examine a fact from get_robot_scene — VLM sometimes hallucinates (especially colors, small counts), and asking a second, NEUTRALLY-framed question often reveals the hallucination. IMPORTANT: prefer open questions over leading ones: 'what color is the wall?' not 'is the wall brown?'; 'how many doors are visible?' not 'are there two doors?'. Leading prompts prime the VLM and get the same confabulation echoed back. SPATIAL QUESTIONS ARE UNRELIABLE — this tool is TEXT, not bounding boxes; 'is the can to the left?' will get you a plausible-sounding guess that's frequently wrong. For left/right/near/far use get_robot_detections; if that's not in your tools, escalate via ask_human instead of asking this tool a spatial question. Response includes `recent_asks`: the count of ask_robot_scene calls for this robot in the last 60s. If recent_asks ≥ 3 and you're still uncertain, STOP — call ask_human. Requires Watch to already be on (model loaded); fails otherwise. Each call spends ~1-1.5s of GPU time, so use sparingly — don't cross-check trivia.",
+    description: "Runs ONE on-demand VLM inference per camera the robot has and returns the captions in `cameras: [{label, text}, ...]`. Use to cross-examine a fact from get_robot_scene — VLM sometimes hallucinates (especially colors, small counts), and asking a second, NEUTRALLY-framed question often reveals the hallucination. IMPORTANT: prefer open questions over leading ones: 'what color is the wall?' not 'is the wall brown?'; 'how many doors are visible?' not 'are there two doors?'. Leading prompts prime the VLM and get the same confabulation echoed back. SPATIAL QUESTIONS ARE UNRELIABLE — this is TEXT, not bounding boxes; for left/right/near/far use get_robot_detections; if that's not in your tools, escalate via ask_human. CAMERA SELECTION: pass camera='primary' (default) to inference only the robot's onboard camera, 'phone' for the mounted phone (when present), or 'all' to inference every camera and reason over conflicting captions side-by-side — useful when get_robot_scene's `available_cameras` listed more than one. Response includes `recent_asks`: count of ask_robot_scene calls for this robot in the last 60s. If recent_asks ≥ 3 and you're still uncertain, STOP — call ask_human. Requires Watch to already be on (model loaded); fails otherwise. Each camera spends ~1-1.5s of GPU time, so 'all' on a 2-camera robot is ~3s.",
     input_schema: {
       type: "object",
       properties: {
         id: { type: "string", description: "Robot id" },
         question: { type: "string", description: "Neutral, open-ended question about the scene." },
+        camera: { type: "string", description: "Camera selector. 'primary' (default), 'phone' (when a phone is mounted), or 'all'." },
       },
       required: ["id", "question"],
     },
@@ -136,11 +140,12 @@ const ALL_TOOLS = [
   },
   {
     name: "view_robot_frame",
-    description: "Attaches the robot's current camera frame to your next reasoning step so you see the pixels directly — no VLM intermediary. Only in your tool list when the user explicitly enabled it AND the backend supports images. WHEN TO USE (first choice, not last resort): questions about fine visual details the VLM can't reliably capture — specific colors / shades, counts of small items, readable text in the frame, visible condition ('is it dirty', 'are there scratches', 'are there white dots'), identifying one object among visually-similar ones. One frame + your own eyes beats 3 ask_robot_scene follow-ups that the VLM can't answer. WHEN NOT TO USE: ambient 'what's there' (get_robot_scene is cheaper and already runs), precise spatial localization (prefer get_robot_detections — your visual bbox estimates are NOT pixel-accurate), chaining multiple frame views in one turn (one frame per question is the budget). Only needs the camera to be streaming (card open, camera connected) — Live scene / Watch is NOT required. Each call sends an image to the backend (cost + network + frames leave the device — the user opted in). Returns the frame as an image attached to the tool result; your next turn sees it natively.",
+    description: "Attaches one of the robot's current camera frames to your next reasoning step so you see the pixels directly — no VLM intermediary. Only in your tool list when the user explicitly enabled it AND the backend supports images. WHEN TO USE (first choice, not last resort): questions about fine visual details the VLM can't reliably capture — specific colors / shades, counts of small items, readable text in the frame, visible condition ('is it dirty', 'are there scratches', 'are there white dots'), identifying one object among visually-similar ones. One frame + your own eyes beats 3 ask_robot_scene follow-ups that the VLM can't answer. WHEN NOT TO USE: ambient 'what's there' (get_robot_scene is cheaper and already runs), precise spatial localization (prefer get_robot_detections — your visual bbox estimates are NOT pixel-accurate), chaining multiple frame views in one turn (one frame per question is the budget — pick primary OR phone, not both, unless the question genuinely depends on cross-camera comparison). Only needs the camera to be streaming (card open, camera connected) — Live scene / Watch is NOT required. CAMERA SELECTION: pass camera='primary' (default) or 'phone' (when a phone is mounted on this robot). Each call sends an image to the backend (cost + network + frames leave the device — the user opted in). Returns the frame as an image attached to the tool result; your next turn sees it natively.",
     input_schema: {
       type: "object",
       properties: {
         id: { type: "string", description: "Robot id" },
+        camera: { type: "string", description: "'primary' (default) or 'phone' when mounted." },
       },
       required: ["id"],
     },
@@ -203,7 +208,7 @@ const ALL_TOOLS = [
   },
   {
     name: "get_robot_detections",
-    description: "Runs an open-vocabulary object detector on the robot's current camera frame and returns bounding boxes for the queries you provide. Use this WHENEVER a decision depends on knowing where-in-the-frame something is — get_robot_scene and ask_robot_scene are text-only and do NOT reliably report left/right/near/far. Prefer this over guessing lateral position from scene captions. Returns {label, score, bbox:{x,y,w,h,cx,cy}} per hit, coordinates normalized to [0,1]: x=0 is left edge, x=1 is right edge, y=0 is top, y=1 is bottom. cx/cy is the center of the box — use cx to decide which way to turn (cx<0.45 = left of center, cx>0.55 = right of center). Empty array means nothing matching was found. Queries should be short concrete noun phrases (up to ~5 per call): 'yellow can', 'doorway', 'chair'. ~1-2s per call; first call after page load triggers a one-time model download (~300MB, cached). If the call returns an error, surface the error verbatim — don't attribute it to a specific model name, and note that the detector runs in the user's browser (not on the Pi / robot) so fixes belong on the dashboard side.",
+    description: "Runs an open-vocabulary object detector on the robot's current camera frame and returns bounding boxes for the queries you provide. Use this WHENEVER a decision depends on knowing where-in-the-frame something is — get_robot_scene and ask_robot_scene are text-only and do NOT reliably report left/right/near/far. Prefer this over guessing lateral position from scene captions. Returns {label, score, bbox:{x,y,w,h,cx,cy}} per hit, coordinates normalized to [0,1]: x=0 is left edge, x=1 is right edge, y=0 is top, y=1 is bottom. cx/cy is the center of the box — use cx to decide which way to turn (cx<0.45 = left of center, cx>0.55 = right of center). Empty array means nothing matching was found. Queries should be short concrete noun phrases (up to ~5 per call): 'yellow can', 'doorway', 'chair'. ~1-2s per call; first call after page load triggers a one-time model download (~300MB, cached). CAMERA SELECTION: pass camera='primary' (default), 'phone' (when mounted), or 'all' to detect on every camera and return per-camera arrays in `detections_by_camera: { primary: [...], phone: [...] }`. Per-camera bboxes are NOT comparable across cameras (different geometry) — use them to decide which view contains the target, not to triangulate. If the call returns an error, surface the error verbatim and note that the detector runs in the user's browser.",
     input_schema: {
       type: "object",
       properties: {
@@ -213,6 +218,7 @@ const ALL_TOOLS = [
           items: { type: "string" },
           description: "Up to ~5 short concrete noun phrases to locate in the frame.",
         },
+        camera: { type: "string", description: "'primary' (default), 'phone', or 'all'." },
       },
       required: ["id", "queries"],
     },
@@ -380,11 +386,13 @@ async function dispatch(name, input) {
       if (!isWatchingRobot(input.id)) return { watching: false };
       const scene = getRobotScene(input.id);
       resetPulseRun(input.id);  // legitimate look-between-moves
-      if (!scene) return { watching: true, text: null };
+      const available_cameras = listCameraSources(e).map(c => c.label);
+      if (!scene) return { watching: true, text: null, available_cameras };
       return {
         watching: true,
         text: scene.text,
         observed_seconds_ago: Math.round((Date.now() - scene.at) / 1000),
+        available_cameras,
       };
     }
     case "ask_robot_scene": {
@@ -397,9 +405,21 @@ async function dispatch(name, input) {
       if (!q) return { error: "question is required" };
       const recent_asks = trackSceneAsk(input.id);
       resetPulseRun(input.id);  // legitimate look-between-moves
+      const camera = String(input.camera || "primary").toLowerCase();
       try {
-        const text = await observeOnce(e, q);
-        return { text: text || null, recent_asks };
+        if (camera === "all") {
+          const cameras = await observeAllCameras(e, q);
+          return { cameras, recent_asks };
+        }
+        const sources = listCameraSources(e);
+        const pick = sources.find(s => s.label === camera);
+        if (!pick) {
+          return { error: `no camera '${camera}' on this robot. available: ${sources.map(s => s.label).join(", ") || "(none)"}`, recent_asks };
+        }
+        const text = camera === "primary"
+          ? await observeOnce(e, q)
+          : (await observeAllCameras(e, q)).find(c => c.label === camera)?.text;
+        return { cameras: [{ label: camera, text: text || null }], recent_asks };
       } catch (err) {
         return { error: err.message || String(err), recent_asks };
       }
@@ -413,7 +433,14 @@ async function dispatch(name, input) {
       // detail, phone thumbnails don't. Quality bumped too (0.85 vs 0.75)
       // for the same reason. JPEG stays the format; PNG would bloat the
       // tool-result payload without a useful accuracy bump.
-      const dataUrl = captureFrameDataUrl(e, 640, 0.85);
+      const camera = String(input.camera || "primary").toLowerCase();
+      const sources = listCameraSources(e);
+      const pick = sources.find(s => s.label === camera);
+      if (!pick) {
+        return { error: `no camera '${camera}' on this robot. available: ${sources.map(s => s.label).join(", ") || "(none)"}` };
+      }
+      const canvas = drawFrameToCanvas(e, 640, pick.element);
+      const dataUrl = canvas ? canvas.toDataURL("image/jpeg", 0.85) : null;
       if (!dataUrl) return { error: "no camera frame available — is Watch on?" };
       const m = /^data:(image\/[\w.+-]+);base64,(.+)$/.exec(dataUrl);
       if (!m) return { error: "failed to encode frame" };
@@ -422,7 +449,7 @@ async function dispatch(name, input) {
       // actual image, not a base64 string in a JSON blob.
       return {
         _pipContent: [
-          { type: "text", text: `Robot camera frame (captured now, ${m[1]}). Use your own eyes — do not ask the VLM to caption this.` },
+          { type: "text", text: `Robot camera frame (${camera}, captured now, ${m[1]}). Use your own eyes — do not ask the VLM to caption this.` },
           { type: "image", source: { type: "base64", media_type: m[1], data: m[2] } },
         ],
       };
@@ -459,12 +486,29 @@ async function dispatch(name, input) {
       const queries = Array.isArray(input.queries) ? input.queries.map(String).slice(0, 5) : [];
       if (queries.length === 0) return { error: "queries is required (up to 5 short noun phrases)" };
       resetPulseRun(input.id);  // legitimate look-between-moves
+      const camera = String(input.camera || "primary").toLowerCase();
+      const sources = listCameraSources(entry);
       try {
-        const detections = await detectOnce(entry, queries);
+        if (camera === "all") {
+          const detections_by_camera = {};
+          for (const src of sources) {
+            const dets = await detectOnce(entry, queries, { source: src.element });
+            if (dets === null) {
+              const why = isGroundingFailed()
+                ? "detector unavailable this session (WebGPU/model init failed)"
+                : `couldn't capture a frame from camera '${src.label}'`;
+              return { error: why };
+            }
+            detections_by_camera[src.label] = dets;
+          }
+          return { detections_by_camera };
+        }
+        const pick = sources.find(s => s.label === camera);
+        if (!pick) {
+          return { error: `no camera '${camera}' on this robot. available: ${sources.map(s => s.label).join(", ") || "(none)"}` };
+        }
+        const detections = await detectOnce(entry, queries, { source: pick.element });
         if (detections === null) {
-          // Two null paths: sticky init/inference failure, or frame capture
-          // failed. Both look the same to Pip — detector isn't usable.
-          // System prompt's "no detector → ask_human" hard rule kicks in.
           const why = isGroundingFailed()
             ? "detector unavailable this session (WebGPU/model init failed — check browser console)"
             : "couldn't capture a frame — camera element missing or Watch off";

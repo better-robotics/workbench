@@ -1,10 +1,20 @@
 import { $, escapeHtml } from "./dom.js";
 import { listPhones, sendToPhone, setPhonesChangeHandler } from "./phones.js";
+import { state } from "./state.js";
 
 // Helpers are non-mobile observers/operators (paired phones, this laptop's
 // webcam). Sibling concept to robots — same card visual language, distinct
 // backing data. Robots are controllable mobile actors; helpers are extra
 // eyes / extra hands that the operator brings into the session.
+//
+// Phone cameras can also be MOUNTED on a specific robot (phone-as-eye —
+// strap the phone to the rover, get a second camera). When mounted, the
+// phone's stream routes to the robot's entry.attachedCameraStream and the
+// helper card shows the routing rather than the local preview. Attachment
+// is session-scoped (phones already are).
+
+let _renderRobot = () => {};
+export function setHelpersRobotRenderer(fn) { _renderRobot = fn; }
 
 const LAPTOP_ID = "laptop";
 
@@ -24,6 +34,12 @@ const _laptop = {
 // into this via setPhoneStream when peer.onTrack fires. keyed by phoneId
 // (the pairing roomId) → { stream, trackSettings, startedAt }.
 const _phoneStreams = new Map();
+
+// Phone-camera → robot routing. phoneId → robotId. Populated by the
+// "Mount camera" picker on the phone helper card. Cleared on detach or
+// when the phone fully disconnects (setPhoneStream(id, null) with no
+// active attachment-keep).
+const _phoneAttachments = new Map();
 
 let _videoEls = new Map();  // helperId → <video> element (live video)
 
@@ -47,6 +63,10 @@ export function initHelpers() {
   setPhonesChangeHandler(() => render());
   render();
 }
+
+// app.js calls this after robot connect/disconnect so the mount picker
+// reflects the current robot list.
+export function renderHelpers() { render(); }
 
 export function listHelpers() {
   const out = [];
@@ -81,11 +101,63 @@ export function setPhoneStream(phoneId, stream) {
       startedAt: Date.now(),
       trackSettings: track ? track.getSettings() : null,
     });
+    routeAttachedStream(phoneId, stream);
   } else {
     _phoneStreams.delete(phoneId);
     _videoEls.delete(`phone:${phoneId}`);
+    // Phone stopped sharing or disconnected — clear the routing too. If the
+    // phone re-shares while still paired, it lands back in the helper card;
+    // re-mount is a fresh user choice.
+    const attachedTo = _phoneAttachments.get(phoneId);
+    if (attachedTo) {
+      _phoneAttachments.delete(phoneId);
+      const robot = state.devices.get(attachedTo);
+      if (robot && robot.attachedFromPhoneId === phoneId) {
+        robot.attachedCameraStream = null;
+        robot.attachedFromPhoneId = null;
+        _renderRobot(robot);
+      }
+    }
   }
   render();
+}
+
+function routeAttachedStream(phoneId, stream) {
+  const robotId = _phoneAttachments.get(phoneId);
+  if (!robotId) return;
+  const robot = state.devices.get(robotId);
+  if (!robot) return;
+  robot.attachedCameraStream = stream;
+  robot.attachedFromPhoneId = phoneId;
+  _renderRobot(robot);
+}
+
+// Mount a phone's camera onto robot. Called from the helper card's picker.
+// Idempotent. Detaches from any previous robot first. Empty/null robotId
+// detaches.
+export function attachPhoneCameraTo(phoneId, robotId) {
+  const prev = _phoneAttachments.get(phoneId) || null;
+  if (prev === robotId) return;
+  if (prev) {
+    const prevRobot = state.devices.get(prev);
+    if (prevRobot && prevRobot.attachedFromPhoneId === phoneId) {
+      prevRobot.attachedCameraStream = null;
+      prevRobot.attachedFromPhoneId = null;
+      _renderRobot(prevRobot);
+    }
+  }
+  if (!robotId) {
+    _phoneAttachments.delete(phoneId);
+  } else {
+    _phoneAttachments.set(phoneId, robotId);
+    const ps = _phoneStreams.get(phoneId);
+    if (ps?.stream) routeAttachedStream(phoneId, ps.stream);
+  }
+  render();
+}
+
+export function getPhoneAttachment(phoneId) {
+  return _phoneAttachments.get(phoneId) || null;
 }
 
 export async function startHelperCamera(helperId) {
@@ -218,10 +290,33 @@ function renderPhoneCard(p) {
   const ps = _phoneStreams.get(p.id);
   const live = !!ps;
   const helperId = `phone:${p.id}`;
-  const meta = live
-    ? `Sharing camera · ${ps.trackSettings?.width || "?"}×${ps.trackSettings?.height || "?"}`
-    : escapeHtml(`id ${p.id.slice(0, 8)}…`);
-  const body = live
+  const attachedTo = _phoneAttachments.get(p.id) || null;
+  const attachedRobot = attachedTo ? state.devices.get(attachedTo) : null;
+  const meta = attachedRobot
+    ? `Camera mounted on ${escapeHtml(attachedRobot.name)}`
+    : live
+      ? `Sharing camera · ${ps.trackSettings?.width || "?"}×${ps.trackSettings?.height || "?"}`
+      : escapeHtml(`id ${p.id.slice(0, 8)}…`);
+  // Mount picker — only when the camera is live AND at least one robot is
+  // connected (otherwise there's no destination). Operator = unmounted.
+  const connectedRobots = [...state.devices.values()]
+    .filter(e => e.status === "connected")
+    .map(e => ({ id: e.id, name: e.name }));
+  const showPicker = live && connectedRobots.length > 0;
+  const picker = showPicker ? `
+    <label class="phone-mount">
+      <span class="meta">Camera →</span>
+      <select data-action="phone-mount" data-phone-id="${escapeHtml(p.id)}">
+        <option value="" ${!attachedTo ? "selected" : ""}>Operator</option>
+        ${connectedRobots.map(r =>
+          `<option value="${escapeHtml(r.id)}" ${attachedTo === r.id ? "selected" : ""}>${escapeHtml(r.name)}</option>`
+        ).join("")}
+      </select>
+    </label>
+  ` : "";
+  // Body shows the local preview only when the stream is HERE (not mounted
+  // on a robot). When mounted, the robot card carries the video.
+  const body = (live && !attachedTo)
     ? `<video class="helper-video" data-helper-video="${escapeHtml(helperId)}" autoplay playsinline muted></video>`
     : "";
   return `
@@ -241,6 +336,7 @@ function renderPhoneCard(p) {
           <button class="secondary sm" data-action="phone-notice" data-phone-id="${escapeHtml(p.id)}">Send notice</button>
         </div>
       </div>
+      ${picker}
       ${body ? `<div class="robot-body">${body}</div>` : ""}
     </section>
   `;
@@ -301,6 +397,13 @@ function wire() {
       const text = prompt("Notice text to send to phone:");
       if (text == null || text.trim() === "") return;
       sendToPhone(phoneId, text.trim());
+    });
+  });
+  list.querySelectorAll('[data-action="phone-mount"]').forEach(sel => {
+    sel.addEventListener("change", () => {
+      const phoneId = sel.dataset.phoneId;
+      const robotId = sel.value || null;
+      attachPhoneCameraTo(phoneId, robotId);
     });
   });
   // Mount the live MediaStream into the freshly-rendered <video> elements.
