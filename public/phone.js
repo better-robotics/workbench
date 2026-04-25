@@ -485,6 +485,57 @@ function wireAppMenu() {
   });
   $("menu-repo").addEventListener("click", () => menu.hidePopover());
   _updateInstallMenuItem();
+
+  $("menu-check-updates").addEventListener("click", async () => {
+    const btn = $("menu-check-updates");
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Checking…";
+    let foundUpdate = false;
+    try {
+      const reg = await navigator.serviceWorker?.getRegistration();
+      if (reg) {
+        const onFound = () => { foundUpdate = true; };
+        reg.addEventListener("updatefound", onFound, { once: true });
+        await reg.update();
+        reg.removeEventListener("updatefound", onFound);
+      }
+    } catch {}
+    btn.textContent = foundUpdate ? "New version — reload" : "Up to date";
+    setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 2000);
+  });
+
+  $("menu-hard-refresh").addEventListener("click", () => {
+    menu.hidePopover();
+    $("hard-refresh-dialog").showModal();
+  });
+  $("hard-refresh-close").addEventListener("click", () => $("hard-refresh-dialog").close());
+  $("hard-refresh-cancel").addEventListener("click", () => $("hard-refresh-dialog").close());
+  $("hard-refresh-confirm").addEventListener("click", async () => {
+    const btn = $("hard-refresh-confirm");
+    btn.disabled = true;
+    btn.textContent = "Clearing…";
+    try {
+      const regs = await navigator.serviceWorker?.getRegistrations?.() || [];
+      await Promise.allSettled(regs.map(r => r.unregister()));
+      if (self.caches) {
+        const names = await caches.keys();
+        await Promise.allSettled(names.map(n => caches.delete(n)));
+      }
+      if (indexedDB.databases) {
+        const dbs = await indexedDB.databases();
+        await Promise.allSettled(dbs.map(d => new Promise((res) => {
+          if (!d.name) return res();
+          const req = indexedDB.deleteDatabase(d.name);
+          req.onsuccess = req.onerror = req.onblocked = () => res();
+        })));
+      }
+      try { localStorage.clear(); } catch {}
+      try { sessionStorage.clear(); } catch {}
+    } finally {
+      location.reload();
+    }
+  });
 }
 
 // LAN discovery — request/accept flow.

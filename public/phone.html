@@ -38,8 +38,29 @@
       <span class="menu-meta-value" id="app-menu-version">—</span>
     </div>
     <button class="menu-item" id="menu-install">Install on this phone</button>
+    <button class="menu-item" id="menu-check-updates">Check for updates</button>
     <a class="menu-item" id="menu-repo" href="https://github.com/jonasneves/better-robotics" target="_blank" rel="noopener">GitHub repo</a>
+    <button class="menu-item destructive" id="menu-hard-refresh">Hard refresh…</button>
   </div>
+
+  <dialog id="hard-refresh-dialog" class="prepare-dialog">
+    <div class="modal-header">
+      <div class="label">Hard refresh</div>
+      <button class="icon" id="hard-refresh-close" aria-label="Close"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <p style="margin: 0 0 12px;">Clears everything stored by Pip in this browser and reloads. Use this when the page is stuck in a broken state that normal reload doesn't fix.</p>
+    <div class="label" style="margin-bottom: 4px;">This will erase:</div>
+    <ul class="hard-refresh-list">
+      <li>App cache and service worker (re-downloaded on reload)</li>
+      <li>Phone identity key (you'll need to re-pair to your Mac)</li>
+      <li>Trust store (which Macs this phone has trusted)</li>
+    </ul>
+    <p class="meta" style="margin: 0 0 16px;">If you installed Pip to your Home Screen, the install survives — only the data inside it is cleared.</p>
+    <div class="modal-footer">
+      <button class="secondary" id="hard-refresh-cancel">Cancel</button>
+      <button class="danger" id="hard-refresh-confirm">Clear everything and reload</button>
+    </div>
+  </dialog>
 
   <div id="install-ios-popover" class="help-popover" popover>
     <strong>Install on iPhone / iPad</strong><br>
