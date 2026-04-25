@@ -23,7 +23,7 @@ import { initVoice } from "./voice.js";
 import { initAuthUI, fingerprint as dashFingerprint, pubkeySsh, onKeyChange } from "./auth.js";
 import { initPasswordsUI } from "./passwords.js";
 import { initAssistant, handleRemoteChat, emitPipEvent } from "./assistant.js";
-import { initPhones, setPhoneChatHandler } from "./phones.js";
+import { initPhones, setPhoneChatHandler, listPhones } from "./phones.js";
 import { discover } from "./discover.js";
 import { getLoadState as getLocalLoadState, onLoadStateChange as onLocalLoadStateChange, loadModel as loadLocalModel } from "./local-llm.js";
 import { initHelpers } from "./helpers.js";
@@ -679,12 +679,22 @@ function renderRobotPresence() {
     : `${_wifiRobots.length} robots on wifi`;
 }
 
+// Helpers earn their pixels: visible when a robot is paired (helpers exist
+// to support a robot) or a phone is already connected. Otherwise the empty
+// state is just the robot card — no premature jargon.
+function updateHelpersVisibility() {
+  const earned = state.devices.size > 0 || listPhones().length > 0;
+  $("helpers-heading").hidden = !earned;
+  $("helpers-list").hidden = !earned;
+}
+
 function render() {
   const list = $("robot-list");
   const empty = $("empty-state");
   const header = $("robots-heading");
 
   updateQrHint();
+  updateHelpersVisibility();
 
   if (state.devices.size === 0) {
     empty.hidden = false;

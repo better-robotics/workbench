@@ -84,23 +84,22 @@
 
   <section class="card empty-state" id="empty-state" hidden>
     <div class="empty-title">No robots yet</div>
-    <div class="empty-sub">Set up a new robot, or scan for one nearby.</div>
     <div class="empty-actions">
       <button id="empty-add-robot-btn">Set up a robot</button>
-      <button id="empty-scan-btn" class="secondary">Scan</button>
+      <button id="empty-scan-btn" class="secondary">Scan nearby</button>
     </div>
   </section>
 
-  <div class="robots-heading" id="helpers-heading">
+  <div class="robots-heading" id="helpers-heading" hidden>
     <div class="label">Your helpers</div>
     <div class="heading-actions">
       <span id="phone-presence" class="presence-badge" hidden></span>
       <button id="pair-phone-btn" class="secondary sm">Pair phone</button>
     </div>
   </div>
-  <div id="helpers-list"></div>
+  <div id="helpers-list" hidden></div>
 
-  <details class="tray">
+  <details class="tray" id="log-tray" hidden>
     <summary class="label">
       <svg class="icon-svg disclosure-chevron" aria-hidden="true"><use href="icons.svg#icon-chevron-down"/></svg>
       Log
