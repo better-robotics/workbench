@@ -1740,10 +1740,11 @@ body.phone {
   justify-content: space-between;
 }
 .phone-brand {
-  font-size: 28px;
-  font-weight: 600;
-  color: var(--duke-light-blue);
+  font-size: 24px;
+  letter-spacing: -0.01em;
 }
+.phone-brand .logo-accent { font-weight: 700; color: var(--brand-heading); }
+.phone-brand .logo-base { font-weight: 400; color: color-mix(in srgb, var(--ink) 75%, transparent); }
 .phone-brand-btn {
   display: inline-flex;
   align-items: center;
