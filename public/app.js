@@ -1298,11 +1298,29 @@ document.addEventListener("DOMContentLoaded", () => {
     const menu = $("app-menu");
     if (e.key === "Escape" && menu.matches(":popover-open")) menu.hidePopover();
   });
-  $("menu-repo").addEventListener("click", () => $("app-menu").hidePopover());
+  $("menu-report-issue").addEventListener("click", () => $("app-menu").hidePopover());
   // Read VERSION from sw.js (CI stamps it there on every dashboard-asset change).
+  // Used both for the menu display and to prefill the issue body so reports
+  // arrive with the running commit + UA already attached — saves a triage round.
   fetch("sw.js").then(r => r.ok ? r.text() : "").then(t => {
     const m = t.match(/VERSION\s*=\s*"([^"]+)"/);
-    if (m) $("app-menu-version").textContent = m[1];
+    const version = m ? m[1] : "unknown";
+    $("app-menu-version").textContent = version;
+    const body = [
+      "<!-- Describe what happened, what you expected, and how to reproduce. -->",
+      "",
+      "",
+      "---",
+      "<details><summary>Diagnostic info</summary>",
+      "",
+      `- Version: \`${version}\``,
+      `- URL: \`${window.location.href}\``,
+      `- User-Agent: \`${navigator.userAgent}\``,
+      "",
+      "</details>",
+    ].join("\n");
+    const url = `https://github.com/jonasneves/better-robotics/issues/new?body=${encodeURIComponent(body)}`;
+    $("menu-report-issue").href = url;
   }).catch(() => {});
   $("menu-install").addEventListener("click", async () => {
     $("app-menu").hidePopover();
