@@ -1,40 +1,18 @@
-// UUIDs must match firmware/pi_robot/pi_robot.py and firmware/esp32_robot/esp32_robot.ino exactly.
-export const SERVICE_UUID          = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d91";
-export const LED_CHAR_UUID         = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d92";
-export const WIFI_SCAN_CHAR_UUID   = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d93";
-export const WIFI_JOIN_CHAR_UUID   = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d94";
-export const WIFI_STATUS_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d95";
-export const OTA_DATA_CHAR_UUID    = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d96";
-export const OTA_STATUS_CHAR_UUID  = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d97";
-export const FW_INFO_CHAR_UUID     = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d98";
-export const MOTOR_CHAR_UUID       = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d99";
-export const CAMERA_SIGNAL_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9a";
-export const CAMERA_STATUS_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9b";
-export const OPS_CHAR_UUID            = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9c";
-export const ROBOT_STATUS_CHAR_UUID   = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9d";
-export const OPS_RESPONSE_CHAR_UUID   = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9e";
-export const TELEMETRY_CHAR_UUID      = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9f";
-
-// Heartbeat is a separate, always-on service from firmware/pi_robot/heartbeat.py.
-// Distinct UUID family so the dashboard can scan for the heartbeat alone when
-// pi-robot.service is dead and only the recovery-plane process is advertising.
-export const HEARTBEAT_SVC_UUID       = "b6e8d5f3-2c9d-4bba-ae5e-6f9b8c7d5eb0";
-export const HEARTBEAT_CHAR_UUID      = "b6e8d5f3-2c9d-4bba-ae5e-6f9b8c7d5eb1";
-
-// BLE snapshot — ESP32 firmware. One-shot JPEG over BLE notify, no WiFi
-// required. Distinct from the WebRTC camera-signal pair (different intent:
-// snapshot is BLE-native, not signaling for an out-of-band stream). Same
-// chunked envelope as OTA: 0x01 begin+u32 len, 0x02 chunk, 0x03 commit,
-// 0xff err+text.
-export const SNAPSHOT_REQUEST_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da0";
-export const SNAPSHOT_DATA_CHAR_UUID    = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da1";
-// Camera profile picker — write JSON {"profile":"compact|standard|full"}.
-// Firmware persists to Preferences and restarts. Current profile + available
-// profile names live in fw-info's camera cap entry.
-export const CAMERA_PROFILE_CHAR_UUID    = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da2";
-// Flash — single-byte 0..100 PWM brightness on the white flash LED. Distinct
-// from the led toggle (which is the red status LED on a different pin).
-export const FLASH_CHAR_UUID             = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da3";
+// UUIDs are generated from protocol/uuids.json (see tools/gen-uuids.py).
+// `ble.js` re-exports them so existing import sites keep working unchanged
+// AND adds the dashboard-side helpers nobody else needs (CHUNK_BYTES,
+// UUIDS_BY_CAP, decodeJson, encodeJson). Edit the JSON + run
+// `make gen-uuids` to add a new BLE characteristic; both firmwares pull
+// from the same source so a typo can't silently desync the protocol.
+export * from "./uuids.js";
+import {
+  LED_CHAR_UUID, FLASH_CHAR_UUID, MOTOR_CHAR_UUID,
+  WIFI_SCAN_CHAR_UUID, WIFI_JOIN_CHAR_UUID, WIFI_STATUS_CHAR_UUID,
+  OTA_DATA_CHAR_UUID, OTA_STATUS_CHAR_UUID,
+  CAMERA_SIGNAL_CHAR_UUID, CAMERA_STATUS_CHAR_UUID,
+  OPS_CHAR_UUID,
+  SNAPSHOT_REQUEST_CHAR_UUID, SNAPSHOT_DATA_CHAR_UUID,
+} from "./uuids.js";
 
 // Chunked-frame protocol shared by OTA and camera signaling: begin carries a
 // u32 big-endian length, chunks append, commit parses + acts, stop tears down.

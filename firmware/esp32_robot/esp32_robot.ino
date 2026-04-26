@@ -42,44 +42,12 @@
 #define HREF_GPIO_NUM     23
 #define PCLK_GPIO_NUM     22
 
-// UUIDs — must match firmware/pi_robot/pi_robot.py exactly.
-#define SERVICE_UUID          "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d91"
-#define LED_CHAR_UUID         "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d92"
-#define WIFI_SCAN_CHAR_UUID   "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d93"
-#define WIFI_JOIN_CHAR_UUID   "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d94"
-#define WIFI_STATUS_CHAR_UUID "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d95"
-#define OTA_DATA_CHAR_UUID    "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d96"
-#define OTA_STATUS_CHAR_UUID  "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d97"
-#define FW_INFO_CHAR_UUID     "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d98"
-#define MOTOR_CHAR_UUID       "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d99"
-// Telemetry char — system health (uptime, free heap, last reset reason).
-// Same UUID Pi uses, so the dashboard's existing telemetry handler works
-// across both platforms with no per-device branching.
-#define TELEMETRY_CHAR_UUID   "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9f"
-// BLE snapshot — single-frame JPEG over BLE notify, no WiFi required. The
-// MJPEG-over-WiFi cap stays primary for live viewing; this is the fallback
-// for "I want one frame to verify the camera works" or "Pip needs an image
-// to analyze and the robot isn't on WiFi yet". Distinct UUIDs from the
-// d9a/d9b WebRTC signaling pair on Pi — different intent, different protocol.
-#define SNAPSHOT_REQUEST_CHAR_UUID "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da0"
-#define SNAPSHOT_DATA_CHAR_UUID    "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da1"
-// Camera profile picker — write JSON {"profile":"compact|standard|full"}.
-// Firmware persists to Preferences and restarts; profile applies on next
-// boot. Three discrete operating points instead of N free knobs because
-// users have use cases (weak WiFi / standard / camera-heavy demo), not
-// individual sliders for framesize/quality/fb_count.
-#define CAMERA_PROFILE_CHAR_UUID   "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da2"
-// Flash LED — the white LED on GPIO 4 of the AI-Thinker board. Single-byte
-// 0..100 brightness via PWM. Distinct from `led` (red status LED on GPIO 33)
-// because they're physically different lights. Useful as a torch when the
-// VLM needs to see in low-light scenes.
-#define FLASH_CHAR_UUID            "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da3"
-// Pin-config write — JSON {"led":N,"flash":N,"m_l_in1":N,"m_l_in2":N,
-// "m_r_in1":N,"m_r_in2":N}. Firmware writes to NVS "pins" namespace and
-// schedules a restart so the new assignments take effect on next boot.
-// The read-side (current values) lives in fw-info, so this char is
-// write-only.
-#define PIN_CONFIG_CHAR_UUID       "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da4"
+// UUIDs are generated from protocol/uuids.json — see tools/gen-uuids.py.
+// Adding a new BLE characteristic = edit the JSON, run `make gen-uuids`,
+// rebuild. Both this firmware AND the Pi firmware AND the dashboard pull
+// from the same source so a typo in one place can't silently desync the
+// protocol.
+#include "uuids.h"
 
 // Motor watchdog: every write resets the timer; silence reverts to (0, 0).
 // Safe default on disconnect — no redundant channel required.
