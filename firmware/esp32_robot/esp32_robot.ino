@@ -764,7 +764,9 @@ class WifiJoinCallbacks : public BLECharacteristicCallbacks {
 // (begin/chunk/commit; same envelope OTA uses, just outbound). One snapshot
 // at a time — overlapping requests during a transfer drop the new one.
 static void snapshotTask(void* param) {
+  Serial.printf("snapshot: task entered, heap=%u\n", ESP.getFreeHeap());
   if (!cameraReady) {
+    Serial.printf("snapshot: no-camera\n");
     if (snapshotDataChar) {
       uint8_t err[1 + 16];
       err[0] = 0xff;
@@ -780,6 +782,7 @@ static void snapshotTask(void* param) {
   }
   camera_fb_t* fb = esp_camera_fb_get();
   if (!fb) {
+    Serial.printf("snapshot: fb-get-failed\n");
     if (snapshotDataChar) {
       uint8_t err[1 + 16];
       err[0] = 0xff;
@@ -793,6 +796,7 @@ static void snapshotTask(void* param) {
     vTaskDelete(nullptr);
     return;
   }
+  Serial.printf("snapshot: fb captured, %u bytes\n", (unsigned)fb->len);
 
   // Begin: opcode 0x01 + total size (u32 BE). Dashboard pre-allocates a
   // buffer so it can show progress (n received / total) instead of a spinner.
@@ -840,16 +844,42 @@ static void snapshotTask(void* param) {
 
 class SnapshotRequestCallbacks : public BLECharacteristicCallbacks {
   void onWrite(BLECharacteristic* c, NimBLEConnInfo& /*info*/) override {
+    // Diagnostic instrumentation — without these logs there's no way to
+    // tell whether the write reached us, was rejected on opcode, was
+    // refused as a duplicate, or silently failed at task creation.
     std::string v = c->getValue();
-    // Single byte 0x01 = capture. Any other opcode reserved for future use.
-    if (v.length() < 1 || (uint8_t)v[0] != 0x01) return;
+    Serial.printf("snapshot: onWrite, len=%u, op=%02x\n",
+                  (unsigned)v.length(), v.length() ? (uint8_t)v[0] : 0xff);
+    if (v.length() < 1 || (uint8_t)v[0] != 0x01) {
+      Serial.printf("snapshot: rejected — bad opcode\n");
+      return;
+    }
     if (snapshotTaskHandle != nullptr) {
       Serial.printf("snapshot: ignored — transfer in progress\n");
       return;
     }
-    // 8 KB stack — chunk loop is shallow; bumped from 4 KB out of paranoia
-    // on camera-frame paths.
-    xTaskCreatePinnedToCore(snapshotTask, "snapshot", 8192, nullptr, 1, &snapshotTaskHandle, 1);
+    Serial.printf("snapshot: heap free=%u, largest=%u\n",
+                  ESP.getFreeHeap(),
+                  heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+    // 4 KB stack — chunk loop is shallow (was 8 KB out of paranoia, but
+    // we've been bumping into "no contiguous heap" with 18 KB total free
+    // post-camera-init, and 8 KB doesn't fit in a fragmented heap).
+    BaseType_t rc = xTaskCreatePinnedToCore(
+      snapshotTask, "snapshot", 4096, nullptr, 1, &snapshotTaskHandle, 1);
+    Serial.printf("snapshot: xTaskCreate rc=%d, handle=%p\n",
+                  (int)rc, (void*)snapshotTaskHandle);
+    if (rc != pdPASS && snapshotDataChar) {
+      // If the task didn't start, the dashboard would otherwise wait on
+      // its watchdog (4 s of silence). Push an explicit error notify so
+      // the user sees "snapshot: task-create-failed" instead of "stalled".
+      uint8_t err[1 + 24];
+      err[0] = 0xff;
+      const char* msg = "task-create-failed";
+      size_t n = strlen(msg);
+      memcpy(err + 1, msg, n);
+      snapshotDataChar->setValue(err, 1 + n);
+      snapshotDataChar->notify();
+    }
   }
 };
 
