@@ -160,12 +160,17 @@ async function pnaOtaUpload(entry, bytes) {
   const url = `http://${ip}/ota`;
   try {
     logFor(entry, `PNA direct OTA → ${url} (${bytes.length} B)`);
+    // 90 s — classic ESP32-CAM with WiFi running on 1 RX buffer (the
+    // expected fallout of camera + BLE + WiFi sharing ~250 KB DRAM)
+    // can't finish 1.6 MB in 30 s, so PNA was aborting and the BLE
+    // fallback ran every time. 90 s lets the slow-but-working path
+    // complete; BLE-stream still kicks in if PNA outright errors.
     const resp = await fetchWithTimeout(url, {
       method: "POST",
       mode: "cors",
       body: bytes,
       headers: { "Content-Type": "application/octet-stream" },
-    }, 30000);
+    }, 90000);
     if (!resp.ok) {
       logFor(entry, `PNA returned ${resp.status}`);
       return false;
