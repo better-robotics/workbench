@@ -74,6 +74,12 @@
 // because they're physically different lights. Useful as a torch when the
 // VLM needs to see in low-light scenes.
 #define FLASH_CHAR_UUID            "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da3"
+// Pin-config write — JSON {"led":N,"flash":N,"m_l_in1":N,"m_l_in2":N,
+// "m_r_in1":N,"m_r_in2":N}. Firmware writes to NVS "pins" namespace and
+// schedules a restart so the new assignments take effect on next boot.
+// The read-side (current values) lives in fw-info, so this char is
+// write-only.
+#define PIN_CONFIG_CHAR_UUID       "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da4"
 
 // Motor watchdog: every write resets the timer; silence reverts to (0, 0).
 // Safe default on disconnect — no redundant channel required.
@@ -192,8 +198,13 @@ BLECharacteristic* otaStatusChar  = nullptr;
 BLECharacteristic* fwInfoChar     = nullptr;
 BLECharacteristic* motorChar      = nullptr;
 BLECharacteristic* flashChar      = nullptr;
+BLECharacteristic* pinConfigChar  = nullptr;
 static uint8_t flashLevel = 0;  // 0..100 — current PWM brightness
 static bool _flash_attached = false;
+// Set by PinConfigCallbacks::onWrite after a valid pin update lands; loop()
+// reboots so the new pins take effect on next boot. Same shape as
+// otaRestartPending.
+static bool pinConfigRestartPending = false;
 
 int8_t motorLeft = 0;
 int8_t motorRight = 0;
@@ -779,6 +790,80 @@ class FlashCallbacks : public BLECharacteristicCallbacks {
   }
 };
 
+// Tiny JSON int extractor — same pattern wifi-join uses. Returns -1 when
+// the key is missing OR the value isn't a parseable integer in [0, 99].
+// We don't pull a JSON library; the schema is fixed and small.
+static int extractIntKey(const std::string& json, const char* key) {
+  std::string needle = "\""; needle += key; needle += "\"";
+  size_t k = json.find(needle);
+  if (k == std::string::npos) return -1;
+  size_t c = json.find(':', k);
+  if (c == std::string::npos) return -1;
+  size_t i = c + 1;
+  while (i < json.size() && (json[i] == ' ' || json[i] == '\t')) i++;
+  int v = 0;
+  bool any = false;
+  while (i < json.size() && json[i] >= '0' && json[i] <= '9') {
+    v = v * 10 + (json[i] - '0');
+    i++; any = true;
+  }
+  return any ? v : -1;
+}
+
+// Pin-config write — JSON with the same keys loadPinConfig() reads. Validates
+// each pin is in [0, 39] and not in the camera-reserved set; on success,
+// writes NVS and schedules a restart.
+class PinConfigCallbacks : public BLECharacteristicCallbacks {
+  void onWrite(BLECharacteristic* ch, NimBLEConnInfo& /*info*/) override {
+    std::string json = ch->getValue();
+    Serial.printf("pin-config: write len=%u\n", (unsigned)json.length());
+    int led    = extractIntKey(json, "led");
+    int flash  = extractIntKey(json, "flash");
+    int l_in1  = extractIntKey(json, "m_l_in1");
+    int l_in2  = extractIntKey(json, "m_l_in2");
+    int r_in1  = extractIntKey(json, "m_r_in1");
+    int r_in2  = extractIntKey(json, "m_r_in2");
+    if (led < 0 || flash < 0 || l_in1 < 0 || l_in2 < 0 || r_in1 < 0 || r_in2 < 0) {
+      Serial.printf("pin-config: missing keys, ignored\n");
+      return;
+    }
+    // Camera pins — must not collide. Bake the reserved set in (it's the
+    // AI-Thinker fixed pin map; changing the camera pins requires a code
+    // change, not a config change).
+    static const int RESERVED[] = { 0, 5, 18, 19, 21, 22, 23, 25, 26, 27, 32, 34, 35, 36, 39 };
+    int candidates[6] = { led, flash, l_in1, l_in2, r_in1, r_in2 };
+    for (int i = 0; i < 6; i++) {
+      int p = candidates[i];
+      if (p < 0 || p > 39) {
+        Serial.printf("pin-config: pin %d out of range, ignored\n", p);
+        return;
+      }
+      for (int r : RESERVED) {
+        if (p == r) { Serial.printf("pin-config: GPIO %d is camera-reserved, ignored\n", p); return; }
+      }
+      // No-duplicate check among the editable pins themselves.
+      for (int j = i + 1; j < 6; j++) {
+        if (candidates[j] == p) {
+          Serial.printf("pin-config: GPIO %d assigned twice, ignored\n", p);
+          return;
+        }
+      }
+    }
+    Preferences pins;
+    pins.begin("pins", false);  // read/write
+    pins.putInt("led",     led);
+    pins.putInt("flash",   flash);
+    pins.putInt("m_l_in1", l_in1);
+    pins.putInt("m_l_in2", l_in2);
+    pins.putInt("m_r_in1", r_in1);
+    pins.putInt("m_r_in2", r_in2);
+    pins.end();
+    Serial.printf("pin-config: saved (led=%d flash=%d L=%d/%d R=%d/%d) — restarting\n",
+                  led, flash, l_in1, l_in2, r_in1, r_in2);
+    pinConfigRestartPending = true;
+  }
+};
+
 static void driveHalfBridge(int in1Pin, int in2Pin, int8_t signedSpeed) {
   if (!_motors_attached) return;
   int magnitude = signedSpeed < 0 ? -signedSpeed : signedSpeed;
@@ -1181,6 +1266,15 @@ void setup() {
     flashChar->setValue(&flashLevel, 1);
   }
 
+  // Pin-config write surface — fed by the dashboard's Pinout editor. JSON
+  // schema parsed in PinConfigCallbacks; validates against the camera-
+  // reserved pin set before writing NVS and rebooting.
+  pinConfigChar = service->createCharacteristic(
+    PIN_CONFIG_CHAR_UUID,
+    NIMBLE_PROPERTY::WRITE
+  );
+  pinConfigChar->setCallbacks(new PinConfigCallbacks());
+
   wifiScanChar = service->createCharacteristic(
     WIFI_SCAN_CHAR_UUID,
     NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
@@ -1364,6 +1458,10 @@ static void publishTelemetry() {
 void loop() {
   if (otaRestartPending) {
     delay(500);  // let the last notify + ATT response land
+    ESP.restart();
+  }
+  if (pinConfigRestartPending) {
+    delay(500);  // let the last ATT response land before BLE drops
     ESP.restart();
   }
 
