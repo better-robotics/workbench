@@ -1529,6 +1529,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const menu = $("app-menu");
     if (e.key === "Escape" && menu.matches(":popover-open")) menu.hidePopover();
   });
+  $("menu-phone-view").addEventListener("click", () => $("app-menu").hidePopover());
   $("menu-report-issue").addEventListener("click", () => $("app-menu").hidePopover());
   // Read VERSION from sw.js (CI stamps it there on every dashboard-asset change).
   // Used both for the menu display and to prefill the issue body so reports

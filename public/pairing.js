@@ -498,7 +498,16 @@ export async function hostPairingRoom({ onStatus = () => {} } = {}) {
   });
 
   ws.addEventListener("error", () => {
-    if (!resolved) { resolved = true; clearTimeout(timeoutId); pc.close(); rejectPeer(new Error("signal socket failed")); }
+    if (!resolved) {
+      resolved = true;
+      clearTimeout(timeoutId);
+      pc.close();
+      rejectPeer(new Error(
+        "Couldn't reach the pairing server (signal.neevs.io). " +
+        "Check your network — captive portals, strict firewalls, " +
+        "and some carrier hotspots block WebSocket connections.",
+      ));
+    }
   });
 
   return {
