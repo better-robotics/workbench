@@ -1524,8 +1524,10 @@ static void publishDiscoverAd() {
   WiFiClientSecure client;
   client.setInsecure();
   client.setTimeout(8);  // seconds
+  unsigned long t0 = millis();
   if (!client.connect(DISCOVER_HOST, DISCOVER_PORT)) {
-    Serial.println("discover: connect failed");
+    Serial.printf("discover: connect failed (host=%s port=%u)\n",
+                  DISCOVER_HOST, DISCOVER_PORT);
     return;
   }
   client.printf("PUT %s HTTP/1.1\r\n", DISCOVER_PATH);
@@ -1535,15 +1537,32 @@ static void publishDiscoverAd() {
   client.print("Connection: close\r\n\r\n");
   client.print(body);
 
-  // Drain the response so the socket closes cleanly. Status code is
-  // informational — even a 5xx leaves the local state untouched and we
-  // republish next cycle.
+  // Read the status line so we can log the HTTP response code. Helpful
+  // when the connect succeeds but the server rejects the body. After
+  // that, drain the rest so the socket closes cleanly.
+  String statusLine;
   unsigned long deadline = millis() + 5000;
   while (client.connected() && millis() < deadline) {
-    while (client.available()) client.read();
+    while (client.available()) {
+      char c = client.read();
+      if (statusLine.length() < 64) statusLine += c;
+      if (c == '\n' && statusLine.endsWith("\r\n")) {
+        deadline = millis();  // got status line — drain remaining
+        break;
+      }
+    }
     vTaskDelay(pdMS_TO_TICKS(20));
   }
   client.stop();
+
+  unsigned long dur = millis() - t0;
+  // Trim "HTTP/1.1 200 OK" → "200 OK" for the log line.
+  int sp = statusLine.indexOf(' ');
+  String code = sp > 0 ? statusLine.substring(sp + 1) : statusLine;
+  code.trim();
+  Serial.printf("discover: PUT %s → %s (%lums, %s)\n",
+                DISCOVER_PATH, code.length() ? code.c_str() : "no-response",
+                dur, ip.c_str());
 }
 
 static void discoverTask(void* /*param*/) {
