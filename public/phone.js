@@ -507,17 +507,34 @@ function wireAppMenu() {
     const original = btn.textContent;
     btn.disabled = true;
     btn.textContent = "Checking…";
-    let foundUpdate = false;
     try {
       const reg = await navigator.serviceWorker?.getRegistration();
-      if (reg) {
-        const onFound = () => { foundUpdate = true; };
-        reg.addEventListener("updatefound", onFound, { once: true });
-        await reg.update();
-        reg.removeEventListener("updatefound", onFound);
+      if (!reg) throw new Error("no-sw");
+      // Already-waiting worker: apply directly.
+      if (reg.waiting) {
+        btn.textContent = "Updating…";
+        reg.waiting.postMessage("skip-waiting");
+        return;  // controllerchange listener reloads
       }
-    } catch {}
-    btn.textContent = foundUpdate ? "New version — reload" : "Up to date";
+      // Watch for the install that update() may trigger and apply once
+      // it reaches "installed" — the explicit click is the opt-in.
+      const applyOnInstall = () => {
+        const next = reg.installing;
+        next?.addEventListener("statechange", () => {
+          if (next.state === "installed") next.postMessage("skip-waiting");
+        }, { once: true });
+      };
+      reg.addEventListener("updatefound", applyOnInstall, { once: true });
+      await reg.update();
+      if (reg.installing || reg.waiting) {
+        btn.textContent = "Updating…";
+        return;
+      }
+      reg.removeEventListener("updatefound", applyOnInstall);
+      btn.textContent = "Up to date";
+    } catch {
+      btn.textContent = "Up to date";
+    }
     setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 2000);
   });
 
@@ -768,8 +785,14 @@ if (document.readyState === "loading") {
 }
 
 // Register SW so phone.html is installable + works offline after first visit.
-// No update banner here (the phone surface is thin); controllerchange reloads
-// on its own when the dashboard bumps the SW version.
+// No banner here (the phone surface is thin); a new SW just installs and
+// waits, the user triggers application via the menu's "Check for updates".
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js").catch(() => {});
+  let _swReloading = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (_swReloading) return;
+    _swReloading = true;
+    location.reload();
+  });
 }
