@@ -1032,6 +1032,14 @@ static void snapshotTask(void* param) {
     vTaskDelete(nullptr);
     return;
   }
+  // Discard the head buffer first. With grab_mode=CAMERA_GRAB_LATEST + the
+  // streamTask not actively pulling frames, the driver can hold a frame
+  // captured minutes ago (last time the stream ran). Returning it forces
+  // the driver to release the slot; the next fb_get blocks for the next
+  // DMA-completed frame, which is fresh. Adds ~33 ms (one capture period
+  // at OV2640's ~30 fps) — imperceptible to the operator.
+  camera_fb_t* stale = esp_camera_fb_get();
+  if (stale) esp_camera_fb_return(stale);
   camera_fb_t* fb = esp_camera_fb_get();
   if (!fb) {
     Serial.printf("snapshot: fb-get-failed\n");
