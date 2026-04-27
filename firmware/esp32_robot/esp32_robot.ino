@@ -401,6 +401,13 @@ static bool initCamera() {
     s->set_saturation(s, 1);   // -2..2; default reads washed-out
     s->set_contrast(s, 1);     // -2..2; default reads flat
     s->set_sharpness(s, 1);    // -2..2; +1 cleans up VLM/detector input
+    // Disable AWB *gain recompute* — keeps white-balance auto-mode on so
+    // a real lighting change still adapts, but stops the per-frame gain
+    // hunting that produces visible color-cast pulsing on a static scene.
+    // NOT the same call that broke the OV2640 earlier — that was
+    // set_awb_gain(s, 1) which TURNS the recompute on. The 0 value is the
+    // opposite operation; should be safe on the picky die.
+    s->set_awb_gain(s, 0);
   }
   return true;
 }
