@@ -384,18 +384,23 @@ static bool initCamera() {
   }
   Serial.printf("camera ok, psram=%d, profile=%s\n",
                 psramFound(), cameraProfileName(cameraProfile));
-  // Orientation only — sensor-side EXPOSURE tweaks (set_aec2, set_gainceiling)
-  // broke OV2640 on this die revision earlier (all-black frames). vflip +
-  // hmirror just transform the readout coordinate space and have no effect
-  // on exposure or color, so they're safe to apply unconditionally. The
-  // AI-Thinker camera connector exits the module in a way that produces a
-  // 180°-rotated image vs. how operators naturally hold the chassis; the
-  // canonical CameraWebServer example ships with both flips enabled for
-  // exactly this reason.
+  // Orientation + cosmetic-only sensor tuning. EXPOSURE tweaks
+  // (set_aec2, set_gainceiling, set_awb_gain) broke OV2640 on this die
+  // revision earlier (all-black frames) — those touch the AEC pipeline
+  // and stay reverted. brightness / saturation / contrast / sharpness
+  // are post-DSP cosmetic knobs that don't reconfigure exposure; safe
+  // to apply, and the factory defaults read flat indoors.
+  // vflip + hmirror handle the AI-Thinker mounting quirk (the camera
+  // connector exits the module in a way that produces a 180°-rotated
+  // image vs. how operators hold the chassis).
   sensor_t* s = esp_camera_sensor_get();
   if (s) {
     s->set_vflip(s, 1);
     s->set_hmirror(s, 1);
+    s->set_brightness(s, 1);   // -2..2; lifts dim indoor scenes
+    s->set_saturation(s, 1);   // -2..2; default reads washed-out
+    s->set_contrast(s, 1);     // -2..2; default reads flat
+    s->set_sharpness(s, 1);    // -2..2; +1 cleans up VLM/detector input
   }
   return true;
 }
@@ -574,10 +579,14 @@ static void streamTask(void* param) {
         }
         esp_camera_fb_return(fb);
         if (!ok) break;
-        // Cap at ~20 fps. With 1-of-4 RX buffers the link can't sustain
-        // higher cleanly anyway; pushing harder just blocks longer per
-        // chunked write and risks the watchdog.
-        vTaskDelay(50 / portTICK_PERIOD_MS);
+        // 16 ms = 60 fps cap. The chunked-write vTaskDelay(1) above is what
+        // actually keeps the IDLE task fed and prevents the watchdog from
+        // tripping; the per-frame yield used to be 50 ms (20 fps cap)
+        // before chunked-write landed, and it stuck around as belt-and-
+        // suspenders. WiFi (1-of-4 RX buffers) is the real throughput
+        // limiter at maybe ~10-15 fps in practice; this just stops the
+        // streamTask from busy-spinning between camera grabs.
+        vTaskDelay(16 / portTICK_PERIOD_MS);
       }
       client.stop();
       continue;
