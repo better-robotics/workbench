@@ -466,6 +466,9 @@ _OTA_ALLOWED_DEST_PREFIXES = (
     "/etc/systemd/system/",
     "/usr/local/bin/",
     "/boot/firmware/",
+    # avahi service files for the wifi-presence plane (mDNS publishing of
+    # the /health endpoint). Drop-in directory monitored by avahi-daemon.
+    "/etc/avahi/services/",
 )
 
 # Manifest authors write `$HOME`/`__HOME__` and `__USER__` in paths or file
@@ -538,10 +541,13 @@ async def _apply_bundle(bundle: dict) -> None:
         os.replace(tmp, dest)
 
     for cmd in manifest.get("post_install") or []:
-        # Manifest authors can use $HOME/__HOME__/__USER__ in commands too —
-        # same substitution as file dests and file contents.
-        argv = shlex.split(_ota_expand(cmd))
-        rc = subprocess.run(argv, check=False, capture_output=True).returncode
+        # $HOME/__HOME__/__USER__ get the same substitution as file dests +
+        # contents. shell=True so manifests can use redirection, ||, &&,
+        # globs — same trust boundary as the rest of the bundle (the
+        # manifest came from an authenticated dashboard upload, so anything
+        # capable of injecting a malicious command can already replace
+        # pi_robot.py wholesale).
+        rc = subprocess.run(_ota_expand(cmd), shell=True, check=False, capture_output=True).returncode
         if rc != 0:
             _set_ota_status("failed", err=f"post_install: {cmd} rc={rc}"[:120])
             return
