@@ -588,11 +588,14 @@ static void streamTask(void* param) {
         }
         esp_camera_fb_return(fb);
         if (!ok) break;
-        // Single yield per frame — covers IDLE-feed (preventing IDLE-WDT)
-        // and inter-frame pacing in one call. vTaskDelay(1) on ESP32's
-        // 10 ms tick rate yields ~10 ms, comfortably under WiFi's
-        // throughput-bound ~10-15 fps practical limit.
-        vTaskDelay(1);
+        // No explicit yield — esp_camera_fb_get blocks on DMA waiting for
+        // the next captured frame, and client.write blocks on TCP
+        // backpressure when WiFi is congested. Both are real BLOCKED
+        // states from FreeRTOS's perspective, so IDLE on this core gets
+        // CPU during them and IDLE-WDT is fed naturally. If watchdog
+        // resets resurface, add a single vTaskDelay(1) back here — but
+        // the cost is ~10 ms (one tick) per frame, ~15% of the practical
+        // ~67 ms inter-frame budget at 15 fps.
       }
       client.stop();
       continue;
