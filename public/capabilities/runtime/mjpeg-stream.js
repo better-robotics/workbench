@@ -72,9 +72,10 @@ export function makeMjpegStreamCap(schema) {
         // crossOrigin="anonymous" lets canvas read pixels (perception.js needs
         // it). ESP32 firmware already serves Access-Control-Allow-Origin: *.
         body = `<img class="robot-camera" crossorigin="anonymous" data-cam-id="${entry.id}" src="${escapeHtml(url)}" alt="MJPEG stream">`;
-      } else {
-        body = `<div class="meta">${escapeHtml(url)}</div>`;
       }
+      // Stream URL omitted from idle body — it's debug info that leaked
+      // into daily UX. The dashboard log echoes it on connect for anyone
+      // who actually needs to copy it.
       const action = !url
         ? `<button class="secondary sm" disabled>Start</button>`
         : running

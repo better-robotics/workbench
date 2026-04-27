@@ -6,7 +6,7 @@
 import { UUIDS_BY_CAP } from "../../ble.js";
 import { escapeHtml } from "../../dom.js";
 import { logFor } from "../../log.js";
-import { capSection } from "./cap-section.js";
+import { capSection, setOpen } from "./cap-section.js";
 
 let renderEntry = () => {};
 export function setRender(fn) { renderEntry = fn; }
@@ -100,6 +100,10 @@ export function makeBleSnapshotCap(schema) {
             entry[bufField] = null;
             entry[busyField] = false;
             logFor(entry, `snapshot: ${entry[recvField]} bytes`);
+            // Auto-expand the snapshot section so the resulting <img> is
+            // visible without an extra tap. Default-collapsed caps would
+            // otherwise hide the photo behind the disclosure.
+            setOpen(name, true);
             renderEntry(entry);
           } else if (op === 0xff) {
             clearWatchdog();
@@ -130,8 +134,12 @@ export function makeBleSnapshotCap(schema) {
       const url = entry[urlField];
       const err = entry[errField];
       const progress = busy && entry[totalField]
-        ? ` · ${entry[recvField]} / ${entry[totalField]} B`
+        ? `${entry[recvField]} / ${entry[totalField]} B`
         : "";
+      // Drop the "BLE-only" label — implementation detail. State shows
+      // empty when idle, "capturing N/M B" when busy. The button text
+      // already conveys the action.
+      const stateText = busy ? (progress || "capturing…") : "";
       const img = url
         ? `<img class="robot-camera" src="${escapeHtml(url)}" alt="snapshot">`
         : "";
@@ -139,7 +147,7 @@ export function makeBleSnapshotCap(schema) {
       return capSection({
         name,
         label,
-        state: `BLE-only${progress}`,
+        state: stateText,
         action: `<button class="secondary sm" data-action="${action}" ${busy ? "disabled" : ""}>${busy ? "Capturing…" : "Take photo"}</button>`,
         body: `${img}${errLine}`,
       });

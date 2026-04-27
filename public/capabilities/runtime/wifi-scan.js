@@ -17,7 +17,11 @@ const SCAN_TIMEOUT_MS = 30000;
 
 function summarize(status) {
   const { st, ssid, err, ip } = status || {};
-  if (st === "joined")  return `Connected to ${ssid || "network"}${ip ? ` · ${ip}` : ""}`;
+  // Drop the "Connected to " prefix — the cap label is "WiFi" already, so
+  // "WiFi · MyNetwork · 192.168.1.4" reads cleaner than "WiFi · Connected
+  // to MyNetwork · ..." and stops the SSID/IP from getting ellipsized at
+  // narrow widths.
+  if (st === "joined")  return `${ssid || "joined"}${ip ? ` · ${ip}` : ""}`;
   if (st === "joining") return `Joining${ssid ? ` ${ssid}` : ""}…`;
   if (st === "failed")  return `Failed${err ? ` — ${err}` : ""}`;
   return "Not configured";

@@ -1213,8 +1213,12 @@ details.tray.has-alert > summary::after {
   -webkit-tap-highlight-color: transparent;
 }
 .joypad {
-  width: 180px;
-  height: 180px;
+  /* 140 px (was 180 px) — recovers ~40 px of vertical real estate when
+     the Motors section is open. The shared joypad module reads the
+     element's bounding rect for drag math, so changing the size doesn't
+     touch driving fidelity. */
+  width: 140px;
+  height: 140px;
   border-radius: 50%;
   background: radial-gradient(circle at center, var(--border-subtle) 0%, transparent 70%);
   border: 1px solid var(--border-default);

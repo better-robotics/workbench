@@ -113,8 +113,7 @@ export function makeSignedPairCap(schema) {
       const action = `<button class="secondary sm" data-action="${actionStop}">Stop</button>`;
       const body = isMotors
         ? `<div class="joypad-wrap" data-action="motors-joypad">
-             <div class="joypad"><div class="joypad-knob"></div></div>
-             <div class="meta joypad-hint">Drag to drive · W A S D / arrow keys also work</div>
+             <div class="joypad" title="Drag to drive — WASD / arrow keys also work"><div class="joypad-knob"></div></div>
            </div>`
         : `<div class="motor-sliders">
              <label>${escapeHtml(labels.left)} <input type="range" min="${range[0]}" max="${range[1]}" value="${entry[leftField]}" data-action="${actionLeft}"></label>
