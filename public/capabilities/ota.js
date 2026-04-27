@@ -75,6 +75,12 @@ function patchOtaSection(entry) {
   if (meta) meta.textContent = err ? `${st} — ${err}` : total ? `${label} · ${pct}%` : label;
   const progress = section.querySelector(".ota-progress");
   if (progress && total) { progress.value = display; progress.max = total; }
+  // Mirror progress into the active-ops chip on the identity row, so the
+  // top-level "OTA receiving N%" stays in sync with the inline section.
+  // Without this the chip stayed frozen at 0% (only renderEntry rebuilds
+  // the chips and the upload path patches the section, not the chip).
+  const chip = entry.node?.querySelector('.op-chip[data-op="ota"]');
+  if (chip) chip.textContent = total ? `OTA ${label} ${pct}%` : `OTA ${label}`;
 }
 
 // macOS putting the display to sleep throttles the BLE write loop enough to

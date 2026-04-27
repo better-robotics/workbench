@@ -1017,22 +1017,30 @@ function renderEntry(entry) {
   // without per-card eye-walks.
   const activeOps = [];
   if (connected) {
-    if (entry.cameraRunning || entry.cameraStream) activeOps.push("streaming");
+    if (entry.cameraRunning || entry.cameraStream) activeOps.push({ text: "streaming" });
     if ((entry.motorLeft || 0) !== 0 || (entry.motorRight || 0) !== 0) {
-      activeOps.push(`motors L:${entry.motorLeft || 0} R:${entry.motorRight || 0}`);
+      activeOps.push({ text: `motors L:${entry.motorLeft || 0} R:${entry.motorRight || 0}` });
     }
-    if ((entry.flashLevel || 0) > 0) activeOps.push(`flash ${entry.flashLevel}%`);
+    if ((entry.flashLevel || 0) > 0) activeOps.push({ text: `flash ${entry.flashLevel}%` });
     const oSt = entry.otaStatus?.st;
     if (oSt && oSt !== "idle") {
+      // data-op="ota" lets patchOtaSection update the chip in place during
+      // the upload — without it, the chip stays at the initial 0% because
+      // patchOtaSection only patches the inline section, not the row chips.
       const total = entry.otaStatus.total || 0;
       const n = entry.otaStatus.n || entry.otaSent || 0;
       const pct = total ? Math.round(100 * n / total) : 0;
-      activeOps.push(total ? `OTA ${oSt} ${pct}%` : `OTA ${oSt}`);
+      activeOps.push({
+        op: "ota",
+        text: total ? `OTA ${oSt} ${pct}%` : `OTA ${oSt}`,
+      });
     }
-    if (entry.snapshotBusy) activeOps.push("snapshotting…");
+    if (entry.snapshotBusy) activeOps.push({ text: "snapshotting…" });
   }
   const opsRow = activeOps.length
-    ? `<div class="robot-ops">${activeOps.map(o => `<span class="op-chip">${escapeHtml(o)}</span>`).join("")}</div>`
+    ? `<div class="robot-ops">${activeOps.map(o =>
+        `<span class="op-chip"${o.op ? ` data-op="${o.op}"` : ""}>${escapeHtml(o.text)}</span>`,
+      ).join("")}</div>`
     : "";
   // Split on the last hyphen so the common "BetterRobot-" prefix dims and the
   // distinguishing suffix ("E9D4") carries the visual weight. Names without a
