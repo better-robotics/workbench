@@ -1,5 +1,5 @@
 import { $, escapeHtml } from "./dom.js";
-import { listPhones, sendToPhone, setPhonesChangeHandler } from "./phones.js";
+import { listPhones, sendToPhone, setPhonesChangeHandler, notifyRobotStreamChange } from "./phones.js";
 import { state } from "./state.js";
 
 // Helpers are non-mobile observers/operators (paired phones, this laptop's
@@ -116,6 +116,9 @@ export function setPhoneStream(phoneId, stream) {
         robot.attachedCameraStream = null;
         robot.attachedFromPhoneId = null;
         _renderRobot(robot);
+        // Tell other phones the robot's "view" just changed (the
+        // attached camera went away). They drop the forwarded track.
+        notifyRobotStreamChange(robot);
       }
     }
   }
@@ -130,6 +133,10 @@ function routeAttachedStream(phoneId, stream) {
   robot.attachedCameraStream = stream;
   robot.attachedFromPhoneId = phoneId;
   _renderRobot(robot);
+  // Forward the now-attached stream to all OTHER paired phones so they
+  // see what this robot is currently using as its eye. syncRobotMedia
+  // skips the source phone (no echo).
+  notifyRobotStreamChange(robot);
 }
 
 // Mount a phone's camera onto robot. Called from the helper card's picker.

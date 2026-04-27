@@ -176,15 +176,31 @@ function syncPhoneMedia(phone, stream) {
 // Robot camera → phone bridge. Parallel to syncPhoneMedia but keyed per
 // robot id since a dashboard may have multiple robots streaming at once.
 // pairing.js's negotiationneeded handler re-offers after addTrack, so the
-// track lands on the phone automatically. MJPEG cams (ESP32) don't have
-// a MediaStream — only WebRTC cams (Pi) flow through here.
+// track lands on the phone automatically.
+//
+// Stream sources (in priority order — only the highest-priority live one
+// is forwarded; phones see one robot view, not two):
+//   1. attachedCameraStream — phone-as-eye mounted on the robot. THE
+//      view the robot is currently using when set.
+//   2. cameraStream — robot's native camera. ESP32's MJPEG goes through
+//      mjpeg-restream's canvas captureStream to become a MediaStream;
+//      Pi WebRTC cams produce one directly.
+//
+// When forwarding the attached stream, skip the source phone — phone-1
+// seeing its own camera echoed back is wasteful at best, feedback at
+// worst. attachedFromPhoneId === phone.id is the marker.
 function syncRobotMedia(phone, entry) {
   if (!phone || phone.status === "failed") return;
   if (!phone.robotSenders) phone.robotSenders = new Map();
   const prev = phone.robotSenders.get(entry.id) || [];
   for (const s of prev) { try { phone.peer.removeTrack(s); } catch {} }
   phone.robotSenders.delete(entry.id);
-  const stream = entry.cameraStream;
+  let stream = null;
+  if (entry.attachedCameraStream && entry.attachedFromPhoneId !== phone.id) {
+    stream = entry.attachedCameraStream;
+  } else if (entry.cameraStream) {
+    stream = entry.cameraStream;
+  }
   if (!stream) return;
   const senders = [];
   for (const t of stream.getVideoTracks()) {
