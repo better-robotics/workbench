@@ -24,7 +24,6 @@ import { initAuthUI, fingerprint as dashFingerprint, pubkeySsh, onKeyChange } fr
 import { initPasswordsUI } from "./passwords.js";
 import { initAssistant, handleRemoteChat, emitPipEvent } from "./assistant.js";
 import { initPhones, setPhoneChatHandler, broadcastTargetInfo, sendArucoStatus } from "./phones.js";
-import { discover } from "./discover.js";
 import { getLoadState as getLocalLoadState, onLoadStateChange as onLocalLoadStateChange, loadModel as loadLocalModel } from "./local-llm.js";
 import { initHelpers, setHelpersRobotRenderer, renderHelpers } from "./helpers.js";
 import { startTracking as startArucoTracking, stopTracking as stopArucoTracking } from "./aruco.js";
@@ -820,42 +819,82 @@ function updateQrHint() {
   if (show) $("qr-hint-name").textContent = hinted;
 }
 
-// Robots advertise their presence on the same /discover lobby that phones
-// use. Pi-side: firmware/pi_robot/wifi_discover.py. Dashboard renders an
-// "N online" badge in the robots heading + offers a one-tap setup card
-// in the empty state when an unknown robot appears on the wifi.
-let _robotLobby = null;
+// Robot presence — probe each paired robot's :81/health endpoint. mDNS
+// resolves <name>.local on the same LAN (firmware-side: ESP32 advertises
+// via ESPmDNS, Pi via avahi). Cached live-IP from the BLE wifi-status
+// notify covers the same-NAT-but-mDNS-blocked case (iPhone hotspot,
+// strict guest WiFi). First OK response wins. No internet rendezvous
+// for robot presence — signal.neevs.io still hosts phone-pair, but
+// robots no longer publish there. See CLAUDE.md transport-discipline.
+const HEALTH_PORT = 81;
+const PROBE_TIMEOUT_MS = 4000;
+const PROBE_INTERVAL_MS = 30000;
 let _wifiRobots = [];
-// Per-robot last-observed pi_robot service state. Used to detect active →
-// (inactive|failed|unknown) transitions — worth a proactive Pip nudge because
-// the robot is still reachable on wifi but capabilities have gone offline.
 const _lastRobotServiceState = new Map();
-function initRobotPresence() {
-  if (_robotLobby) return;
-  _robotLobby = discover();
-  _robotLobby.onChange((ads) => {
-    _wifiRobots = (ads || []).filter(a =>
-      a.data && a.data.app === "better-robotics-robot" && a.data.robotId
-    );
-    for (const ad of _wifiRobots) {
-      const id = ad.data.robotId;
-      const now = ad.data.pi_robot;
-      const was = _lastRobotServiceState.get(id);
-      if (was === "active" && now && now !== "active") {
-        emitPipEvent("robot.service_crashed", { name: ad.data.label || id });
-      }
-      _lastRobotServiceState.set(id, now);
-    }
-    renderRobotPresence();
-  });
+
+async function _probeUrl(url) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), PROBE_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { mode: "cors", signal: ctrl.signal });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch { return null; }
+  finally { clearTimeout(timer); }
 }
+
+async function _probeRobot(known) {
+  // Race mDNS hostname against the live cached IP from BLE wifi-status.
+  // Promise.allSettled lets both run; we take the first non-null.
+  const candidates = [];
+  if (known.name) {
+    candidates.push(`http://${known.name.toLowerCase()}.local:${HEALTH_PORT}/health`);
+  }
+  const liveIp = state.devices.get(known.id)?.wifiStatus?.ip;
+  if (liveIp) candidates.push(`http://${liveIp}:${HEALTH_PORT}/health`);
+  if (!candidates.length) return null;
+  const results = await Promise.allSettled(candidates.map(_probeUrl));
+  for (const r of results) {
+    if (r.status === "fulfilled" && r.value) return r.value;
+  }
+  return null;
+}
+
+let _probeTimer = null;
+async function _probeTick() {
+  const known = loadKnown();
+  const found = [];
+  await Promise.all(known.map(async (r) => {
+    const health = await _probeRobot(r);
+    if (!health) return;
+    const id = r.id;
+    // Pi /health includes pi_robot_service; same active→inactive transition
+    // detection the WS-based path used to do, just sourced from the probe.
+    const now = health.pi_robot_service;
+    const was = _lastRobotServiceState.get(id);
+    if (was === "active" && now && now !== "active") {
+      emitPipEvent("robot.service_crashed", { name: r.name || id });
+    }
+    if (now !== undefined) _lastRobotServiceState.set(id, now);
+    found.push({ id, name: r.name, ...health });
+  }));
+  _wifiRobots = found;
+  renderRobotPresence();
+}
+
+function initRobotPresence() {
+  if (_probeTimer) return;
+  _probeTick();
+  _probeTimer = setInterval(_probeTick, PROBE_INTERVAL_MS);
+}
+
 function renderRobotPresence() {
   const badge = $("robot-presence");
   if (!badge) return;
   if (_wifiRobots.length === 0) { badge.hidden = true; return; }
   badge.hidden = false;
   badge.textContent = _wifiRobots.length === 1
-    ? `${_wifiRobots[0].data.label || "Robot"} on wifi`
+    ? `${_wifiRobots[0].name || "Robot"} on wifi`
     : `${_wifiRobots.length} robots on wifi`;
 }
 

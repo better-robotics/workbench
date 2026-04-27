@@ -13,6 +13,7 @@
 // arduino-esp32 3.x (IDF 5.x); 2.x is the IDF-5-native line.
 #include <NimBLEDevice.h>
 #include <WiFi.h>
+#include <ESPmDNS.h>
 #include <Preferences.h>
 #include <Update.h>
 #include <esp_heap_caps.h>
@@ -478,12 +479,13 @@ static void streamTask(void* param) {
     String acOrigin = origin.length() ? ("Access-Control-Allow-Origin: " + origin + "\r\nVary: Origin\r\n")
                                       : "Access-Control-Allow-Origin: *\r\n";
 
-    if (method == "OPTIONS" && path == "/ota") {
+    if (method == "OPTIONS" && (path == "/ota" || path == "/health")) {
       // PNA preflight — Chrome sends this before cross-origin → private-IP
-      // POSTs. Max-Age=86400 caches it for a day so repeat OTAs skip it.
+      // POSTs (and GETs to private IPs with the PNA flag). Max-Age=86400
+      // caches it for a day so repeat OTAs / health probes skip it.
       client.print("HTTP/1.1 204 No Content\r\n");
       client.print(acOrigin);
-      client.print("Access-Control-Allow-Methods: POST, OPTIONS\r\n"
+      client.print("Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
                    "Access-Control-Allow-Headers: Content-Type\r\n"
                    "Access-Control-Allow-Private-Network: true\r\n"
                    "Access-Control-Max-Age: 86400\r\n"
@@ -610,6 +612,27 @@ static void streamTask(void* param) {
         // budget at 15 fps, well worth the determinism.
         vTaskDelay(1);
       }
+      client.stop();
+      continue;
+    }
+
+    if (method == "GET" && path == "/health") {
+      // Dashboard's presence-plane probe target. Same body shape as the Pi
+      // /health endpoint so the dashboard doesn't need per-tier handling.
+      // CORS open so the HTTPS dashboard can fetch from this private IP.
+      String body = "{\"ok\":true,\"type\":\"esp32\",\"robotId\":\"";
+      body += robotName;
+      body += "\",\"ip\":\"";
+      body += WiFi.localIP().toString();
+      body += "\",\"uptime_s\":";
+      body += millis() / 1000;
+      body += "}";
+      client.print("HTTP/1.1 200 OK\r\n"
+                   "Access-Control-Allow-Origin: *\r\n"
+                   "Content-Type: application/json\r\n");
+      client.printf("Content-Length: %u\r\n", body.length());
+      client.print("Connection: close\r\n\r\n");
+      client.print(body);
       client.stop();
       continue;
     }
@@ -1467,142 +1490,32 @@ void setup() {
     startJoin(savedSsid, savedPass);
   }
 
-  // Presence ad to signal.neevs.io — task is idempotent and starts before
-  // WiFi is necessarily joined; it sleeps + retries until WL_CONNECTED.
-  startWifiDiscover();
+  // mDNS service advertisement so the dashboard can resolve
+  // <robotName>.local without a server-side rendezvous. Idempotent;
+  // begin() is safe to call before STA fully joins (the netif catches up).
+  startMdnsPresence();
 }
 
-// === WiFi-discover presence plane ===========================================
-// Mirrors firmware/pi_robot/wifi_discover.py. PUTs a signed-shape JSON ad
-// to https://signal.neevs.io/discover every 25 s while WiFi is up; the
-// dashboard's DiscoveryClient (public/discover.js) sees the same lobby
-// over its WebSocket and shows the robot in "Your robots" without a BLE
-// scan. data.app == "better-robotics-robot" is the dashboard's filter.
-// Server-side TTL = 60 s auto-expires the ad if the chip crashes or
-// drops off WiFi.
+// === Presence plane: mDNS + /health =========================================
+// Each robot publishes itself as `<robotName>._http._tcp.local` once WiFi
+// joins. The dashboard probes `http://<robotName>.local:81/health` for
+// every paired robot in localStorage — first OK wins, no internet
+// rendezvous, no TLS, no third-party server.
 //
-// HTTPS is mandatory (signal.neevs.io rejects plain HTTP). WiFiClientSecure
-// + setInsecure() is the lightest path on arduino-esp32 — pulls in mbedTLS
-// but avoids HTTPClient's wrapper. Cert validation is skipped because the
-// ad isn't trust-bearing; trust comes from BLE pair + per-room auth, not
-// the discovery layer.
-#include <WiFiClientSecure.h>
-
-static const char*  DISCOVER_HOST       = "signal.neevs.io";
-static const uint16_t DISCOVER_PORT     = 443;
-static const char*  DISCOVER_PATH       = "/discover";
-static const unsigned long DISCOVER_INTERVAL_MS = 25000;
-static const unsigned long DISCOVER_TTL_MS      = 60000;
-static TaskHandle_t discoverTaskHandle = nullptr;
-
-static void publishDiscoverAd() {
-  if (WiFi.status() != WL_CONNECTED) return;
-  String ip = WiFi.localIP().toString();
-  unsigned long uptimeS = millis() / 1000;
-
-  // JSON shape mirrors firmware/pi_robot/wifi_discover.py exactly. Drop the
-  // pi_robot field, add esp32: "active" so the dashboard can distinguish
-  // hardware lanes if it wants. data.app stays the shared discriminator.
-  String body;
-  body.reserve(256);
-  body += "{\"id\":\"better-robotics-robot:";
-  body += robotName;
-  body += "\",\"data\":{\"app\":\"better-robotics-robot\",\"robotId\":\"";
-  body += robotName;
-  body += "\",\"label\":\"";
-  body += robotName;
-  body += "\",\"ip\":\"";
-  body += ip;
-  body += "\",\"host\":\"";
-  body += robotName;
-  body += "\",\"uptime_s\":";
-  body += uptimeS;
-  body += ",\"esp32\":\"active\"},\"ttl\":";
-  body += DISCOVER_TTL_MS;
-  body += "}";
-
-  // Resolve first so we can distinguish DNS failure from TLS failure.
-  // arduino-esp32's WiFiClientSecure.connect() returns 0 for both, which
-  // makes the silent-failure case impossible to triage.
-  IPAddress addr;
-  unsigned long tDns = millis();
-  if (!WiFi.hostByName(DISCOVER_HOST, addr)) {
-    Serial.printf("discover: DNS failed for %s (heap=%u, %lums)\n",
-                  DISCOVER_HOST, ESP.getFreeHeap(), millis() - tDns);
+// We had a signal.neevs.io PUT publisher here briefly. On classic ESP32-CAM
+// the mbedTLS handshake fails reliably under the camera+BLE+WiFi DRAM
+// budget, and the cross-network presence the rendezvous bought us isn't
+// part of this project's toy-scale scope (CLAUDE.md). Dropped — saves
+// ~90 KB flash + ~30 KB heap for the handshake.
+static void startMdnsPresence() {
+  // MDNS.begin lowercases the hostname automatically. addService advertises
+  // the HTTP server already running on port 81 (/stream, /ota, /health).
+  if (!MDNS.begin(robotName)) {
+    Serial.println("mDNS: begin failed");
     return;
   }
-  WiFiClientSecure client;
-  client.setInsecure();
-  client.setHandshakeTimeout(15);  // seconds — TLS handshake on classic
-                                   // ESP32-CAM with BLE coex is slow; 8 s
-                                   // is enough on home WiFi but flaky on
-                                   // marginal links.
-  client.setTimeout(15);
-  unsigned long t0 = millis();
-  if (!client.connect(DISCOVER_HOST, DISCOVER_PORT)) {
-    // lastError captures the mbedTLS code when handshake fails. Format
-    // matches the standard mbedTLS strerror lookup so we can decode it.
-    char errBuf[64] = {0};
-    int err = client.lastError(errBuf, sizeof(errBuf));
-    Serial.printf("discover: connect failed (dns=%s ip=%s err=%d msg=%s heap=%u %lums)\n",
-                  DISCOVER_HOST, addr.toString().c_str(), err, errBuf,
-                  ESP.getFreeHeap(), millis() - t0);
-    return;
-  }
-  client.printf("PUT %s HTTP/1.1\r\n", DISCOVER_PATH);
-  client.printf("Host: %s\r\n", DISCOVER_HOST);
-  client.print("Content-Type: application/json\r\n");
-  client.printf("Content-Length: %u\r\n", body.length());
-  client.print("Connection: close\r\n\r\n");
-  client.print(body);
-
-  // Read the status line so we can log the HTTP response code. Helpful
-  // when the connect succeeds but the server rejects the body. After
-  // that, drain the rest so the socket closes cleanly.
-  String statusLine;
-  unsigned long deadline = millis() + 5000;
-  while (client.connected() && millis() < deadline) {
-    while (client.available()) {
-      char c = client.read();
-      if (statusLine.length() < 64) statusLine += c;
-      if (c == '\n' && statusLine.endsWith("\r\n")) {
-        deadline = millis();  // got status line — drain remaining
-        break;
-      }
-    }
-    vTaskDelay(pdMS_TO_TICKS(20));
-  }
-  client.stop();
-
-  unsigned long dur = millis() - t0;
-  // Trim "HTTP/1.1 200 OK" → "200 OK" for the log line.
-  int sp = statusLine.indexOf(' ');
-  String code = sp > 0 ? statusLine.substring(sp + 1) : statusLine;
-  code.trim();
-  Serial.printf("discover: PUT %s → %s (%lums, %s)\n",
-                DISCOVER_PATH, code.length() ? code.c_str() : "no-response",
-                dur, ip.c_str());
-}
-
-static void discoverTask(void* /*param*/) {
-  // Brief startup grace so WiFi has a chance to come up before the first
-  // attempt. After that, just sleep DISCOVER_INTERVAL_MS between publishes
-  // — publishDiscoverAd is a no-op when WiFi is down.
-  vTaskDelay(pdMS_TO_TICKS(15000));
-  while (true) {
-    publishDiscoverAd();
-    vTaskDelay(pdMS_TO_TICKS(DISCOVER_INTERVAL_MS));
-  }
-}
-
-static void startWifiDiscover() {
-  if (discoverTaskHandle) return;
-  // 8 KB stack — TLS handshake stack-eats from the calling task; arduino
-  // examples that drop below 6 KB hit canary smashes during cert chain
-  // walks. Pinned to core 0 (BLE/WiFi) so it doesn't compete with the
-  // streamTask on core 1.
-  xTaskCreatePinnedToCore(discoverTask, "discover", 8192, nullptr, 1,
-                          &discoverTaskHandle, 0);
+  MDNS.addService("http", "tcp", 81);
+  Serial.printf("mDNS: %s.local advertised\n", robotName);
 }
 
 // Map esp_reset_reason() to a short human label. Useful when the dashboard
