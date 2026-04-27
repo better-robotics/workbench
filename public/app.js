@@ -925,7 +925,12 @@ function renderEntry(entry) {
   // Canonical capability order across robot types so the eye lands on the same
   // control in the same place on both Pi and ESP32 cards. Unknown names fall
   // to the end in schema order.
-  const CAP_ORDER = { led: 1, motors: 2, wifi: 3, camera: 4, ops: 5, ota: 6 };
+  // OTA renders at the top of the body when active — it's a transient
+  // operation that demands attention, not a parked control. Other caps
+  // keep their canonical order so the eye lands on each in the same
+  // place across robots. OTA only emits markup when in flight, so this
+  // ordering is a no-op in steady state.
+  const CAP_ORDER = { ota: 0, led: 1, motors: 2, wifi: 3, camera: 4, ops: 5 };
   const byOrder = (a, b) => (CAP_ORDER[a.name] ?? 99) - (CAP_ORDER[b.name] ?? 99);
   const sections = [...CAPABILITIES, ...(entry.runtimeCaps || [])]
     .slice()
