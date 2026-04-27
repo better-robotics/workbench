@@ -160,12 +160,19 @@ function patchArucoOverlay(entry, { markers, frameCount, error }) {
 function metaText(entry) {
   const connected = entry.status === "connected" || entry.status === "firmware-down";
   if (!connected) return "";
+  const t = entry.telemetry;
   const parts = [
     formatWifi(entry.wifiStatus),
-    formatUptime(entry.telemetry),
-    formatResetReason(entry.telemetry?.reset_reason),
-  ].filter(Boolean);
-  return parts.join(" · ");
+    formatUptime(t),
+    formatResetReason(t?.reset_reason),
+  ];
+  // Free RAM + temp folded in here so the body's separate telemetry
+  // line (which duplicated uptime) can be dropped — one canonical
+  // status row at the top instead of two.
+  if (typeof t?.mem_free_mb === "number") parts.push(`${t.mem_free_mb} MB free`);
+  else if (typeof t?.free_heap === "number") parts.push(`${Math.floor(t.free_heap / 1024)} KB free`);
+  if (typeof t?.temp_c === "number") parts.push(`${t.temp_c.toFixed(1)}°C`);
+  return parts.filter(Boolean).join(" · ");
 }
 
 // Surgical patcher for the secondary row + body telemetry line. Avoids the
@@ -1045,7 +1052,6 @@ function renderEntry(entry) {
     ` : ""}
     ${expanded && !firmwareDown ? `
       <div class="robot-body">
-        ${telemetryHtml(entry)}
         ${enrollHtml}
         ${sections}
         ${attachedCameraHtml(entry)}

@@ -520,7 +520,15 @@ a.menu-item { text-decoration: none; }
 
 /* Collapsible body — rendered only when expanded so capability DOM (camera
    streams especially) isn't mounted-but-hidden, burning bandwidth. */
-.robot-body { margin-top: 12px; }
+.robot-body {
+  margin-top: 12px;
+  /* Light indent so capability rows read as "under" the robot identity
+     (operator's intuition; strict iOS HIG would keep same-indent and
+     rely on typography hierarchy alone, but a small visual offset
+     materially helps scannability when ~5-7 caps stack up). 12px is
+     small enough to avoid feeling tree-view. */
+  padding-left: 12px;
+}
 .robot-body > :first-child { margin-top: 0; }
 
 /* Firmware commit SHA lives in the robot-menu header — diagnostic detail
