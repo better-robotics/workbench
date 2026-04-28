@@ -2100,7 +2100,7 @@ dialog[open]::backdrop { opacity: 1; }
    detritus, not affordances. Same containment treatment matches the
    empty-state's framing so the eye reads "this is a section." */
 .helpers-section { max-width: 440px; }
-.helpers-section:empty, .helpers-section > #helpers-list:empty:only-child { display: none; }
+.helpers-section:has(#helpers-list:empty) { display: none; }
 /* Topbar pair-phone button — small accent dot when nearby phones are
    broadcasting on wifi (presence-aware affordance). The hint moves to
    the title attr; the dot is the glance-level signal. */
