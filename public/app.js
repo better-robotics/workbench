@@ -355,8 +355,16 @@ async function scanForNewPassive() {
   //      one nameless event for the AD then dedupe the SCAN_RESP follow-up.
   //      Setting it true makes Chrome fire each frame so we eventually see
   //      one with the name.
+  let totalEvents = 0;
+  let namedEvents = 0;
+  const debug = /\bdebug\b/.test(location.search + location.hash);
   const onAdv = (event) => {
+    totalEvents++;
     const name = event.name || event.device.name;
+    if (name) namedEvents++;
+    if (debug) {
+      log(`adv name=${name || "(null)"} id=${event.device.id?.slice(0, 8)}… rssi=${event.rssi ?? "?"} uuids=${(event.uuids || []).length}`, "ble");
+    }
     if (!name || !name.startsWith("BR-")) return;
     const prev = _discoverState.found.get(name);
     _discoverState.found.set(name, {
@@ -366,18 +374,23 @@ async function scanForNewPassive() {
     });
     renderDiscovered();
   };
+  // Some Chrome builds fire on navigator.bluetooth, others on the scan
+  // handle. Subscribe to both so whichever path the browser uses, we hear it.
   navigator.bluetooth.addEventListener("advertisementreceived", onAdv);
   try {
     _discoverState.scanHandle = await navigator.bluetooth.requestLEScan({
       acceptAllAdvertisements: true,
       keepRepeatedDevices: true,
     });
+    try { _discoverState.scanHandle.addEventListener?.("advertisementreceived", onAdv); } catch {}
     log("Passive scan started — watching for 15 s");
     await new Promise(r => setTimeout(r, 15000));
+    log(`Passive scan saw ${totalEvents} ad${totalEvents === 1 ? "" : "s"} (${namedEvents} with name); kept ${_discoverState.found.size} BR-* device(s).${totalEvents === 0 ? " 0 events = scan started but no advertisements landed in this tab — try chrome://flags#enable-experimental-web-platform-features and chrome://flags#new-web-bluetooth-permissions-backend." : ""}`);
   } catch (err) {
-    log(`Passive scan error: ${err.message}`);
+    log(`Passive scan error: ${err.message} (name=${err.name})`);
   } finally {
     navigator.bluetooth.removeEventListener("advertisementreceived", onAdv);
+    try { _discoverState.scanHandle?.removeEventListener?.("advertisementreceived", onAdv); } catch {}
     try { _discoverState.scanHandle?.stop(); } catch {}
     _discoverState.scanning = false;
     renderDiscovered();
