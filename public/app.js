@@ -367,13 +367,18 @@ async function scanForNewPassive() {
   _discoverState.scanning = true;
   _discoverState.found = new Map();
   renderDiscovered();
-  // BR-* name filter (firmware naming, see pi_robot.py:326). We can't filter
-  // by service UUID at the scan level — Web Bluetooth's passive scan only
-  // sees services in the 31-byte AD payload, but our firmware (and most BLE
-  // stacks) put service UUIDs in SCAN_RESP. The active-scan chooser sees
-  // them; we don't. Name prefix is in the AD, so it's reliable.
+  // BR-* name filter (firmware naming, see pi_robot.py:326). Two Chrome
+  // quirks to navigate:
+  //   1. event.device.name is persistent state and stays null until pairing;
+  //      the per-ad local name is on event.name. Read both — whichever shows
+  //      up first wins.
+  //   2. Most ESP32/Pi BLE stacks put the local name in SCAN_RESP, not the
+  //      31-byte AD payload. With keepRepeatedDevices:false, Chrome can fire
+  //      one nameless event for the AD then dedupe the SCAN_RESP follow-up.
+  //      Setting it true makes Chrome fire each frame so we eventually see
+  //      one with the name.
   const onAdv = (event) => {
-    const name = event.device.name;
+    const name = event.name || event.device.name;
     if (!name || !name.startsWith("BR-")) return;
     const prev = _discoverState.found.get(name);
     _discoverState.found.set(name, {
@@ -387,7 +392,7 @@ async function scanForNewPassive() {
   try {
     _discoverState.scanHandle = await navigator.bluetooth.requestLEScan({
       acceptAllAdvertisements: true,
-      keepRepeatedDevices: false,
+      keepRepeatedDevices: true,
     });
     log("Passive scan started — watching for 15 s");
     await new Promise(r => setTimeout(r, 15000));
