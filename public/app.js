@@ -22,8 +22,8 @@ import { initMotorsKeyboard } from "./capabilities/runtime/signed-pair.js";
 // calls in the DOMContentLoaded wiring below.
 import { initAuthUI, fingerprint as dashFingerprint, pubkeySsh, onKeyChange } from "./auth.js";
 import { initPasswordsUI } from "./passwords.js";
-import { initAssistant, handleRemoteChat, emitPipEvent } from "./assistant.js";
-import { initPhones, setPhoneChatHandler, broadcastTargetInfo, sendArucoStatus } from "./phones.js";
+import { initAssistant, emitPipEvent } from "./assistant.js";
+import { initPhones, broadcastTargetInfo, sendArucoStatus } from "./phones.js";
 import { getLoadState as getLocalLoadState, onLoadStateChange as onLocalLoadStateChange, loadModel as loadLocalModel } from "./local-llm.js";
 import { initHelpers, setHelpersRobotRenderer, renderHelpers, hasActiveHelpers, onHelpersChange } from "./helpers.js";
 import { startTracking as startArucoTracking, stopTracking as stopArucoTracking } from "./aruco.js";
@@ -2075,7 +2075,6 @@ document.addEventListener("DOMContentLoaded", () => {
   initPasswordsUI();
   initAssistant();
   initPhones();
-  setPhoneChatHandler(text => handleRemoteChat(text, { source: "phone" }));
   initHelpers();
   // Empty-state visibility depends on whether helpers are active, not just
   // whether robots are. Re-run render() whenever helpers change so a phone

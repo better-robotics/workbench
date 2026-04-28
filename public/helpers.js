@@ -1,5 +1,5 @@
 import { $, escapeHtml } from "./dom.js";
-import { listPhones, sendToPhone, setPhonesChangeHandler, notifyRobotStreamChange } from "./phones.js";
+import { listPhones, setPhonesChangeHandler, notifyRobotStreamChange } from "./phones.js";
 import { state } from "./state.js";
 
 // Helpers are non-mobile observers/operators (paired phones, this laptop's
@@ -359,9 +359,6 @@ function renderPhoneCard(p) {
       </div>
       <div class="robot-secondary">
         <div class="robot-meta">${meta}</div>
-        <div class="robot-cta">
-          <button class="secondary sm" data-action="phone-notice" data-phone-id="${escapeHtml(p.id)}">Send notice</button>
-        </div>
       </div>
       ${picker}
       ${body ? `<div class="robot-body">${body}</div>` : ""}
@@ -417,14 +414,6 @@ function wire() {
   });
   list.querySelectorAll('[data-action="laptop-stop"]').forEach(btn => {
     btn.addEventListener("click", () => stopLaptopCam());
-  });
-  list.querySelectorAll('[data-action="phone-notice"]').forEach(btn => {
-    btn.addEventListener("click", () => {
-      const phoneId = btn.dataset.phoneId;
-      const text = prompt("Notice text to send to phone:");
-      if (text == null || text.trim() === "") return;
-      sendToPhone(phoneId, text.trim());
-    });
   });
   list.querySelectorAll('[data-action="phone-mount"]').forEach(sel => {
     sel.addEventListener("change", () => {

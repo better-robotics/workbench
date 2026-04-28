@@ -51,13 +51,11 @@ const _phones = new Map();  // roomId → { id, label, peer, connectedAt, status
 // Keyed by askId, not phoneId, so simultaneous asks to different phones
 // (or the same one, though Pip shouldn't) don't collide.
 const _pendingAsks = new Map();
-let _chatHandler = null;
 let _pendingSession = null;
 // helpers.js subscribes to phone-state changes so it can re-render the
 // "Your helpers" section. Kept as a single handler — only one consumer.
 let _changeHandler = null;
 
-export function setPhoneChatHandler(fn) { _chatHandler = fn; }
 export function setPhonesChangeHandler(fn) { _changeHandler = fn; }
 
 export function listPhones() {
@@ -65,13 +63,6 @@ export function listPhones() {
     id: p.id, label: p.label, connectedAt: p.connectedAt,
     status: p.status || "connected", statusDetail: p.statusDetail || "",
   }));
-}
-
-export function sendToPhone(id, text) {
-  const p = _phones.get(id);
-  if (!p) return false;
-  p.peer.send({ type: "notice", text });
-  return true;
 }
 
 // ArUco lock state from a robot's overhead-mounted phone, pushed to the
@@ -541,21 +532,6 @@ async function onPhoneMessage(id, peer, msg) {
     clearTimeout(pending.timeout);
     _pendingAsks.delete(msg.askId);
     pending.resolve({ answer: msg.answer ?? null, timed_out: false });
-    return;
-  }
-  if (msg.type === "chat") {
-    const text = (msg.text || "").trim();
-    if (!text) return;
-    if (!_chatHandler) {
-      peer.send({ type: "chat-reply", text: "Pip isn't wired to the phone path yet — check initPhones/setPhoneChatHandler." });
-      return;
-    }
-    try {
-      const reply = await _chatHandler(text);
-      peer.send({ type: "chat-reply", text: reply ?? "(no response)" });
-    } catch (err) {
-      peer.send({ type: "chat-reply", text: `Error: ${err.message || err}` });
-    }
     return;
   }
   if (msg.type === "drive") {

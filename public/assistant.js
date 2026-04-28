@@ -247,33 +247,6 @@ async function onSubmit(text, { turnEl }) {
   return reply;
 }
 
-// Remote-chat entry point — runs askWithTools without touching local UI.
-// Wired from phones.js so paired phones chat through Pip. Tool side effects
-// still run locally on the desktop (BLE + ai-bridge live there); any
-// window.confirm() prompts surface on the desktop operator's screen, which
-// is intentional for physically-risky actions like restart_service.
-export async function handleRemoteChat(text, { source = "phone" } = {}) {
-  const t = text?.trim();
-  if (!t) return "(empty message)";
-  _pip.history.push({ role: "user", content: `[${source}] ${t}` });
-  _pip.setResponding(true);
-  const messages = _pip.history.slice(-HISTORY_LIMIT)
-    .map(m => ({ role: m.role, content: m.content }));
-  const reply = await askWithTools(messages, {
-    system: PIP_SYSTEM,
-    tools: getTools(),
-    executor,
-    maxTokens: 1024,
-  });
-  _pip.setResponding(false);
-  const finalReply = reply === null
-    ? "I can't reach my brain right now — try again in a sec?"
-    : reply || "I don't have a good answer for that — tell me more?";
-  _pip.history.push({ role: "assistant", content: finalReply });
-  if (_pip.history.length > HISTORY_LIMIT) _pip.history.splice(0, _pip.history.length - HISTORY_LIMIT);
-  return finalReply;
-}
-
 // Re-enter the top layer so bubble+panel stack above a modal dialog that
 // just joined the top layer. hide+show in the same task avoids a visible
 // flicker. Order matters: panel last so it stacks above the bubble.

@@ -21,50 +21,6 @@ function setStatus(state, text) {
   $("phone-status-text").textContent = text;
 }
 
-// Three semantic channels share #phone-message: pair-status, intro, and
-// Pip chat content. Channel kind controls a class on the message element so
-// CSS can visually distinguish them (status = muted/italic, chat = normal).
-// Without this distinction a stale "Connecting…" written into the slot would
-// look like Pip's most recent reply when the user reopens the accordion.
-function setMessage(text, channel = "chat") {
-  const el = $("phone-message");
-  el.textContent = text;
-  el.dataset.channel = channel;
-}
-function setEcho(text) {
-  const el = $("phone-echo");
-  if (text) { el.textContent = `"${text}"`; el.hidden = false; }
-  else      { el.textContent = "";         el.hidden = true;  }
-}
-
-// Auto-surface the Pip accordion when there's a meaningful message to
-// read or when the user is mid-conversation. Idle states (boot, reconnect,
-// etc.) stay collapsed so the camera + drive controls keep the real
-// estate. Two surfaces:
-//   - dot: unread indicator on the collapsed summary
-//   - open: actually expand the accordion so the message is visible
-//
-// "open" is reserved for things the user typed (need to see Pip's reply)
-// or things Pip pushes proactively (notice). Boilerplate connection
-// status updates set the dot but don't pop the panel open mid-driving.
-function pipMarkUnread() {
-  const dot = $("phone-pip-dot");
-  if (dot) dot.hidden = false;
-  const status = $("phone-pip-status");
-  if (status) status.textContent = "new message";
-}
-function pipMarkRead() {
-  const dot = $("phone-pip-dot");
-  if (dot) dot.hidden = true;
-  const status = $("phone-pip-status");
-  if (status) status.textContent = "tap to chat";
-}
-function pipOpen() {
-  const det = $("phone-pip");
-  if (det && !det.open) det.open = true;
-  pipMarkRead();
-}
-
 // Phone → desktop → BLE → robot relay. Correlation id round-trips so the
 // phone can resolve the right pending promise when multiple commands race
 // (e.g. a double-tap of Stop while the first is in flight).
@@ -110,18 +66,6 @@ function wireStopButton() {
   });
 }
 
-function handleSubmit(e) {
-  e.preventDefault();
-  const input = $("phone-input");
-  const text = input.value.trim();
-  if (!text || _pending || !_peer) return;
-  _pending = true;
-  input.disabled = true;
-  setEcho(text);
-  setMessage("…");
-  input.value = "";
-  _peer.send({ type: "chat", text });
-}
 
 // Pip asked a question — show the modal, wait for the user to tap an option
 // (or Skip / timeout at the other end). Only one ask at a time on screen;
@@ -271,24 +215,7 @@ function onPeerMessage(msg) {
     pending.resolve({ ok: !!msg.ok, data: msg.data, error: msg.error });
     return;
   }
-  if (msg.type === "chat-reply") {
-    setMessage(msg.text || "(no response)");
-    _pending = false;
-    $("phone-input").disabled = false;
-    $("phone-input").focus();
-    // User just sent a question — open the accordion so they see the
-    // reply land. The expand happened on send anyway, but this also
-    // covers a chat-reply arriving after the user collapsed mid-wait.
-    pipOpen();
-  } else if (msg.type === "notice") {
-    // Pip-initiated message (tool: send_to_phone) — desktop pushing to us.
-    setEcho("");
-    setMessage(msg.text || "");
-    // Auto-open Pip — proactive push from desktop is the canonical
-    // "you have something to read" trigger. Same UX rhythm as a
-    // notification surfacing a banner.
-    pipOpen();
-  } else if (msg.type === "scene") {
+  if (msg.type === "scene") {
     // Raw VLM observation push from desktop — like catwatcher, we just show
     // what the camera is seeing without Pip commentary on top.
     const section = $("phone-scene");
@@ -656,7 +583,7 @@ async function toggleShareCamera() {
       audio: false,
     });
   } catch (err) {
-    setMessage(`Camera unavailable: ${err.message || err}`);
+    showCommandStatus(`Camera unavailable: ${err.message || err}`, "alert");
     return;
   }
   _shareStream = stream;
@@ -1001,7 +928,6 @@ async function init() {
   const match = location.hash.match(/^#pair=(.+)$/);
   if (!match) {
     setStatus("error", "Not paired");
-    setMessage("");
     showReconnect("");
     startNearbyDiscovery();
     return;
@@ -1023,15 +949,6 @@ async function init() {
     setStatus("connecting", "");
     _peer = await joinPairingRoom(roomId, {});
     setStatus("connected", "");
-    // Intro fires once per install (the dot+silence is the steady state;
-    // re-greeting on every reconnect violates Pip's own "pipe up only when
-    // there's something worth knowing" rule). Mirror of assistant.js's
-    // PIP_INTRO — kept in sync manually rather than imported (would drag
-    // claude.js + Pip popover code into the phone bundle).
-    if (!localStorage.getItem("better-robotics:pip-intro-seen")) {
-      setMessage("Hi — I'm Pip. Ask me anything, or I'll pipe up when there's something worth knowing.");
-      try { localStorage.setItem("better-robotics:pip-intro-seen", "1"); } catch {}
-    }
     hideReconnect();
     // Send the desktop our pubkey + label so it can trust us on future
     // discovery without re-scanning. Sent as soon as the channel is up.
@@ -1051,34 +968,22 @@ async function init() {
       onPeerMessage(msg);
     });
     _peer.onTrack(onPeerTrack);
-    // Transient state: pairing.js handles ICE restart internally. We only
-    // change the visible status, keep input enabled so typed messages queue
-    // until the channel is back — the peer.send() no-ops while closed and
-    // the next data channel write will catch up.
-    _peer.onStatus((status, detail) => {
-      if (status === "connected") {
-        setStatus("connected", "");
-        $("phone-input").disabled = false;
-      } else if (status === "reconnecting") {
-        setStatus("connecting", "");
-      } else if (status === "failed") {
-        setStatus("error", "Disconnected");
-        $("phone-input").disabled = true;
-      }
+    // Transient state: pairing.js handles ICE restart internally; just
+    // mirror the visible status. Terminal states render text; transient
+    // states ride the dot.
+    _peer.onStatus((status) => {
+      if (status === "connected") setStatus("connected", "");
+      else if (status === "reconnecting") setStatus("connecting", "");
+      else if (status === "failed") setStatus("error", "Disconnected");
     });
     _peer.onClose(() => {
       setStatus("error", "Disconnected");
-      setMessage("Connection lost.");
-      $("phone-input").disabled = true;
       $("phone-cam-section").hidden = true;
       _stopSharing();
       $("phone-share").hidden = true;
       showReconnect("Lost the desktop. Scan a fresh QR to reconnect.");
       startNearbyDiscovery();
     });
-    $("phone-form").addEventListener("submit", handleSubmit);
-    $("phone-input").disabled = false;
-    $("phone-input").focus();
     wireJoypad();
     wireTiltDrive();
     wireStopButton();
@@ -1086,8 +991,7 @@ async function init() {
     wireShareCamera();
   } catch (err) {
     setStatus("error", "Failed");
-    setMessage(`Couldn't pair: ${err.message || err}`);
-    showReconnect("Pair failed — try a fresh QR from the desktop.");
+    showReconnect(`Pair failed — ${err.message || err}. Try a fresh QR from the desktop.`);
     startNearbyDiscovery();
   }
 }

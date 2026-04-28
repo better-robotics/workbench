@@ -159,28 +159,6 @@
     <div class="phone-scene-text" id="phone-scene-text"></div>
   </section>
 
-  <!-- Pip — collapsed accordion. Idle: just a "Pip" row + an unread dot
-       when there's a message the user hasn't seen. Tap to open the chat
-       bubble + input. Auto-opens when Pip pushes a notice / chat-reply
-       so the operator doesn't miss the message. -->
-  <details class="phone-pip" id="phone-pip">
-    <summary class="phone-pip-summary">
-      <span class="phone-pip-title"><svg class="icon-svg"><use href="icons.svg#icon-message-circle"/></svg>Pip</span>
-      <span class="phone-pip-status" id="phone-pip-status">tap to chat</span>
-      <span class="phone-pip-dot" id="phone-pip-dot" hidden aria-label="unread"></span>
-    </summary>
-    <div class="phone-pip-body">
-      <div class="phone-chat">
-        <div id="phone-echo" class="phone-echo" hidden></div>
-        <p id="phone-message" class="phone-message"></p>
-      </div>
-      <form id="phone-form" class="phone-form">
-        <input id="phone-input" class="phone-input" type="text" autocomplete="off"
-               placeholder="Ask Pip…" maxlength="4000" aria-label="Ask Pip" disabled>
-      </form>
-    </div>
-  </details>
-
   <!-- Reconnect surface — shown when there's no pair code in the URL, or
        after a connection drop. Special case: when this section is visible,
        most of the rest above is moot, so it gets full width. -->

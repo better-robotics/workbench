@@ -2,7 +2,7 @@ import { state } from "./state.js";
 import { settings } from "./settings.js";
 import { waitOpsResponse } from "./ops-response.js";
 import { getLog, getConfig, restartService } from "./capabilities/runtime/command.js";
-import { listPhones, sendToPhone, askHuman } from "./phones.js";
+import { listPhones, askHuman } from "./phones.js";
 import {
   listHelpers, startHelperCamera, stopHelperCamera, takeHelperSnapshot,
 } from "./helpers.js";
@@ -150,19 +150,6 @@ const ALL_TOOLS = [
       required: ["id"],
     },
     annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: true },
-  },
-  {
-    name: "send_to_phone",
-    description: "Push a short text notice to a paired phone — shows up in place of the last reply on the phone screen. Use sparingly; it interrupts whatever the phone user was reading.",
-    input_schema: {
-      type: "object",
-      properties: {
-        id: { type: "string", description: "Phone id from list_phones" },
-        text: { type: "string", description: "One short sentence, under 200 chars." },
-      },
-      required: ["id", "text"],
-    },
-    annotations: { readOnlyHint: false, idempotentHint: false, destructiveHint: false, openWorldHint: true },
   },
   {
     name: "list_helpers",
@@ -453,11 +440,6 @@ async function dispatch(name, input) {
           { type: "image", source: { type: "base64", media_type: m[1], data: m[2] } },
         ],
       };
-    }
-    case "send_to_phone": {
-      const text = String(input.text || "").slice(0, 300);
-      const ok = sendToPhone(input.id, text);
-      return ok ? { ok: true } : { error: `no phone with id ${input.id}` };
     }
     case "list_helpers": {
       return listHelpers();

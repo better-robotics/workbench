@@ -2193,8 +2193,7 @@ body.phone {
   background: var(--bg);
   color: var(--ink);
   /* Global html/body rule above uses overflow:hidden for the desktop
-     app-shell. phone.html's layout expects the body to scroll (content
-     overflows naturally — see .phone-chat comment below), so override. */
+     app-shell. phone.html's layout expects the body to scroll, so override. */
   overflow: auto;
   -webkit-overflow-scrolling: touch;
   /* Phone is a touch surface — drags that incidentally cross labels/
@@ -2268,36 +2267,6 @@ body.phone textarea {
   font-size: 13px;
   color: var(--ink-muted);
 }
-.phone-chat {
-  /* Was `flex: 1` — grew to fill the 100dvh column and pushed Stop +
-     drive off-screen on shorter phones. Content-sized with a min-height
-     now; the column overflows naturally and body scrolls. */
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 16px;
-  background: var(--surface);
-  border: 1px solid var(--border-default);
-  border-radius: 14px;
-  min-height: 140px;
-}
-.phone-echo {
-  font-size: 13px;
-  font-style: italic;
-  color: var(--ink-muted);
-  padding-left: 10px;
-  border-left: 2px solid var(--border-default);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.phone-message {
-  margin: 0;
-  font-size: 16px;
-  line-height: 1.4;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.phone-form { margin: 0; }
 /* Discovery list shown when phone.html loads without a #pair= hash. Each
    button takes the user to the same room they would have reached via QR. */
 .phone-nearby { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
@@ -2420,23 +2389,6 @@ body.phone textarea {
   cursor: pointer;
 }
 .pair-request-trust-row input { width: 18px; height: 18px; }
-.phone-input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 12px 14px;
-  border: 1px solid var(--border-default);
-  border-radius: 12px;
-  background: var(--surface);
-  color: var(--ink);
-  font: inherit;
-  font-size: 16px;  /* 16px prevents iOS auto-zoom */
-}
-.phone-input:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);
-}
-.phone-input:disabled { opacity: 0.55; }
 /* Live remote camera (desktop → phone). One source at a time today. */
 .phone-cam-section {
   display: flex;
@@ -2686,67 +2638,6 @@ body.phone textarea {
    pushes a message worth reading. The "details > summary" pattern is
    native + accessible — the disclosure caret is browser-supplied, so we
    don't have to wire keyboard / aria ourselves. */
-.phone-pip {
-  border: 1px solid var(--border-subtle);
-  border-radius: 12px;
-  background: var(--bg-elev);
-  padding: 0;
-  margin: 0;
-}
-.phone-pip-summary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
-  cursor: pointer;
-  list-style: none;
-  font-weight: 500;
-}
-.phone-pip-title { display: inline-flex; align-items: center; gap: 8px; }
-.phone-pip-title .icon-svg { width: 18px; height: 18px; color: var(--ink-muted); }
-.phone-pip-summary::-webkit-details-marker { display: none; }
-.phone-pip-summary::marker { content: ""; }
-.phone-pip-summary::after {
-  content: "›";
-  margin-left: auto;
-  color: var(--ink-muted);
-  transition: transform 0.2s ease;
-}
-.phone-pip[open] .phone-pip-summary::after { transform: rotate(90deg); }
-.phone-pip-status {
-  margin-left: auto;
-  font-size: 12px;
-  font-weight: 400;
-  color: var(--ink-muted);
-}
-/* Unread dot — surfaces "Pip has something new" without opening. */
-.phone-pip-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--accent);
-  flex-shrink: 0;
-}
-.phone-pip-body {
-  padding: 0 16px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-/* Tighten the chat bubble inside the accordion — old layout gave it a
-   full-section, here it's nested. */
-.phone-pip-body .phone-chat { margin: 0; }
-.phone-pip-body .phone-form { margin: 0; }
-/* Channel-specific tone for the multiplexed message slot. status / intro
-   read as boilerplate; chat reads as Pip's actual voice. Lets a stale
-   "Connecting…" not look like Pip's last reply on reopen. */
-.phone-message[data-channel="status"],
-.phone-message[data-channel="intro"] {
-  color: var(--ink-muted);
-  font-style: italic;
-  font-size: 13px;
-}
-
 /* ask_human modal on the phone. Preempts chat / drive so the user notices
    Pip is waiting on them. Image is the robot's current frame; options row
    for tappable answers, free-text form when Pip asks open-ended. Skip
