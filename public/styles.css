@@ -1304,6 +1304,105 @@ details.tray.has-alert > summary::after {
   -webkit-touch-callout: none;
   -webkit-tap-highlight-color: transparent;
 }
+
+/* Drive-mode toggle (joypad ⇄ tilt) — segmented control. Two buttons,
+   the active one filled, the other ghost. Sits in the section header
+   so it doesn't push the actual driving controls down. */
+.phone-drive-mode {
+  display: flex;
+  gap: 0;
+  margin-left: auto;
+  border-radius: 999px;
+  background: var(--bg-elev);
+  padding: 2px;
+}
+.phone-drive-mode .mode-btn {
+  background: transparent;
+  border: none;
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+.phone-drive-mode .mode-btn[aria-pressed="true"] {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* Tilt-drive: phone-as-steering-wheel. Visual indicator across the top
+   shows real-time gamma (left-right roll); pedals stack vertically below
+   so a thumb on either hand reaches them naturally with the phone in
+   landscape. */
+.tilt-drive {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.tilt-indicator {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+}
+.tilt-bar {
+  position: relative;
+  width: 100%;
+  height: 8px;
+  background: var(--border-subtle);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.tilt-fill {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background: var(--accent);
+  transition: left 60ms linear, width 60ms linear;
+}
+.tilt-readout {
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+.tilt-pedals {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tilt-pedal {
+  font: inherit;
+  font-size: 16px;
+  font-weight: 500;
+  padding: 18px 0;
+  border-radius: 14px;
+  border: 1px solid var(--border-default);
+  background: var(--bg-elev);
+  color: var(--ink);
+  cursor: pointer;
+  /* Big tap target, immediate visual response. The active state makes
+     the held-down feel obvious to the operator. */
+}
+.tilt-pedal:active,
+.tilt-pedal[aria-pressed="true"] {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.tilt-permission {
+  font: inherit;
+  padding: 10px 16px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+}
 .joypad {
   /* 140 px (was 180 px) — recovers ~40 px of vertical real estate when
      the Motors section is open. The shared joypad module reads the

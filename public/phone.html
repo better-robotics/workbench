@@ -142,10 +142,30 @@
     <div class="phone-drive-header">
       <div class="label">Drive</div>
       <div class="meta" id="phone-drive-target">No robot connected</div>
+      <div class="phone-drive-mode">
+        <button class="mode-btn" id="phone-drive-mode-joypad" data-mode="joypad" aria-pressed="true">Joypad</button>
+        <button class="mode-btn" id="phone-drive-mode-tilt" data-mode="tilt" aria-pressed="false">Tilt</button>
+      </div>
     </div>
-    <div class="joypad-wrap">
+    <!-- Joypad: thumbstick analogy. Drag to drive. -->
+    <div class="joypad-wrap" id="phone-drive-joypad-wrap">
       <div class="joypad" id="phone-joypad"><div class="joypad-knob"></div></div>
       <div class="meta joypad-hint">Drag to drive</div>
+    </div>
+    <!-- Tilt-drive: phone-as-steering-wheel. Roll the phone left/right to
+         turn (gamma axis from DeviceOrientationEvent), press-and-hold a
+         throttle button to go forward / reverse. Hidden until the user
+         picks Tilt mode and grants the iOS motion-permission prompt. -->
+    <div class="tilt-drive" id="phone-drive-tilt-wrap" hidden>
+      <div class="tilt-indicator" id="phone-tilt-indicator">
+        <div class="tilt-bar"><div class="tilt-fill" id="phone-tilt-fill"></div></div>
+        <div class="meta tilt-readout" id="phone-tilt-readout">Roll phone L/R to steer</div>
+      </div>
+      <div class="tilt-pedals">
+        <button class="tilt-pedal forward" id="phone-tilt-forward" type="button">▲ Forward</button>
+        <button class="tilt-pedal reverse" id="phone-tilt-reverse" type="button">▼ Reverse</button>
+      </div>
+      <button class="tilt-permission" id="phone-tilt-permission" hidden>Allow motion sensors</button>
     </div>
   </section>
 
