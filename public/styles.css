@@ -1917,6 +1917,47 @@ dialog[open]::backdrop { opacity: 1; }
 .settings-item.key-row .key-fingerprint { word-break: break-all; }
 .settings-item.passwords-row { grid-template-columns: 1fr; gap: 6px; }
 .settings-item.pip-backend-row { grid-template-columns: 1fr; gap: 6px; }
+
+/* Disclosure-row pattern — Advanced section uses <details> so one-time
+   setup tasks (key, passwords) collapse to a one-line summary by default.
+   Summary shows label + current value at a glance; tap reveals the action
+   set. Same iOS-Settings idiom. The grid template on the summary mirrors
+   a normal settings-item row for visual rhythm. */
+.settings-disclosure {
+  display: block;
+  padding: 0;
+}
+.settings-disclosure-summary {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 0;
+  cursor: pointer;
+  list-style: none;
+}
+.settings-disclosure-summary::-webkit-details-marker { display: none; }
+.settings-disclosure-summary::marker { content: ""; }
+.settings-disclosure-summary::after {
+  content: "›";
+  color: var(--ink-muted);
+  font-size: 18px;
+  transition: transform 0.2s ease;
+}
+.settings-disclosure[open] .settings-disclosure-summary::after { transform: rotate(90deg); }
+.settings-disclosure-summary .key-fingerprint,
+.settings-disclosure-summary .meta {
+  text-align: right;
+  word-break: break-all;
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+.settings-disclosure-body {
+  padding: 4px 0 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
 .pwd-entry {
   display: flex;
   align-items: center;

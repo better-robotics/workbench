@@ -201,25 +201,11 @@
     </div>
   </section>
 
-  <div class="settings-group-header">Security</div>
-  <div class="settings-item key-row">
-    <div class="settings-title">Dashboard key</div>
-    <div class="meta key-fingerprint" id="key-fingerprint">—</div>
-    <div class="hint">Authorizes SSH + BLE ops on robots you prepare.</div>
-    <div class="key-actions">
-      <button class="secondary sm" id="key-copy-pub">Copy public</button>
-      <button class="secondary sm" id="key-download">Download private key</button>
-      <button class="secondary sm" id="key-import">Import</button>
-      <button class="secondary sm danger" id="key-regenerate">Regenerate</button>
-    </div>
-  </div>
-  <div class="settings-item passwords-row">
-    <div class="settings-title">Robot passwords</div>
-    <div class="hint">Auto-generated during Pi setup when you leave the password blank. SSH uses the key; these are here for sudo / terminal login.</div>
-    <div id="passwords-list"></div>
-  </div>
+  <!-- Order: most-touched first. Pip backend is what users adjust between
+       sessions; experimental flags are occasional; advanced (key + robot
+       passwords) is one-time setup, collapsed by default behind a tap. -->
 
-  <div class="settings-group-header">Pip backend</div>
+  <div class="settings-group-header">Pip</div>
   <div class="settings-item pip-backend-row">
     <select id="setting-pip-backend" class="settings-select" aria-label="Pip backend">
       <option value="github">GitHub Models (default)</option>
@@ -229,6 +215,9 @@
       <option value="local">LFM2.5-1.2B-Thinking (local)</option>
     </select>
     <div class="hint" id="setting-pip-backend-hint"></div>
+    <!-- Per-backend connection / key rows. Each one shows ONLY the action
+         (status + button or input) — no second hint repeating the dropdown
+         description. The dropdown's hint already covers the "what." -->
     <div id="setting-pip-github-row" class="pip-key-row" hidden>
       <div class="local-status-row">
         <div class="local-status">
@@ -237,17 +226,14 @@
         </div>
         <button id="setting-pip-github-connect" type="button">Connect GitHub</button>
       </div>
-      <div class="hint">Sign in with GitHub once; the OAuth token is scoped to GitHub Models inference and stored only in this browser. No API key to manage. The token is short-lived — re-connect when it expires.</div>
     </div>
     <div id="setting-pip-anthropic-key-row" class="pip-key-row" hidden>
       <label for="setting-pip-key" class="settings-title">Anthropic API key</label>
       <form autocomplete="off" onsubmit="return false"><input type="password" id="setting-pip-key" autocomplete="off" placeholder="sk-ant-…" spellcheck="false"></form>
-      <div class="hint">Stored in this browser only (localStorage). Goes directly to api.anthropic.com — never crosses our infrastructure. Treat like a password.</div>
     </div>
     <div id="setting-pip-openai-key-row" class="pip-key-row" hidden>
       <label for="setting-pip-openai-key" class="settings-title">OpenAI API key</label>
       <form autocomplete="off" onsubmit="return false"><input type="password" id="setting-pip-openai-key" autocomplete="off" placeholder="sk-…" spellcheck="false"></form>
-      <div class="hint">Stored in this browser only. Goes directly to api.openai.com. Default model is gpt-4o-mini (cheap; tool-call capable). Treat like a password.</div>
     </div>
     <div id="setting-pip-local-row" class="pip-local-row" hidden>
       <div class="local-status-row">
@@ -258,14 +244,13 @@
         <button id="setting-pip-local-install">Install (1.2 GB)</button>
       </div>
       <progress id="setting-pip-local-progress" value="0" max="100" hidden></progress>
-      <div class="hint">One-time download. Persists across sessions in the service-worker cache.</div>
     </div>
   </div>
   <div class="settings-item" id="setting-pip-vision-row" hidden>
     <input type="checkbox" id="setting-pip-vision">
     <label for="setting-pip-vision">
       <div class="settings-title">Let Pip view camera frames directly</div>
-      <div class="hint">When Pip needs visual nuance the VLM can't convey, it attaches a frame to its reasoning. Frames leave the device — Claude-only (bridge / direct), off by default. Costs more tokens than the text VLM path.</div>
+      <div class="hint">Frames leave the device when Pip needs visual nuance — Claude-only, off by default.</div>
     </label>
   </div>
 
@@ -285,6 +270,37 @@
       <div class="hint" id="setting-voice-privacy" hidden>Audio is processed by Chrome's speech-to-text (Google cloud).</div>
     </label>
   </div>
+
+  <!-- Advanced (was "Security"). One-time setup; collapsed by default to
+       keep the daily-use Pip + Experimental rows scannable above. Each
+       row's summary shows the current value at a glance; tapping reveals
+       the action set + the explanatory help. -->
+  <div class="settings-group-header">Advanced</div>
+  <details class="settings-item settings-disclosure key-row">
+    <summary class="settings-disclosure-summary">
+      <div class="settings-title">Dashboard key</div>
+      <div class="meta key-fingerprint" id="key-fingerprint">—</div>
+    </summary>
+    <div class="settings-disclosure-body">
+      <div class="hint">Authorizes SSH + BLE ops on robots you prepare.</div>
+      <div class="key-actions">
+        <button class="secondary sm" id="key-copy-pub">Copy public</button>
+        <button class="secondary sm" id="key-download">Download private key</button>
+        <button class="secondary sm" id="key-import">Import</button>
+        <button class="secondary sm danger" id="key-regenerate">Regenerate</button>
+      </div>
+    </div>
+  </details>
+  <details class="settings-item settings-disclosure passwords-row">
+    <summary class="settings-disclosure-summary">
+      <div class="settings-title">Robot passwords</div>
+      <div class="meta" id="passwords-summary">—</div>
+    </summary>
+    <div class="settings-disclosure-body">
+      <div class="hint">Auto-generated during Pi setup when the password is blank. SSH uses the dashboard key; these are for sudo / terminal login.</div>
+      <div id="passwords-list"></div>
+    </div>
+  </details>
 </dialog>
 
 <dialog id="pinout-modal" class="prepare-dialog"

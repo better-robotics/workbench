@@ -53,8 +53,13 @@ export async function ensurePassword(hostname) {
 export function initPasswordsUI() {
   const host = $("passwords-list");
   if (!host) return;
+  const summary = $("passwords-summary");
   const render = () => {
     const items = listPasswords();
+    // Collapsed-row summary mirrors the count so the disclosure summary
+    // is informative without expanding. Empty state stays "None yet"
+    // both inside and on the summary line for consistency.
+    if (summary) summary.textContent = items.length === 0 ? "None yet" : `${items.length} stored`;
     if (items.length === 0) {
       host.innerHTML = `<div class="hint">None yet.</div>`;
       return;
