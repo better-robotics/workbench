@@ -24,7 +24,7 @@ import { initAuthUI, fingerprint as dashFingerprint, pubkeySsh, onKeyChange } fr
 import { initPasswordsUI } from "./passwords.js";
 import { initAssistant, emitPipEvent } from "./assistant.js";
 import { initPhones, broadcastTargetInfo, sendArucoStatus } from "./phones.js";
-import { getLoadState as getLocalLoadState, onLoadStateChange as onLocalLoadStateChange, loadModel as loadLocalModel } from "./local-llm.js";
+import { getLoadState as getLocalLoadState, onLoadStateChange as onLocalLoadStateChange, loadModel as loadLocalModel, reloadModel as reloadLocalModel } from "./local-llm.js";
 import { initHelpers, setHelpersRobotRenderer, renderHelpers, hasActiveHelpers, onHelpersChange } from "./helpers.js";
 import { startTracking as startArucoTracking, stopTracking as stopArucoTracking } from "./aruco.js";
 import {
@@ -1979,8 +1979,13 @@ document.addEventListener("DOMContentLoaded", () => {
   onLocalLoadStateChange(refreshLocalUI);
   refreshLocalUI(getLocalLoadState());
   localInstallBtn.addEventListener("click", () => {
-    loadLocalModel().catch((err) => {
-      console.warn("[local-llm] install failed", err);
+    // When ready, the button reads "Reload" and triggers an in-memory
+    // dispose + re-init from the IndexedDB cache (no re-download). Other
+    // states (idle, error) just call loadModel for first install / retry.
+    const s = getLocalLoadState();
+    const action = s.status === "ready" ? reloadLocalModel : loadLocalModel;
+    action().catch((err) => {
+      console.warn("[local-llm] action failed", err);
     });
   });
 

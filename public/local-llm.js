@@ -93,6 +93,17 @@ async function ensureLoaded() {
   if (!_model) await loadModel();
 }
 
+// Dispose the in-memory runtime and re-init from the IndexedDB cache.
+// Useful when the model is wedged after a long session; the weights stay
+// cached so the second load is fast (no 1.2 GB download).
+export async function reloadModel() {
+  _model = null;
+  _tokenizer = null;
+  _loadingPromise = null;
+  setState({ status: "idle", progress: 0, file: "", error: undefined });
+  return loadModel();
+}
+
 // Strip <think>...</think> reasoning blocks from visible text. The Thinking
 // model uses these for chain-of-thought; surface only the final answer.
 // MAX_NEW_TOKENS can cut the model off mid-thought — an unclosed <think> has
