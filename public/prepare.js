@@ -6,7 +6,13 @@ const FIRMWARE_URL    = "firmware/pi_robot";
 const FIRMWARE_FILES  = [
   "pi_robot.py", "requirements.txt", "pi-robot.service",
   "heartbeat.py", "pi-robot-heartbeat.service",
+  "pi_robot_health.py", "pi-robot-health.service",
+  "avahi-betterrobot.service",
   "usb-gadget-setup.sh", "usb-gadget.service",
+  // pi-robot-rtc — WebRTC peer (Phase 1.A item I in working.md). The
+  // rtc/Makefile clones libpeer on first boot, so we ship sources only.
+  "pi-robot-rtc.service",
+  "rtc/Makefile", "rtc/main.c", "rtc/README.md",
 ];
 const SSH_KEY_STORE   = "better-robotics:ssh-pub";
 // libcomposite is the generic USB-gadget driver; the actual composite
@@ -32,8 +38,16 @@ function prepLog(msg, cls) {
 const shSingleQuote = (s) => "'" + s.replace(/'/g, "'\\''") + "'";
 const ensureDir = (parent, name) => parent.getDirectoryHandle(name, { create: true });
 
+// `name` may be a relative path with `/` separators — directories are
+// created on demand so the caller doesn't have to mkdir each segment.
 async function writeFile(dir, name, contents) {
-  const h = await dir.getFileHandle(name, { create: true });
+  const segments = name.split("/").filter(Boolean);
+  let d = dir;
+  for (let i = 0; i < segments.length - 1; i++) {
+    d = await ensureDir(d, segments[i]);
+  }
+  const leaf = segments[segments.length - 1];
+  const h = await d.getFileHandle(leaf, { create: true });
   const w = await h.createWritable();
   await w.write(contents);
   await w.close();

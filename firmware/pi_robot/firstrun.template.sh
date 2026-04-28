@@ -250,10 +250,34 @@ BTEOF
     # Install if missing — base image varies; --no-install-recommends keeps
     # the dependency footprint tight.
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends avahi-daemon 2>/dev/null || true
+
+    # pi-robot-rtc: WebRTC peer for browser shell + future channels (OTA
+    # over DataChannel, log streaming, etc.). Build on first boot — libpeer
+    # CMake handles its own deps (mbedtls, libsrtp, libusrsctp, cjson) via
+    # ExternalProject, so we only need build-essential + cmake + git here.
+    note rtc_build_start
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        build-essential cmake pkg-config git 2>&1 >> "$BOOTFS/rtc-build.log" || true
+    if [ -d "$DEST/rtc" ]; then
+      su - "$USER_NAME" -c "cd '$DEST/rtc' && make all" >> "$BOOTFS/rtc-build.log" 2>&1
+      RTC_RC=$?
+      if [ $RTC_RC -eq 0 ] && [ -x "$DEST/rtc/pi-robot-rtc" ]; then
+        note rtc_build_ok
+        if [ -f "$DEST/pi-robot-rtc.service" ]; then
+          sed "s|__HOME__|/home/$USER_NAME|g" "$DEST/pi-robot-rtc.service" \
+            > /etc/systemd/system/pi-robot-rtc.service
+          chmod 644 /etc/systemd/system/pi-robot-rtc.service
+        fi
+      else
+        note rtc_build_failed "see /boot/firmware/rtc-build.log (exit $RTC_RC)"
+      fi
+    fi
+
     systemctl daemon-reload
     systemctl enable pi-robot.service
     systemctl enable pi-robot-heartbeat.service 2>/dev/null || true
     systemctl enable pi-robot-health.service 2>/dev/null || true
+    systemctl enable pi-robot-rtc.service 2>/dev/null || true
     systemctl enable avahi-daemon.service 2>/dev/null || true
     note service_enabled
 

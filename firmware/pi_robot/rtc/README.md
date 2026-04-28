@@ -4,10 +4,13 @@ WebRTC peer for the Pi side. Bridges browser DataChannels to local services.
 Built on libpeer (sepfy, pure C, ~6 KLOC) so the same stack runs on
 ESP32-CAM-MB later (Phase 2 of working.md item I).
 
-**Status: scaffold.** Wire format documented; C implementation lands in
-the next commit. The dashboard side (`public/shell.js`, `public/webrtc-robot.js`)
-already speaks this protocol — Connect button surfaces a clear error
-("Couldn't reach pi-robot-rtc") until the daemon runs.
+**Status: implementation written, untested on hardware.** The C daemon
+(`main.c`) plus build pipeline (`Makefile`) plus systemd unit + first-
+run integration are all in place. Needs a real Pi prepare to verify:
+the build succeeds, the binary listens on `:82`, the SDP exchange
+returns a valid answer, the data channel opens and the PTY bridge
+delivers a working bash session. Speculative C until tested — the
+libpeer API surface is matched against the upstream RPi example.
 
 ## Wire format
 
