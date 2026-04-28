@@ -1884,12 +1884,14 @@ dialog[open]::backdrop { opacity: 1; }
 .pip-turn.collapsed > .pip-turn-full    { display: none; }
 .settings-profile {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
   padding-bottom: 16px;
   margin-bottom: 4px;
   /* No border-bottom — the next .settings-item's border-top is the divider. */
 }
+.avatar-preview { margin-top: 18px; }  /* pin avatar to the input row, not the stack center */
+.settings-signin { margin-top: 10px; }
 .avatar-preview {
   width: 48px;
   height: 48px;

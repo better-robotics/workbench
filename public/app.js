@@ -1880,9 +1880,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // the username display AND the GitHub Models Pip backend. When signed in,
   // the visible name is `@username` and the input is read-only.
   function displayName() {
-    return settings.githubAuth?.username
-      ? `@${settings.githubAuth.username}`
-      : profile.name;
+    return settings.githubAuth?.username || profile.name;
   }
   function syncIdentityUI() {
     const signedIn = !!settings.githubAuth?.username;
