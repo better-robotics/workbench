@@ -190,9 +190,8 @@ export function makeWifiScanCap(schema) {
       //   networks=[] (empty array)     → "No networks found" (we did scan,
       //                                    firmware just returned nothing)
       //   networks=null (never scanned) → nothing
-      const nets = networks && networks.length ? `
-        <ul class="wifi-list">
-          ${networks.map(n => {
+      const networkRows = networks && networks.length
+        ? networks.map(n => {
             const isJoined = n.s === joinedSsid;
             const meta = isJoined
               ? "Connected"
@@ -211,23 +210,28 @@ export function makeWifiScanCap(schema) {
                 ${action}
               </li>
             `;
-          }).join("")}
-        </ul>
-      ` : scanning ? `
-        <div class="wifi-empty"><span class="wifi-spinner"></span> Looking for networks…</div>
-      ` : Array.isArray(networks) ? `
-        <div class="wifi-empty">No networks found — try again, or join another network manually.</div>
-      ` : "";
+          }).join("")
+        : scanning
+          ? `<li class="wifi-row wifi-row-status"><span class="wifi-spinner"></span> Looking for networks…</li>`
+          : Array.isArray(networks)
+            ? `<li class="wifi-row wifi-row-status">No networks found — try again.</li>`
+            : "";
+      const otherRow = `
+        <li class="wifi-row wifi-row-other" data-action="${actionManualJoin}" role="button" tabindex="0">
+          <svg class="icon-svg wifi-row-other-icon" aria-hidden="true"><use href="icons.svg#icon-plus"/></svg>
+          <div class="wifi-text">
+            <div class="wifi-ssid">Join other network…</div>
+          </div>
+        </li>
+      `;
+      const nets = `<ul class="wifi-list">${networkRows}${otherRow}</ul>`;
       return capSection({
         name,
         label,
         state: summarize(entry[statusState]),
-        action: `<div class="wifi-actions">
-          <button class="secondary sm" data-action="${actionScan}" ${scanning ? "disabled" : ""}>
-            ${scanning ? `<span class="wifi-spinner"></span> Scanning…` : "Scan"}
-          </button>
-          <button class="secondary sm" data-action="${actionManualJoin}">Join other…</button>
-        </div>`,
+        action: `<button class="secondary sm" data-action="${actionScan}" ${scanning ? "disabled" : ""}>
+          ${scanning ? `<span class="wifi-spinner"></span> Scanning…` : "Scan"}
+        </button>`,
         body: nets,
         sourceMember, alternativeMemberIds,
       });
@@ -236,8 +240,13 @@ export function makeWifiScanCap(schema) {
     wireActions(entry, node) {
       const scanBtn = node.querySelector(`[data-action="${actionScan}"]`);
       if (scanBtn) scanBtn.addEventListener("click", () => scan(entry));
-      const manualBtn = node.querySelector(`[data-action="${actionManualJoin}"]`);
-      if (manualBtn) manualBtn.addEventListener("click", () => joinManual(entry));
+      const manualRow = node.querySelector(`[data-action="${actionManualJoin}"]`);
+      if (manualRow) {
+        manualRow.addEventListener("click", () => joinManual(entry));
+        manualRow.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); joinManual(entry); }
+        });
+      }
       node.querySelectorAll(`[data-action="${actionJoin}"]`).forEach(btn => {
         btn.addEventListener("click", () => join(
           entry, btn.dataset.ssid, btn.dataset.secured === "1",
