@@ -412,13 +412,18 @@ static bool initCamera() {
   // and stay reverted. brightness / saturation / contrast / sharpness
   // are post-DSP cosmetic knobs that don't reconfigure exposure; safe
   // to apply, and the factory defaults read flat indoors.
-  // vflip + hmirror handle the AI-Thinker mounting quirk (the camera
-  // connector exits the module in a way that produces a 180°-rotated
-  // image vs. how operators hold the chassis).
+  // vflip handles the AI-Thinker mounting quirk (camera connector exits
+  // the module in a way that puts the image upside-down for a robot
+  // sitting on the chassis with the camera pointing forward). hmirror
+  // stays OFF: a robot's camera is outward-facing — the operator is
+  // looking through the robot's eyes at the world, so left-in-image
+  // should equal left-in-world (robot POV). hmirror=1 was a selfie-
+  // camera convention that made objects appear left-right reversed
+  // (text mirrored, ArUco markers detected at the wrong corner, etc.).
   sensor_t* s = esp_camera_sensor_get();
   if (s) {
     s->set_vflip(s, 1);
-    s->set_hmirror(s, 1);
+    s->set_hmirror(s, 0);
     s->set_brightness(s, 1);   // -2..2; lifts dim indoor scenes
     s->set_saturation(s, 1);   // -2..2; default reads washed-out
     s->set_contrast(s, 1);     // -2..2; default reads flat
