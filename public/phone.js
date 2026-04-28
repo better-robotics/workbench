@@ -51,6 +51,34 @@ function setEcho(text) {
   else      { el.textContent = "";         el.hidden = true;  }
 }
 
+// Auto-surface the Pip accordion when there's a meaningful message to
+// read or when the user is mid-conversation. Idle states (boot, reconnect,
+// etc.) stay collapsed so the camera + drive controls keep the real
+// estate. Two surfaces:
+//   - dot: unread indicator on the collapsed summary
+//   - open: actually expand the accordion so the message is visible
+//
+// "open" is reserved for things the user typed (need to see Pip's reply)
+// or things Pip pushes proactively (notice). Boilerplate connection
+// status updates set the dot but don't pop the panel open mid-driving.
+function pipMarkUnread() {
+  const dot = $("phone-pip-dot");
+  if (dot) dot.hidden = false;
+  const status = $("phone-pip-status");
+  if (status) status.textContent = "new message";
+}
+function pipMarkRead() {
+  const dot = $("phone-pip-dot");
+  if (dot) dot.hidden = true;
+  const status = $("phone-pip-status");
+  if (status) status.textContent = "tap to chat";
+}
+function pipOpen() {
+  const det = $("phone-pip");
+  if (det && !det.open) det.open = true;
+  pipMarkRead();
+}
+
 // Phone → desktop → BLE → robot relay. Correlation id round-trips so the
 // phone can resolve the right pending promise when multiple commands race
 // (e.g. a double-tap of Stop while the first is in flight).
@@ -262,10 +290,18 @@ function onPeerMessage(msg) {
     _pending = false;
     $("phone-input").disabled = false;
     $("phone-input").focus();
+    // User just sent a question — open the accordion so they see the
+    // reply land. The expand happened on send anyway, but this also
+    // covers a chat-reply arriving after the user collapsed mid-wait.
+    pipOpen();
   } else if (msg.type === "notice") {
     // Pip-initiated message (tool: send_to_phone) — desktop pushing to us.
     setEcho("");
     setMessage(msg.text || "");
+    // Auto-open Pip — proactive push from desktop is the canonical
+    // "you have something to read" trigger. Same UX rhythm as a
+    // notification surfacing a banner.
+    pipOpen();
   } else if (msg.type === "scene") {
     // Raw VLM observation push from desktop — like catwatcher, we just show
     // what the camera is seeing without Pip commentary on top.
