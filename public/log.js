@@ -63,10 +63,6 @@ function buildNameSpan(name) {
 
 export const log = (msg, name = "") => {
   const el = $("log");
-  // Tray is hidden until the first log line lands — keeps the empty state
-  // truly empty. Any subsequent log() calls find it already visible.
-  const tray = $("log-tray");
-  if (tray && tray.hidden) tray.hidden = false;
   const now = new Date().toLocaleTimeString();
   const key = `${name}|${msg}`;
   if (key === _lastLogKey && _lastLogMsgNode) {
