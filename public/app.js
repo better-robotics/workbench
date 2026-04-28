@@ -1567,12 +1567,20 @@ function showSwUpdateBanner(worker) {
 setupServiceWorker({ onUnsolicitedUpdate: showSwUpdateBanner });
 
 document.addEventListener("DOMContentLoaded", () => {
-  if (!navigator.bluetooth) {
+  // Browsers without Web Bluetooth (iOS Safari is the common case — a phone
+  // user who navigated phone → "Open dashboard view") still need the chrome
+  // to work: they should be able to open the BetterRobotics menu, install
+  // the PWA, check for updates, get a random profile name. The earlier
+  // early-return killed every wiring below it, so the menu was inert and
+  // the avatar stayed at "?". Now: surface the unsupported banner + disable
+  // BLE-only buttons, but let the rest of init run.
+  const hasBLE = !!navigator.bluetooth;
+  if (!hasBLE) {
     $("unsupported").hidden = false;
     $("scan-btn").disabled = true;
-    return;
-  }
-  if (navigator.bluetooth.getAvailability) {
+    $("empty-scan-btn").disabled = true;
+    $("connect-all-btn").disabled = true;
+  } else if (navigator.bluetooth.getAvailability) {
     navigator.bluetooth.getAvailability().then(setBluetoothAvailable);
     navigator.bluetooth.addEventListener("availabilitychanged", (e) => {
       setBluetoothAvailable(e.value);
