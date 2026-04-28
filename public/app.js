@@ -326,7 +326,10 @@ function autoReconnectKnown() {
 }
 
 async function scanForNew() {
-  if (settings.passiveScan && navigator.bluetooth.requestLEScan) {
+  // Passive scan when the browser supports it — no chooser modal, robots
+  // appear inline as they advertise. Falls back to requestDevice's chooser
+  // when requestLEScan is missing (Chrome flag off, or non-Chromium).
+  if (navigator.bluetooth.requestLEScan) {
     return scanForNewPassive();
   }
   try {
@@ -1843,19 +1846,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if (confirm(`Forget ${name}?\n\nYou'll need to pair it again to use it.`)) {
       forgetDevice(id);
     }
-  });
-
-  const passiveCheckbox = $("setting-passive-scan");
-  const passiveStatus = $("setting-passive-scan-status");
-  const passiveAvailable = !!navigator.bluetooth?.requestLEScan;
-  passiveCheckbox.checked = settings.passiveScan;
-  passiveStatus.textContent = passiveAvailable
-    ? "Scan for robots in the background without a chooser."
-    : "Unavailable — enable chrome://flags#enable-experimental-web-platform-features.";
-  if (!passiveAvailable) passiveCheckbox.disabled = true;
-  passiveCheckbox.addEventListener("change", () => {
-    settings.passiveScan = passiveCheckbox.checked;
-    saveSettings();
   });
 
   // Pip backend picker — bridge (default), Anthropic direct, OpenAI direct,
