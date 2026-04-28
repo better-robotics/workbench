@@ -1,0 +1,19 @@
+[Unit]
+Description=Better Robotics — Pi WebRTC peer (libpeer)
+After=NetworkManager.service pi-robot-health.service
+Wants=NetworkManager.service
+
+[Service]
+Type=simple
+# Runs as the robot user — the PTY spawned for `shell` channels lands at
+# this UID, matching `ssh robot@<host>.local`. Independent of pi-robot
+# (which still runs as root for BLE), so a crash here doesn't touch
+# motors / LEDs.
+User=robot
+WorkingDirectory=__HOME__/better-robotics/firmware/pi_robot/rtc
+ExecStart=__HOME__/better-robotics/firmware/pi_robot/rtc/pi-robot-rtc
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
