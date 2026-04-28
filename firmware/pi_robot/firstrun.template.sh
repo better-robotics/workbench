@@ -246,6 +246,21 @@ BTEOF
       install -d -m 755 /etc/avahi/services
       install -m 644 "$DEST/avahi-betterrobot.service" /etc/avahi/services/betterrobot.service
     fi
+
+    # First-boot apt-installs run before NetworkManager has fully settled
+    # DNS, so naive `apt-get install` hits "Temporary failure resolving
+    # deb.debian.org". Wait for DNS reachability up to 90 s; the script
+    # continues either way (a missing avahi or rtc build leaves the Pi
+    # reachable + recoverable from SSH).
+    note network_wait
+    for i in $(seq 1 90); do
+        if getent hosts deb.debian.org > /dev/null 2>&1; then
+            note network_ready "after ${i}s"
+            break
+        fi
+        sleep 1
+    done
+
     # avahi-daemon: required for the dashboard to resolve <hostname>.local.
     # Install if missing — base image varies; --no-install-recommends keeps
     # the dependency footprint tight.
@@ -257,7 +272,7 @@ BTEOF
     # ExternalProject, so we only need build-essential + cmake + git here.
     note rtc_build_start
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        build-essential cmake pkg-config git 2>&1 >> "$BOOTFS/rtc-build.log" || true
+        build-essential cmake pkg-config git >> "$BOOTFS/rtc-build.log" 2>&1 || true
     if [ -d "$DEST/rtc" ]; then
       su - "$USER_NAME" -c "cd '$DEST/rtc' && make all" >> "$BOOTFS/rtc-build.log" 2>&1
       RTC_RC=$?
