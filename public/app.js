@@ -304,12 +304,6 @@ function autoReconnectKnown() {
 }
 
 async function scanForNew() {
-  // Passive scan when the browser supports it — no chooser modal, robots
-  // appear inline as they advertise. Falls back to requestDevice's chooser
-  // when requestLEScan is missing (Chrome flag off, or non-Chromium).
-  if (navigator.bluetooth.requestLEScan) {
-    return scanForNewPassive();
-  }
   try {
     // If ?robot=X hint is present and that robot isn't already paired,
     // pre-filter the chooser by name so the user picks from one entry.
@@ -333,117 +327,6 @@ async function scanForNew() {
   } catch (err) {
     if (err.name !== "NotFoundError") log(`Scan error: ${err.message}`);
   }
-}
-
-// Passive BLE scan uses requestLEScan behind Chrome's
-// --enable-experimental-web-platform-features flag. Pairing still needs
-// requestDevice, but with a name filter it's a one-entry chooser.
-let _discoverState = { scanning: false, found: new Map(), scanHandle: null };
-
-async function scanForNewPassive() {
-  if (_discoverState.scanning) return;
-  _discoverState.scanning = true;
-  _discoverState.found = new Map();
-  renderDiscovered();
-  // BR-* name filter (firmware naming, see pi_robot.py:326). Two Chrome
-  // quirks to navigate:
-  //   1. event.device.name is persistent state and stays null until pairing;
-  //      the per-ad local name is on event.name. Read both — whichever shows
-  //      up first wins.
-  //   2. Most ESP32/Pi BLE stacks put the local name in SCAN_RESP, not the
-  //      31-byte AD payload. With keepRepeatedDevices:false, Chrome can fire
-  //      one nameless event for the AD then dedupe the SCAN_RESP follow-up.
-  //      Setting it true makes Chrome fire each frame so we eventually see
-  //      one with the name.
-  let totalEvents = 0;
-  let namedEvents = 0;
-  const debug = /\bdebug\b/.test(location.search + location.hash);
-  const onAdv = (event) => {
-    totalEvents++;
-    const name = event.name || event.device.name;
-    if (name) namedEvents++;
-    if (debug) {
-      log(`adv name=${name || "(null)"} id=${event.device.id?.slice(0, 8)}… rssi=${event.rssi ?? "?"} uuids=${(event.uuids || []).length}`, "ble");
-    }
-    if (!name || !name.startsWith("BR-")) return;
-    const prev = _discoverState.found.get(name);
-    _discoverState.found.set(name, {
-      name,
-      id: event.device.id,
-      rssi: event.rssi || prev?.rssi || 0,
-    });
-    renderDiscovered();
-  };
-  // Some Chrome builds fire on navigator.bluetooth, others on the scan
-  // handle. Subscribe to both so whichever path the browser uses, we hear it.
-  navigator.bluetooth.addEventListener("advertisementreceived", onAdv);
-  try {
-    _discoverState.scanHandle = await navigator.bluetooth.requestLEScan({
-      acceptAllAdvertisements: true,
-      keepRepeatedDevices: true,
-    });
-    try { _discoverState.scanHandle.addEventListener?.("advertisementreceived", onAdv); } catch {}
-    log("Passive scan started — watching for 15 s");
-    await new Promise(r => setTimeout(r, 15000));
-    log(`Passive scan saw ${totalEvents} ad${totalEvents === 1 ? "" : "s"} (${namedEvents} with name); kept ${_discoverState.found.size} BR-* device(s).${totalEvents === 0 ? " 0 events = scan started but no advertisements landed in this tab — try chrome://flags#enable-experimental-web-platform-features and chrome://flags#new-web-bluetooth-permissions-backend." : ""}`);
-  } catch (err) {
-    log(`Passive scan error: ${err.message} (name=${err.name})`);
-  } finally {
-    navigator.bluetooth.removeEventListener("advertisementreceived", onAdv);
-    try { _discoverState.scanHandle?.removeEventListener?.("advertisementreceived", onAdv); } catch {}
-    try { _discoverState.scanHandle?.stop(); } catch {}
-    _discoverState.scanning = false;
-    renderDiscovered();
-  }
-}
-
-async function pairDiscovered(name) {
-  try {
-    const device = await navigator.bluetooth.requestDevice({
-      filters: [{ name, services: [SERVICE_UUID] },
-                { name, services: [HEARTBEAT_SVC_UUID] }],
-      optionalServices: [SERVICE_UUID, HEARTBEAT_SVC_UUID],
-    });
-    entryFor(device);
-    log("paired", name);
-    _discoverState.found.delete(name);
-    render();
-    renderDiscovered();
-    connect(device.id);
-  } catch (err) {
-    if (err.name !== "NotFoundError") log(`Pair error: ${err.message}`);
-  }
-}
-
-function renderDiscovered() {
-  const box = $("discovered");
-  const already = new Set([...state.devices.values()].map(e => e.name));
-  const list = [..._discoverState.found.values()]
-    .filter(d => !already.has(d.name))
-    .sort((a, b) => b.rssi - a.rssi);
-  const show = _discoverState.scanning || list.length > 0;
-  box.hidden = !show;
-  if (!show) { box.innerHTML = ""; return; }
-  box.innerHTML = `
-    <div class="label" style="margin-bottom: 8px;">
-      Discovered ${_discoverState.scanning ? "(scanning…)" : ""}
-    </div>
-    ${list.length === 0 ? `<div class="meta">No new robots heard yet.</div>` : ""}
-    <div class="wifi-list">
-      ${list.map(d => `
-        <div class="wifi-row">
-          <div>
-            <div>${escapeHtml(d.name)}</div>
-            <div class="meta">RSSI ${d.rssi}</div>
-          </div>
-          <button class="secondary sm" data-pair-name="${escapeHtml(d.name)}">Pair</button>
-        </div>
-      `).join("")}
-    </div>
-  `;
-  box.querySelectorAll("[data-pair-name]").forEach(btn => {
-    btn.addEventListener("click", () => pairDiscovered(btn.dataset.pairName));
-  });
 }
 
 async function restoreDevice(entry) {
