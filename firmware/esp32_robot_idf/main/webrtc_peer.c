@@ -382,9 +382,18 @@ static void handle_offer(const char *sdp, offer_src_t src) {
              src == OFFER_SRC_BLE ? "BLE" : "WS", (unsigned)strlen(sdp));
     s_active_offer_src = src;
     if (s_pc) {
+        // Last-window-wins: a second browser opening WebRTC kicks the
+        // first one's session. The video pump references s_pc on every
+        // tick, so stop it BEFORE close/destroy or it'll dereference a
+        // freed handle. Brief delay lets libpeer's ICE/DTLS sockets
+        // unbind before the new agent gathers candidates on the same
+        // ports — without it the new ICE times out (observed on a 2nd
+        // incognito window post-2.F.2).
+        stop_video_streaming();
         peer_connection_close(s_pc);
         peer_connection_destroy(s_pc);
         s_pc = NULL;
+        vTaskDelay(pdMS_TO_TICKS(500));
     }
 
     PeerConfiguration cfg = {
