@@ -22,3 +22,4 @@ config.mk
 .idea/
 *.swp
 firmware/esp32_robot_idf/main/version.h
+.claude/scheduled_tasks.lock
