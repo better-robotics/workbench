@@ -16,6 +16,9 @@
 #include "peer.h"
 #include "peer_connection.h"
 
+#include "esp_camera.h"
+
+#include "camera.h"
 #include "ota.h"
 
 static const char *TAG = "rtc";
@@ -68,8 +71,15 @@ static void send_answer(const char *sdp) {
 
 // ── peer connection lifecycle ────────────────────────────────────────────
 
+static void stop_video_streaming(void);
+
 static void on_state_change(PeerConnectionState state, void *ud) {
     ESP_LOGI(TAG, "pc state: %s", peer_connection_state_to_string(state));
+    if (state == PEER_CONNECTION_DISCONNECTED
+        || state == PEER_CONNECTION_FAILED
+        || state == PEER_CONNECTION_CLOSED) {
+        stop_video_streaming();
+    }
 }
 
 // ── data channels ────────────────────────────────────────────────────────
@@ -129,18 +139,102 @@ static void handle_ota_dc(const char *msg, size_t len) {
     }
 }
 
+// ── video over data channel ──────────────────────────────────────────────
+//
+// Browsers can't decode MJPEG WebRTC video tracks (only VP8/VP9/H.264/AV1
+// are negotiable codecs), so we route JPEG frames as binary on a data
+// channel instead. Dashboard receives ArrayBuffers and renders via
+// URL.createObjectURL or a 2D canvas. Same end-to-end behavior as
+// /stream over HTTP, but P2P + no Mixed Content / PNA fragility.
+//
+// Single SCTP message per frame; SCTP's universal floor is 16 KB, so the
+// camera profile must stay at compact (QVGA q=15, ~5-10 KB) for reliable
+// delivery. Standard/full can exceed the limit and fragment unreliably.
+
+static volatile bool s_video_active = false;
+static TaskHandle_t s_video_task = NULL;
+static int s_video_fps = 10;
+
+static void video_task_fn(void *arg) {
+    ESP_LOGI(TAG, "video stream task started, fps=%d", s_video_fps);
+    while (s_video_active) {
+        if (!camera_ready() || !s_pc) {
+            vTaskDelay(pdMS_TO_TICKS(100));
+            continue;
+        }
+        camera_fb_t *fb = esp_camera_fb_get();
+        if (!fb) {
+            vTaskDelay(pdMS_TO_TICKS(50));
+            continue;
+        }
+        uint16_t sid;
+        if (peer_connection_lookup_sid(s_pc, "video", &sid) == 0) {
+            peer_connection_datachannel_send_sid(s_pc, (char *)fb->buf, fb->len, sid);
+        }
+        esp_camera_fb_return(fb);
+        vTaskDelay(pdMS_TO_TICKS(1000 / s_video_fps));
+    }
+    ESP_LOGI(TAG, "video stream task stopped");
+    s_video_task = NULL;
+    vTaskDelete(NULL);
+}
+
+static void start_video_streaming(int fps) {
+    if (s_video_active) {
+        // Already running — update fps and continue.
+        if (fps > 0 && fps <= 30) s_video_fps = fps;
+        return;
+    }
+    s_video_fps = (fps > 0 && fps <= 30) ? fps : 10;
+    s_video_active = true;
+    if (xTaskCreate(video_task_fn, "rtc_video", 4096, NULL, 4, &s_video_task) != pdPASS) {
+        ESP_LOGE(TAG, "video task create failed");
+        s_video_active = false;
+    }
+}
+
+static void stop_video_streaming(void) {
+    s_video_active = false;
+    // task self-deletes on next loop iteration
+}
+
+static void handle_video_dc(const char *msg, size_t len) {
+    if (len == 0 || msg[0] != '{') return;
+    cJSON *root = cJSON_ParseWithLength(msg, len);
+    if (!root) return;
+    cJSON *type = cJSON_GetObjectItem(root, "type");
+    if (cJSON_IsString(type)) {
+        const char *t = type->valuestring;
+        if (strcmp(t, "start") == 0) {
+            cJSON *fps = cJSON_GetObjectItem(root, "fps");
+            int f = cJSON_IsNumber(fps) ? (int)fps->valuedouble : 10;
+            start_video_streaming(f);
+        } else if (strcmp(t, "stop") == 0) {
+            stop_video_streaming();
+        }
+    }
+    cJSON_Delete(root);
+}
+
 static void on_dc_message(char *msg, size_t len, void *ud, uint16_t sid) {
     if (!s_pc) return;
     char *label = peer_connection_lookup_sid_label(s_pc, sid);
     if (!label) return;
     if (strcmp(label, "ota") == 0) {
         handle_ota_dc(msg, len);
+    } else if (strcmp(label, "video") == 0) {
+        handle_video_dc(msg, len);
     }
     // Other labels (logs, ops) drop here — wire in 2.D.2.x as needed.
 }
 
 static void on_dc_open(void *ud)  { ESP_LOGI(TAG, "data channel opened"); }
-static void on_dc_close(void *ud) { ESP_LOGI(TAG, "data channel closed"); }
+static void on_dc_close(void *ud) {
+    ESP_LOGI(TAG, "data channel closed");
+    // Stop video on any close — single-PC model means a closed channel
+    // is effectively session end.
+    stop_video_streaming();
+}
 
 static void handle_offer(const char *sdp) {
     if (s_pc) {
