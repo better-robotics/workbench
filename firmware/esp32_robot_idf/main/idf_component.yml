@@ -1,0 +1,19 @@
+## Managed component dependencies (esp-idf-component-manager).
+##
+## Pinned at SHAs / tags that build cleanly together. When updating, build
+## both the ESP32-S3 and ESP32-CAM-MB targets before committing — libpeer's
+## SCTP usage in particular has been sensitive to mbedTLS version changes.
+
+dependencies:
+  # WebRTC peer (sepfy/libpeer). The same C library used by the Pi side
+  # decision in working.md item I, so the wire format / behavior matches.
+  # Component-manager source pulls from GitHub at the pinned commit.
+  libpeer:
+    git: https://github.com/sepfy/libpeer.git
+    version: "9319aa434cb9"
+
+  # Camera driver. Espressif official component.
+  espressif/esp32-camera: "^2.0.15"
+
+  idf:
+    version: ">=5.1.0"

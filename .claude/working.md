@@ -354,6 +354,40 @@ through the existing `wss://signal.neevs.io/<roomId>/ws` rendezvous
 that phone-pair already uses. roomId is `pi-rtc-<robotId>` so the
 dashboard finds each Pi without separate discovery.
 
+**Phase 1.A / 1.B / 1.C shipped (Pi side).** Shell over WebRTC works
+end-to-end via `pi_robot_rtc.py` and a `shell` DataChannel + xterm.js
+dialog. OTA over WebRTC ships ~95 KB bundle in seconds (vs minutes
+over BLE) by staging to `/tmp/pi-robot-staged-ota.json` and triggering
+apply via the existing `apply-staged-ota` BLE ops verb. Log streaming
+ships via a `logs` channel that pipes `journalctl -fu` output as text
+messages — the existing log dialog grows a `Tail live` toggle.
+
+**Phase 2 — committed 2026-04-29: full ESP-IDF migration.** Ignored
+the pragmatic-relay shortcut. Reasoning: every robot becomes a peer,
+every byte stream rides the same substrate, the dashboard speaks one
+language across the fleet. ESP-IDF is libpeer's first-class target;
+trying to package it as an Arduino library is ongoing maintenance
+pain. Multi-week project landing across phases (see
+`firmware/esp32_robot_idf/README.md` for the migration arc):
+- 2.A Scaffold (just landed): IDF project skeleton, libpeer +
+  esp32-camera as managed components, partition layout matching the
+  Arduino .ino's OTA expectations.
+- 2.B Connectivity: WiFi STA, NimBLE skeleton, mDNS — boots, no caps.
+- 2.C Capability port: motors, LED, flash, wifi/scan/join, OTA char,
+  snapshot, camera + MJPEG HTTP `:81` (preserves dashboard
+  compatibility through migration).
+- 2.D WebRTC peer: libpeer integration, signaling at
+  `wss://signal.neevs.io/esp32-rtc-<robotId>/ws`, data channels
+  matching the Pi's surface (shell-equivalent, ota, logs), camera as
+  H.264 video track on S3 / MJPEG-in-RTP on classic ESP32. Dashboard
+  `webrtc-robot.js` extends to receive media tracks.
+- 2.E Cutover: publish-firmware swaps to IDF binary, field-test, then
+  delete the Arduino project and rename the IDF dir.
+
+Targets: ESP32-S3 canonical (PSRAM + H.264), ESP32-CAM-MB the user's
+current hardware (4 MB SPI PSRAM, no H.264 — MJPEG-in-RTP fallback).
+Arduino sketch stays the shipping firmware until 2.E.
+
 Skeptical angle: libpeer is a real C dep with build/cross-compile
 work. Phase 1.A proves the architecture but doesn't yet save anything
 the user couldn't get with `ssh robot@hostname.local` from their

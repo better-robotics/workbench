@@ -1,0 +1,7 @@
+# ESP32-S3 (canonical target — Octal PSRAM + hardware H.264 encoder)
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESP32S3_SPIRAM_SUPPORT=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_USE_MALLOC=y
+# Reserve internal RAM for time-critical paths (NimBLE, camera DMA).
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y

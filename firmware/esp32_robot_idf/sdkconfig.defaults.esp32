@@ -1,0 +1,7 @@
+# Classic ESP32 — AI-Thinker ESP32-CAM (the "MB" board the user has).
+# 4 MB SPI PSRAM via the bundled chip; no hardware H.264 — camera path
+# falls back to MJPEG-in-RTP for WebRTC video tracks.
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESP32_SPIRAM_SUPPORT=y
+CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
