@@ -178,6 +178,10 @@
     <div class="label" id="log-dialog-title">Log</div>
     <button class="icon" id="log-dialog-close" aria-label="Close"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
   </div>
+  <div class="row" style="margin: 0 0 8px;">
+    <button class="secondary sm" id="log-dialog-tail" hidden>Tail live</button>
+    <span class="status-row" id="log-dialog-status" hidden><span class="dot connecting"></span><span class="meta">Streaming…</span></span>
+  </div>
   <pre id="log-dialog-body" class="log-dialog-body">Loading…</pre>
 </dialog>
 

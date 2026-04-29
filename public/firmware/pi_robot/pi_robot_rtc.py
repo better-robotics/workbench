@@ -202,6 +202,8 @@ class Session:
                 self._wire_shell(channel)
             elif channel.label == "ota":
                 self._wire_ota(channel)
+            elif channel.label == "logs":
+                self._wire_logs(channel)
             else:
                 LOG.warning("ignoring unknown channel label: %s", channel.label)
 
@@ -349,6 +351,84 @@ class Session:
                 try: state["writer"].close()
                 except Exception: pass
                 state["writer"] = None
+            self.bridges.pop(channel.label, None)
+
+    def _wire_logs(self, channel):
+        # journalctl -fu <unit> piped to channel as text lines. Dashboard
+        # sends {type:"follow", unit:"<service>"} to start; channel close
+        # (or new follow) terminates the subprocess. Allowlist the unit
+        # names so a malformed message can't shell out to arbitrary commands.
+        ALLOWED_UNITS = (
+            "pi-robot", "pi-robot.service",
+            "pi-robot-heartbeat", "pi-robot-heartbeat.service",
+            "pi-robot-health", "pi-robot-health.service",
+            "pi-robot-rtc", "pi-robot-rtc.service",
+        )
+        state = {"task": None}
+        loop = asyncio.get_event_loop()
+
+        async def follow(unit):
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "journalctl", "-fu", unit, "-n", "100", "--output", "short-iso",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
+                )
+            except Exception as e:
+                try:
+                    channel.send(json.dumps({"type": "error", "error": str(e)[:200]}))
+                except Exception:
+                    pass
+                return
+            try:
+                while True:
+                    line = await proc.stdout.readline()
+                    if not line:
+                        break
+                    if channel.readyState != "open":
+                        break
+                    try:
+                        channel.send(line.decode("utf-8", errors="replace"))
+                    except Exception:
+                        break
+            finally:
+                try: proc.terminate()
+                except Exception: pass
+                try: await proc.wait()
+                except Exception: pass
+
+        def stop_current():
+            t = state["task"]
+            if t and not t.done():
+                t.cancel()
+            state["task"] = None
+
+        @channel.on("message")
+        def on_msg(message):
+            if not isinstance(message, str):
+                return  # data channel is text-only for logs
+            try:
+                ctrl = json.loads(message)
+            except json.JSONDecodeError:
+                return
+            t = ctrl.get("type")
+            if t == "follow":
+                unit = str(ctrl.get("unit") or "pi-robot.service")
+                if unit not in ALLOWED_UNITS:
+                    try:
+                        channel.send(json.dumps({"type": "error", "error": f"unit not allowed: {unit}"}))
+                    except Exception:
+                        pass
+                    return
+                stop_current()
+                state["task"] = loop.create_task(follow(unit))
+            elif t == "stop":
+                stop_current()
+
+        @channel.on("close")
+        def on_close():
+            LOG.info("datachannel closed: %s", channel.label)
+            stop_current()
             self.bridges.pop(channel.label, None)
 
     async def _on_ice(self, ice):
