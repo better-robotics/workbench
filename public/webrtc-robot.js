@@ -22,10 +22,19 @@ const ICE_TIMEOUT_MS = 30000;
 // Per-robot peer connections, lazy-built. Keyed by robot id.
 const _peers = new Map();  // robotId → { pc, ws, channels: Map<label, ch> }
 
-// roomId derives from the robot's NAME (BR-XXXX), not its BLE device id.
-// The Pi-side daemon computes the same name from /proc/cpuinfo, so both
-// sides land in the same room without separate discovery.
-function roomIdFor(robotName) { return `pi-rtc-${robotName}`; }
+// roomId derives from the robot's NAME (BR-XXXX), not its BLE device id,
+// plus a per-platform prefix so Pi and ESP32 firmware running concurrently
+// don't collide in one room. Each side computes its own prefix:
+//   pi_robot_rtc.py  → "pi-rtc-<robotId>",   self-id "desktop-<6 hex>"
+//   webrtc_peer.c    → "esp32-rtc-<robotId>", self-id "esp32-<6 hex>"
+// So the dashboard's accepted-peer filter mirrors the prefix it expects.
+const ROBOT_ROOM_CONFIG = {
+  pi:    { roomPrefix: "pi-rtc-",    accept: "desktop-" },
+  esp32: { roomPrefix: "esp32-rtc-", accept: "esp32-" },
+};
+function configFor(robotType) {
+  return ROBOT_ROOM_CONFIG[robotType] || ROBOT_ROOM_CONFIG.pi;
+}
 
 // Open (or reuse) a peer connection to the robot, then ensure a DataChannel
 // with the requested label exists and is open. Resolves to the channel.
@@ -33,12 +42,13 @@ function roomIdFor(robotName) { return `pi-rtc-${robotName}`; }
 // Phase 1.A creates one PC per call (single-channel, fresh handshake each
 // time). Multi-channel multiplexing — opening a second label on an existing
 // PC — is a follow-up.
-export async function openChannel(robotId, robotName, label, { onStatus = () => {} } = {}) {
+export async function openChannel(robotId, robotName, label, { onStatus = () => {}, robotType = "pi" } = {}) {
   // Tear down any prior peer for this robot — single-PC model for now.
   closePeer(robotId);
 
   const myPeerId = makePeerId("dashboard");
-  const roomId = roomIdFor(robotName);
+  const cfg = configFor(robotType);
+  const roomId = `${cfg.roomPrefix}${robotName}`;
   onStatus("Opening signal channel…");
   const iceServers = await fetchIceServers();
   const pc = new RTCPeerConnection({ iceServers });
@@ -83,7 +93,7 @@ export async function openChannel(robotId, robotName, label, { onStatus = () => 
       reject(err);
     };
     const timer = setTimeout(() => {
-      fail(new Error("Couldn't reach the robot's WebRTC peer within 30 s. Is pi-robot-rtc.service running?"));
+      fail(new Error(`Couldn't reach the robot's WebRTC peer within 30 s. Is ${robotType === "esp32" ? "the ESP32" : "pi-robot-rtc.service"} running?`));
     }, ICE_TIMEOUT_MS);
 
     channel.addEventListener("open", () => {
@@ -126,8 +136,8 @@ export async function openChannel(robotId, robotName, label, { onStatus = () => 
       try { msg = JSON.parse(e.data); } catch { return; }
       if (msg.type !== "signal") return;
       if (msg.peer === myPeerId) return;
-      // Pi presents as desktop-<id> in the existing protocol shape.
-      if (!String(msg.peer || "").startsWith("desktop-")) return;
+      // Robot's self-id prefix is platform-specific (see ROBOT_ROOM_CONFIG).
+      if (!String(msg.peer || "").startsWith(cfg.accept)) return;
       try { await applySignal(msg.data); } catch (err) { fail(err); }
     });
     ws.addEventListener("error", () => fail(new Error("Signal channel error")));

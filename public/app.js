@@ -1562,6 +1562,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const { openChannel } = await import("./webrtc-robot.js");
       logTailChannel = await openChannel(id, entry.name, "logs", {
         onStatus: (s) => { body.textContent = `${s}\n`; },
+        robotType: entry.fwType,
       });
     } catch (err) {
       body.textContent = `Couldn't reach pi-robot-rtc: ${err.message || err}\n`;
