@@ -18,6 +18,7 @@ import { discover } from "./signal-sdk/v1/discover.js";
 import { getMyPubkeyB64 } from "./signal-sdk/v1/peer-key.js";
 import { makeTrustStore } from "./trust.js";
 import { pairRequestClient } from "./signal-sdk/v1/pair-request.js";
+import { bleMailbox } from "./ble-mailbox.js";
 const _trust = makeTrustStore("better-robotics:trust:v1");
 
 // Single shared lobby in signed mode: ads carry our device pubkey so the
@@ -264,31 +265,66 @@ function renderPhonePresence(ads) {
 // the match rule (ads targeted at our pubkey), the trust lookup,
 // and the UI (existing modal in this file). The library owns
 // nonce-dedup, subscribe filter, response publish, and timeout.
-let _pairClient = null;
+//
+// Two transports run in parallel: the wss://signal.neevs.io discover
+// lobby (cross-network, always-on) and a per-robot BLE-relay lobby
+// (Phase 2.F.2 — robot's pair-mailbox char relays signed ads between
+// phone and desktop when both are BLE-connected to the same robot).
+// Each transport gets its own pairRequestClient with the SAME handler;
+// nonces prevent duplicate accept on the rare case a single request
+// flies through both transports at once.
+let _wssPairClient = null;
+const _robotPairClients = new Map();   // entry.id → { transport, client }
+
+async function _onPairRequest(req) {
+  const senderPubkey = req.senderPubkey;
+  const senderLabel  = req.payload.label || 'Phone';
+  if (!senderPubkey) return;
+  if (_trust.isAutoAccept(senderPubkey)) {
+    log(`auto-accepting paired phone "${senderLabel}"`, 'phone');
+    await _respondAndHostPair(true, senderPubkey, senderLabel, req, false);
+    return;
+  }
+  const decision = await _showRequestPrompt(senderLabel, senderPubkey);
+  if (!decision) { await req.deny(); return; }
+  await _respondAndHostPair(decision.accepted, senderPubkey, senderLabel, req, decision.trust);
+}
+
+const _pairOnRequestOpts = {
+  // Pubkey-target match — attackers on the same wifi can publish to
+  // any address, but only ads addressed to our key fire the prompt.
+  match: (ad) => ad.data.target === _myPubkey,
+  onError: (err) => log("pair-request handler: " + (err && err.message || err), "phone"),
+};
+
 function _initPairListener() {
-  if (_pairClient) return;
-  _pairClient = pairRequestClient({ app: 'better-robotics-pair', sign: true, lobby: getLobby() });
-  _pairClient.onRequest(async (req) => {
-    const senderPubkey = req.senderPubkey;
-    const senderLabel  = req.payload.label || 'Phone';
-    if (!senderPubkey) return;
-    if (_trust.isAutoAccept(senderPubkey)) {
-      log(`auto-accepting paired phone "${senderLabel}"`, 'phone');
-      await _respondAndHostPair(true, senderPubkey, senderLabel, req, false);
-      return;
-    }
-    const decision = await _showRequestPrompt(senderLabel, senderPubkey);
-    if (!decision) { await req.deny(); return; }
-    await _respondAndHostPair(decision.accepted, senderPubkey, senderLabel, req, decision.trust);
-  }, {
-    // Pubkey-target match — attackers on the same wifi can publish to
-    // any address, but only ads addressed to our key fire the prompt.
-    match: (ad) => ad.data.target === _myPubkey,
-    // Route library-level handler errors into the in-app debug log
-    // so hostPairingRoom failures (etc.) stay diagnosable from the
-    // floating panel instead of only the browser console.
-    onError: (err) => log("pair-request handler: " + (err && err.message || err), "phone"),
-  });
+  if (_wssPairClient) return;
+  _wssPairClient = pairRequestClient({ app: 'better-robotics-pair', sign: true, lobby: getLobby() });
+  _wssPairClient.onRequest(_onPairRequest, _pairOnRequestOpts);
+}
+
+// Called from app.js when a robot connects with a working pair-mailbox
+// char (Phase 2.F.2 firmware). Wires a parallel pairRequestClient onto
+// the BLE-relay transport so a co-located phone can pair without
+// signal.neevs.io round-trips.
+export function notifyRobotConnected(entry) {
+  if (!entry || !entry.pairMailboxChar) return;
+  if (_robotPairClients.has(entry.id)) return;
+  let transport;
+  try { transport = bleMailbox({ char: entry.pairMailboxChar, sign: true }); }
+  catch (err) { log("ble-mailbox init failed: " + err.message, "phone"); return; }
+  const client = pairRequestClient({ app: 'better-robotics-pair', sign: true, lobby: transport });
+  client.onRequest(_onPairRequest, _pairOnRequestOpts);
+  _robotPairClients.set(entry.id, { transport, client });
+  log(`pair-mailbox armed on ${entry.name || entry.id}`, "phone");
+}
+
+export function notifyRobotDisconnected(entry) {
+  if (!entry) return;
+  const slot = _robotPairClients.get(entry.id);
+  if (!slot) return;
+  try { slot.transport.close(); } catch {}
+  _robotPairClients.delete(entry.id);
 }
 
 // Modal prompt promise — single in-flight; if a second request comes
