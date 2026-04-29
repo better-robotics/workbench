@@ -18,6 +18,7 @@
 #include "snapshot.h"
 #include "telemetry.h"
 #include "uuids.h"
+#include "webrtc_peer.h"
 #include "wifi_sta.h"
 
 static const char *TAG = "gatt_svr";
@@ -37,6 +38,7 @@ static ble_uuid128_t s_snapshot_data_uuid;
 static ble_uuid128_t s_camera_profile_uuid;
 static ble_uuid128_t s_telemetry_uuid;
 static ble_uuid128_t s_fw_info_uuid;
+static ble_uuid128_t s_signal_uuid;
 
 static uint16_t s_led_handle;
 static uint16_t s_flash_handle;
@@ -47,6 +49,7 @@ static uint16_t s_ota_status_handle;
 static uint16_t s_snapshot_data_handle;
 static uint16_t s_telemetry_handle;
 static uint16_t s_fw_info_handle;
+static uint16_t s_signal_handle;
 
 const ble_uuid128_t *gatt_svr_service_uuid(void) { return &s_service_uuid; }
 
@@ -244,6 +247,22 @@ static int fw_info_access(uint16_t conn, uint16_t attr,
     return BLE_ATT_ERR_UNLIKELY;
 }
 
+// SIGNAL char carries chunked SDP offer (write) and chunked SDP answer
+// (notify, via gatt_svr_signal_send). Buffer sized for one complete chunk
+// of the wire format — chunks are bounded at ~100 + 1 op byte by
+// webrtc_peer.c's BLE_SIG_CHUNK constant.
+static int signal_access(uint16_t conn, uint16_t attr,
+                         struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        uint8_t buf[256];
+        uint16_t copied = 0;
+        ble_hs_mbuf_to_flat(ctxt->om, buf, sizeof(buf), &copied);
+        if (copied > 0) webrtc_peer_handle_ble_signal_write(buf, copied);
+        return 0;
+    }
+    return BLE_ATT_ERR_UNLIKELY;
+}
+
 static const struct ble_gatt_chr_def s_chars[] = {
     {
         .uuid = &s_led_uuid.u,
@@ -326,6 +345,12 @@ static const struct ble_gatt_chr_def s_chars[] = {
         .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
         .val_handle = &s_fw_info_handle,
     },
+    {
+        .uuid = &s_signal_uuid.u,
+        .access_cb = signal_access,
+        .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_NOTIFY,
+        .val_handle = &s_signal_handle,
+    },
     { 0 },
 };
 
@@ -354,6 +379,7 @@ void gatt_svr_init(void) {
     parse_uuid128(CAMERA_PROFILE_CHAR_UUID,   &s_camera_profile_uuid);
     parse_uuid128(TELEMETRY_CHAR_UUID,        &s_telemetry_uuid);
     parse_uuid128(FW_INFO_CHAR_UUID,          &s_fw_info_uuid);
+    parse_uuid128(SIGNAL_CHAR_UUID,           &s_signal_uuid);
 
     int rc = ble_gatts_count_cfg(s_svcs);
     if (rc != 0) { ESP_LOGE(TAG, "count_cfg rc=%d", rc); return; }
@@ -380,4 +406,13 @@ void gatt_svr_snapshot_send(const uint8_t *buf, size_t len) {
     // ble_gatts_notify_custom takes ownership of the mbuf (frees on
     // success and on error), so no cleanup path on the caller side.
     ble_gatts_notify_custom(conn, s_snapshot_data_handle, om);
+}
+
+void gatt_svr_signal_send(const uint8_t *buf, size_t len) {
+    uint16_t conn = ble_host_active_conn();
+    if (conn == BLE_HS_CONN_HANDLE_NONE) return;
+    if (!s_signal_handle) return;
+    struct os_mbuf *om = ble_hs_mbuf_from_flat(buf, len);
+    if (!om) return;
+    ble_gatts_notify_custom(conn, s_signal_handle, om);
 }

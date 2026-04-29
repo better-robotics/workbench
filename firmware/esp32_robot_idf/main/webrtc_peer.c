@@ -19,6 +19,7 @@
 #include "esp_camera.h"
 
 #include "camera.h"
+#include "gatt_svr.h"
 #include "ota.h"
 
 static const char *TAG = "rtc";
@@ -34,9 +35,19 @@ static PeerConnection *s_pc;
 // Single-threaded ownership of s_pc avoids a mutex around every state-
 // machine tick — websocket events post here and unblock immediately.
 typedef enum {
-    EV_OFFER,
+    EV_OFFER_WS,
+    EV_OFFER_BLE,
     EV_ICE,
 } event_type_t;
+
+typedef enum {
+    OFFER_SRC_WS,
+    OFFER_SRC_BLE,
+} offer_src_t;
+
+// Tracked across handle_offer → create_answer so the answer routes back
+// through the same transport the offer came in on.
+static offer_src_t s_active_offer_src = OFFER_SRC_WS;
 
 typedef struct {
     event_type_t type;
@@ -61,12 +72,110 @@ static void send_signal_data(cJSON *data) {
     cJSON_Delete(root);
 }
 
-static void send_answer(const char *sdp) {
+static void send_answer_via_ws(const char *sdp) {
     cJSON *data = cJSON_CreateObject();
     cJSON *answer = cJSON_AddObjectToObject(data, "answer");
     cJSON_AddStringToObject(answer, "sdp", sdp);
     cJSON_AddStringToObject(answer, "type", "answer");
     send_signal_data(data);
+}
+
+// ── BLE signaling ────────────────────────────────────────────────────────
+
+#define BLE_SIG_MAX_OFFER 8192    // SDP rarely exceeds 5 KB; cap defends RAM
+#define BLE_SIG_CHUNK     100     // small enough to fit any plausible MTU
+
+// Reassembly buffer for incoming chunked offer. Owned by the BLE host
+// task between begin and commit; ownership transfers to the loop task on
+// commit (queued via EV_OFFER_BLE).
+static char *s_ble_offer_buf = NULL;
+static size_t s_ble_offer_total = 0;
+static size_t s_ble_offer_received = 0;
+
+static void send_ble_signal_error(const char *msg) {
+    uint8_t buf[1 + 64];
+    buf[0] = 0xFF;
+    size_t n = strnlen(msg, sizeof(buf) - 1);
+    memcpy(buf + 1, msg, n);
+    gatt_svr_signal_send(buf, 1 + n);
+}
+
+static void send_answer_via_ble(const char *sdp) {
+    size_t total = strlen(sdp);
+    if (total == 0 || total > 0xFFFF) {
+        send_ble_signal_error("answer size out of range");
+        return;
+    }
+    uint8_t begin[3] = { 0x01, (uint8_t)(total >> 8), (uint8_t)(total & 0xff) };
+    gatt_svr_signal_send(begin, 3);
+
+    uint8_t chunk[1 + BLE_SIG_CHUNK];
+    chunk[0] = 0x02;
+    size_t offset = 0;
+    while (offset < total) {
+        size_t take = total - offset > BLE_SIG_CHUNK ? BLE_SIG_CHUNK : total - offset;
+        memcpy(chunk + 1, sdp + offset, take);
+        gatt_svr_signal_send(chunk, 1 + take);
+        offset += take;
+        // Pace notifies — same reasoning as snapshot's 40 ms gap, but our
+        // chunk size is much smaller so 5 ms is enough for the BLE tx
+        // queue to drain between sends.
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
+    uint8_t commit[1] = { 0x03 };
+    gatt_svr_signal_send(commit, 1);
+}
+
+void webrtc_peer_handle_ble_signal_write(const uint8_t *buf, size_t len) {
+    if (len == 0) return;
+    uint8_t op = buf[0];
+    if (op == 0x01) {
+        if (len < 3) { send_ble_signal_error("bad begin"); return; }
+        size_t total = ((size_t)buf[1] << 8) | buf[2];
+        if (total == 0 || total > BLE_SIG_MAX_OFFER) {
+            send_ble_signal_error("offer size out of range");
+            return;
+        }
+        free(s_ble_offer_buf);
+        s_ble_offer_buf = malloc(total + 1);
+        if (!s_ble_offer_buf) {
+            send_ble_signal_error("oom");
+            s_ble_offer_total = 0;
+            return;
+        }
+        s_ble_offer_total = total;
+        s_ble_offer_received = 0;
+    } else if (op == 0x02) {
+        if (!s_ble_offer_buf) return;
+        size_t add = len - 1;
+        if (s_ble_offer_received + add > s_ble_offer_total) {
+            free(s_ble_offer_buf);
+            s_ble_offer_buf = NULL;
+            send_ble_signal_error("chunk overflow");
+            return;
+        }
+        memcpy(s_ble_offer_buf + s_ble_offer_received, buf + 1, add);
+        s_ble_offer_received += add;
+    } else if (op == 0x03) {
+        if (!s_ble_offer_buf || s_ble_offer_received != s_ble_offer_total) {
+            free(s_ble_offer_buf);
+            s_ble_offer_buf = NULL;
+            send_ble_signal_error("offer incomplete");
+            return;
+        }
+        s_ble_offer_buf[s_ble_offer_total] = 0;
+        // Hand ownership to the loop task via the event queue. If queue
+        // send fails, free here; otherwise the loop task frees after
+        // handling.
+        event_t ev = { .type = EV_OFFER_BLE, .payload = s_ble_offer_buf };
+        if (xQueueSend(s_events, &ev, 0) != pdTRUE) {
+            ESP_LOGW(TAG, "event queue full; dropping BLE offer");
+            free(s_ble_offer_buf);
+        }
+        s_ble_offer_buf = NULL;
+        s_ble_offer_total = 0;
+        s_ble_offer_received = 0;
+    }
 }
 
 // ── peer connection lifecycle ────────────────────────────────────────────
@@ -236,7 +345,8 @@ static void on_dc_close(void *ud) {
     stop_video_streaming();
 }
 
-static void handle_offer(const char *sdp) {
+static void handle_offer(const char *sdp, offer_src_t src) {
+    s_active_offer_src = src;
     if (s_pc) {
         peer_connection_close(s_pc);
         peer_connection_destroy(s_pc);
@@ -265,7 +375,11 @@ static void handle_offer(const char *sdp) {
         ESP_LOGE(TAG, "create_answer empty");
         return;
     }
-    send_answer(answer);
+    if (src == OFFER_SRC_BLE) {
+        send_answer_via_ble(answer);
+    } else {
+        send_answer_via_ws(answer);
+    }
 }
 
 static void handle_ice(const char *candidate) {
@@ -304,7 +418,7 @@ static void dispatch_signal(const char *peer_id, cJSON *data) {
     cJSON *offer = cJSON_GetObjectItem(data, "offer");
     if (cJSON_IsObject(offer)) {
         cJSON *sdp = cJSON_GetObjectItem(offer, "sdp");
-        if (cJSON_IsString(sdp)) post_event(EV_OFFER, sdp->valuestring);
+        if (cJSON_IsString(sdp)) post_event(EV_OFFER_WS, sdp->valuestring);
     }
     cJSON *ice = cJSON_GetObjectItem(data, "ice");
     if (cJSON_IsObject(ice)) {
@@ -369,8 +483,9 @@ static void loop_task_fn(void *arg) {
     while (1) {
         while (xQueueReceive(s_events, &ev, 0) == pdTRUE) {
             switch (ev.type) {
-                case EV_OFFER: handle_offer(ev.payload); break;
-                case EV_ICE:   handle_ice(ev.payload);   break;
+                case EV_OFFER_WS:  handle_offer(ev.payload, OFFER_SRC_WS);  break;
+                case EV_OFFER_BLE: handle_offer(ev.payload, OFFER_SRC_BLE); break;
+                case EV_ICE:       handle_ice(ev.payload);                  break;
             }
             free(ev.payload);
         }

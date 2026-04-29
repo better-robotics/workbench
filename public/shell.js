@@ -58,6 +58,7 @@ async function connect() {
     _channel = await openChannel(id, entry.name, "shell", {
       onStatus: (s) => setStatus("connecting", s),
       robotType: entry.fwType,
+      signalChar: entry.signalChar,
     });
   } catch (err) {
     setStatus("error", `Couldn't reach pi-robot-rtc: ${err.message || err}`);

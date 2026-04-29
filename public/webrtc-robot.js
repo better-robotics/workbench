@@ -1,33 +1,30 @@
 // Browser ↔ robot WebRTC peer manager.
 //
-// SDP signaling routes through wss://signal.neevs.io/<roomId>/ws — the same
-// rendezvous phone-pair already uses. Pi-side daemon (pi_robot_rtc.py)
-// joins the same room; offer/answer + ICE candidates trickle through the
-// WebSocket. Data channel is P2P after handshake.
+// Two signaling transports, chosen at openChannel time:
 //
-// Mixed-Content workaround: HTTPS dashboard fetching HTTP from a private
-// IP is blocked by the browser before PNA preflight runs. Routing through
-// HTTPS WebSocket sidesteps the gate entirely.
+//  1. BLE-signaling (preferred when signalChar is present): chunked SDP
+//     write to SIGNAL_CHAR_UUID; chunked answer back via notify on the
+//     same char. ICE then runs P2P on the LAN — no internet rendezvous,
+//     no Mixed-Content / PNA exposure. The robot is already authenticated
+//     via the BLE pairing.
 //
-// Wire format mirrors pairing.js (the phone-pair flow):
-//   client → server: { type: "signal", peer: "<myPeerId>", data: {...} }
-//   server → client: same shape, broadcast to other peers in the room
-// Room IDs are deterministic — `pi-rtc-<robotId>` — so the dashboard can
-// find each robot without a separate discovery step.
+//  2. wss://signal.neevs.io fallback: the original path. Used when
+//     signalChar isn't available (older firmware, or cross-network
+//     pairing where BLE isn't reachable).
+//
+// Wire format on the SIGNAL char (both directions, mirrors OTA/snapshot):
+//   0x01 [u16 BE total]   begin
+//   0x02 [bytes]          chunk (≤ 100 B payload, fits any plausible MTU)
+//   0x03                  commit
+//   0xFF [utf8 msg]       error (notify-only)
 
 import { SIGNAL_WS_URL, fetchIceServers, makePeerId } from "./pairing.js";
 
 const ICE_TIMEOUT_MS = 30000;
+const BLE_SIG_CHUNK  = 100;
 
-// Per-robot peer connections, lazy-built. Keyed by robot id.
-const _peers = new Map();  // robotId → { pc, ws, channels: Map<label, ch> }
-
-// roomId derives from the robot's NAME (BR-XXXX), not its BLE device id,
-// plus a per-platform prefix so Pi and ESP32 firmware running concurrently
-// don't collide in one room. Each side computes its own prefix:
-//   pi_robot_rtc.py  → "pi-rtc-<robotId>",   self-id "desktop-<6 hex>"
-//   webrtc_peer.c    → "esp32-rtc-<robotId>", self-id "esp32-<6 hex>"
-// So the dashboard's accepted-peer filter mirrors the prefix it expects.
+// Per-platform room prefix + accepted-peer prefix for the wss fallback.
+// Pi rtc daemon presents as "desktop-<id>"; ESP32 as "esp32-<id>".
 const ROBOT_ROOM_CONFIG = {
   pi:    { roomPrefix: "pi-rtc-",    accept: "desktop-" },
   esp32: { roomPrefix: "esp32-rtc-", accept: "esp32-" },
@@ -36,14 +33,178 @@ function configFor(robotType) {
   return ROBOT_ROOM_CONFIG[robotType] || ROBOT_ROOM_CONFIG.pi;
 }
 
-// Open (or reuse) a peer connection to the robot, then ensure a DataChannel
-// with the requested label exists and is open. Resolves to the channel.
+// Per-robot peer connections, lazy-built. Keyed by robot id.
+const _peers = new Map();  // robotId → { pc, ws?, channels: Map<label, ch> }
+
+// Open (or replace) a peer connection to the robot, ensure a DataChannel
+// with the requested label is open, return the channel. Single-PC model
+// per robot — opening a second time tears the prior peer down.
 //
-// Phase 1.A creates one PC per call (single-channel, fresh handshake each
-// time). Multi-channel multiplexing — opening a second label on an existing
-// PC — is a follow-up.
-export async function openChannel(robotId, robotName, label, { onStatus = () => {}, robotType = "pi" } = {}) {
-  // Tear down any prior peer for this robot — single-PC model for now.
+// opts:
+//   robotType:   "pi" | "esp32"   — picks wss room shape if BLE absent
+//   signalChar:  BluetoothRemoteGATTCharacteristic — if present, BLE path
+//   onStatus:    (msg) => void    — progress messages for UI
+export async function openChannel(robotId, robotName, label, opts = {}) {
+  const { signalChar } = opts;
+  if (signalChar) return openChannelViaBLE(robotId, label, signalChar, opts);
+  return openChannelViaWss(robotId, robotName, label, opts);
+}
+
+// ── BLE signaling path ──────────────────────────────────────────────────
+
+async function openChannelViaBLE(robotId, label, signalChar, opts) {
+  const { onStatus = () => {} } = opts;
+  closePeer(robotId);
+
+  onStatus("Opening peer over BLE…");
+  // STUN-only is fine — for LAN both peers' local candidates are enough;
+  // STUN as fallback covers any in-house NAT segments.
+  const iceServers = await fetchIceServers();
+  const pc = new RTCPeerConnection({ iceServers });
+  const entry = { pc, channels: new Map() };
+  _peers.set(robotId, entry);
+
+  const channel = pc.createDataChannel(label, { ordered: true });
+  entry.channels.set(label, channel);
+
+  // Listener for chunked answer notify. Installed before we send the
+  // offer so we can't miss a fast reply.
+  let answerResolve, answerReject;
+  const answerPromise = new Promise((resolve, reject) => {
+    answerResolve = resolve;
+    answerReject = reject;
+  });
+  let total = 0, received = 0;
+  const chunks = [];
+  const onSignal = (e) => {
+    const data = new Uint8Array(e.target.value.buffer);
+    if (data.length === 0) return;
+    const op = data[0];
+    if (op === 0x01) {
+      if (data.length < 3) return;
+      total = (data[1] << 8) | data[2];
+      received = 0;
+      chunks.length = 0;
+    } else if (op === 0x02) {
+      chunks.push(data.subarray(1));
+      received += data.length - 1;
+    } else if (op === 0x03) {
+      signalChar.removeEventListener("characteristicvaluechanged", onSignal);
+      if (received !== total) {
+        answerReject(new Error(`answer size mismatch ${received}/${total}`));
+        return;
+      }
+      const merged = new Uint8Array(total);
+      let off = 0;
+      for (const c of chunks) { merged.set(c, off); off += c.length; }
+      answerResolve(new TextDecoder().decode(merged));
+    } else if (op === 0xFF) {
+      signalChar.removeEventListener("characteristicvaluechanged", onSignal);
+      const msg = new TextDecoder().decode(data.subarray(1));
+      answerReject(new Error(`signaling: ${msg}`));
+    }
+  };
+  signalChar.addEventListener("characteristicvaluechanged", onSignal);
+
+  try {
+    onStatus("Generating offer…");
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    // Non-trickle ICE: wait for gathering to complete so the SDP carries
+    // every candidate inline. Bounded — if mDNS / private candidates
+    // hang, we ship what we have after 3 s rather than stalling forever.
+    await waitForIceGathering(pc, 3000);
+
+    onStatus("Writing offer over BLE…");
+    const sdpBytes = new TextEncoder().encode(pc.localDescription.sdp);
+    await sendChunked(signalChar, sdpBytes);
+
+    onStatus("Waiting for answer…");
+    const answerSdp = await Promise.race([
+      answerPromise,
+      timeoutAfter(ICE_TIMEOUT_MS, "BLE signaling timeout"),
+    ]);
+
+    await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
+    onStatus("Answer received, opening channel…");
+
+    return await openWhenReady(channel, robotId);
+  } catch (err) {
+    closePeer(robotId);
+    signalChar.removeEventListener("characteristicvaluechanged", onSignal);
+    throw err;
+  }
+}
+
+async function sendChunked(char, bytes) {
+  const total = bytes.length;
+  if (total === 0 || total > 0xFFFF) {
+    throw new Error(`offer size out of range: ${total}`);
+  }
+  const begin = new Uint8Array(3);
+  begin[0] = 0x01;
+  begin[1] = (total >> 8) & 0xff;
+  begin[2] = total & 0xff;
+  await char.writeValueWithResponse(begin);
+  for (let off = 0; off < total; off += BLE_SIG_CHUNK) {
+    const take = Math.min(BLE_SIG_CHUNK, total - off);
+    const buf = new Uint8Array(1 + take);
+    buf[0] = 0x02;
+    buf.set(bytes.subarray(off, off + take), 1);
+    await char.writeValueWithResponse(buf);
+  }
+  await char.writeValueWithResponse(new Uint8Array([0x03]));
+}
+
+function waitForIceGathering(pc, timeoutMs) {
+  if (pc.iceGatheringState === "complete") return Promise.resolve();
+  return new Promise((resolve) => {
+    const onChange = () => {
+      if (pc.iceGatheringState === "complete") {
+        pc.removeEventListener("icegatheringstatechange", onChange);
+        clearTimeout(timer);
+        resolve();
+      }
+    };
+    pc.addEventListener("icegatheringstatechange", onChange);
+    const timer = setTimeout(() => {
+      pc.removeEventListener("icegatheringstatechange", onChange);
+      resolve();
+    }, timeoutMs);
+  });
+}
+
+function timeoutAfter(ms, msg) {
+  return new Promise((_, reject) => setTimeout(() => reject(new Error(msg)), ms));
+}
+
+function openWhenReady(channel, robotId) {
+  return new Promise((resolve, reject) => {
+    if (channel.readyState === "open") return resolve(channel);
+    let resolved = false;
+    const fail = (err) => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(timer);
+      closePeer(robotId);
+      reject(err);
+    };
+    const timer = setTimeout(() => fail(new Error("ICE timeout")), ICE_TIMEOUT_MS);
+    channel.addEventListener("open", () => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(timer);
+      resolve(channel);
+    });
+    channel.addEventListener("error", (e) => fail(new Error(e.message || "channel error")));
+  });
+}
+
+// ── wss://signal.neevs.io fallback path ─────────────────────────────────
+
+async function openChannelViaWss(robotId, robotName, label, opts) {
+  const { onStatus = () => {}, robotType = "pi" } = opts;
   closePeer(robotId);
 
   const myPeerId = makePeerId("dashboard");
@@ -56,7 +217,7 @@ export async function openChannel(robotId, robotName, label, { onStatus = () => 
   const entry = { pc, ws, channels: new Map() };
   _peers.set(robotId, entry);
 
-  // ICE trickle: every local candidate goes through the WS as it arrives.
+  // Trickle ICE — every local candidate goes through the WS as it arrives.
   pc.addEventListener("icecandidate", (e) => {
     if (!e.candidate) return;
     if (ws.readyState !== WebSocket.OPEN) return;
@@ -136,13 +297,11 @@ export async function openChannel(robotId, robotName, label, { onStatus = () => 
       try { msg = JSON.parse(e.data); } catch { return; }
       if (msg.type !== "signal") return;
       if (msg.peer === myPeerId) return;
-      // Robot's self-id prefix is platform-specific (see ROBOT_ROOM_CONFIG).
       if (!String(msg.peer || "").startsWith(cfg.accept)) return;
       try { await applySignal(msg.data); } catch (err) { fail(err); }
     });
     ws.addEventListener("error", () => fail(new Error("Signal channel error")));
     ws.addEventListener("close", () => {
-      // Channel may have already opened — don't fail if we got here past resolve.
       if (!resolved) fail(new Error("Signal channel closed before peer connected"));
     });
   });

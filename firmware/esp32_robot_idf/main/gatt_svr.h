@@ -31,3 +31,8 @@ void gatt_svr_notify_fw_info(void);
 // no central is connected. The snapshot task drives this directly with
 // the begin/chunk/commit/error envelope.
 void gatt_svr_snapshot_send(const uint8_t *buf, size_t len);
+
+// Same shape as gatt_svr_snapshot_send but on the SIGNAL char — wraps
+// the chunked WebRTC SDP answer (and error frames) on the way back to
+// the dashboard during BLE-signaled handshakes.
+void gatt_svr_signal_send(const uint8_t *buf, size_t len);

@@ -1,6 +1,7 @@
 import { SERVICE_UUID, HEARTBEAT_SVC_UUID, HEARTBEAT_CHAR_UUID,
   FW_INFO_CHAR_UUID, ROBOT_STATUS_CHAR_UUID,
-  OPS_RESPONSE_CHAR_UUID, TELEMETRY_CHAR_UUID, decodeJson } from "./ble.js";
+  OPS_RESPONSE_CHAR_UUID, TELEMETRY_CHAR_UUID, SIGNAL_CHAR_UUID,
+  decodeJson } from "./ble.js";
 import { $, escapeHtml } from "./dom.js";
 import { log, logFor } from "./log.js";
 import { settings, saveSettings } from "./settings.js";
@@ -508,6 +509,19 @@ async function connect(id) {
         }
       });
     } catch { /* ops-response char absent on older firmware — optional */ }
+
+    // signal char (Phase 2.F.1) — chunked SDP exchange for WebRTC over BLE.
+    // When present, webrtc-robot.js uses BLE for signaling instead of
+    // wss://signal.neevs.io — fully P2P over LAN, no internet rendezvous.
+    // Older firmware silently skips and falls back to the wss path.
+    try {
+      entry.signalChar = await service.getCharacteristic(SIGNAL_CHAR_UUID);
+      await entry.signalChar.startNotifications();
+      // The signaling state machine in webrtc-robot.js installs its own
+      // characteristicvaluechanged listener when it initiates a session.
+    } catch {
+      entry.signalChar = null;
+    }
 
     entry.runtimeCaps = [];
     for (const cap of CAPABILITIES) {
@@ -1563,6 +1577,7 @@ document.addEventListener("DOMContentLoaded", () => {
       logTailChannel = await openChannel(id, entry.name, "logs", {
         onStatus: (s) => { body.textContent = `${s}\n`; },
         robotType: entry.fwType,
+        signalChar: entry.signalChar,
       });
     } catch (err) {
       body.textContent = `Couldn't reach pi-robot-rtc: ${err.message || err}\n`;

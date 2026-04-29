@@ -135,6 +135,7 @@ async function streamOtaViaWebRTC(entry, bytes) {
     channel = await openChannel(entry.id, entry.name, "ota", {
       onStatus: (s) => logFor(entry, `ota webrtc: ${s}`),
       robotType: entry.fwType,
+      signalChar: entry.signalChar,
     });
   } catch (err) {
     throw new Error(`webrtc open: ${err.message || err}`);
