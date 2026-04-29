@@ -63,6 +63,7 @@ from uuids import (  # noqa: F401 — re-exported for clarity / import sites els
     ROBOT_STATUS_CHAR_UUID,
     OPS_RESPONSE_CHAR_UUID,
     TELEMETRY_CHAR_UUID,
+    SIGNAL_CHAR_UUID,
 )
 
 # Capability schema — built at startup from config. Types name a UI/data
@@ -349,6 +350,121 @@ def _publish(char_uuid: str, value: bytearray) -> None:
     if ch is not None:
         ch.value = value
     _server.update_value(SERVICE_UUID, char_uuid)
+
+
+# ── BLE-signaled WebRTC (Phase 2.F.1) ─────────────────────────────────────
+#
+# Dashboard writes a chunked SDP offer to SIGNAL_CHAR_UUID. We reassemble,
+# forward to pi-robot-rtc.service over /run/pi-robot-rtc.sock, get a
+# non-trickle answer back, notify it to the dashboard chunked. The actual
+# WebRTC peer lives in pi_robot_rtc.py (low-priv `robot` user); this
+# process (root) just shuttles SDP between BLE and the local socket.
+#
+# Wire format on the SIGNAL char (both directions, mirrors OTA/snapshot):
+#   0x01 [u16 BE total]   begin
+#   0x02 [bytes]          chunk
+#   0x03                  commit
+#   0xFF [utf8 msg]       error (notify-only)
+
+_LOCAL_RTC_SOCK = "/run/pi-robot-rtc.sock"
+_SIG_BLE_CHUNK = 100
+_SIG_MAX_OFFER = 8192
+
+_signal_offer_buf: bytearray | None = None
+_signal_offer_total: int = 0
+
+
+def _signal_handle_write(data: bytes) -> None:
+    """Chunked-write reassembler. Same opcode protocol as OTA chars."""
+    global _signal_offer_buf, _signal_offer_total
+    if not data:
+        return
+    op = data[0]
+    if op == 0x01:
+        if len(data) < 3:
+            _signal_publish_error("bad begin")
+            return
+        total = (data[1] << 8) | data[2]
+        if total == 0 or total > _SIG_MAX_OFFER:
+            _signal_publish_error("offer size out of range")
+            return
+        _signal_offer_buf = bytearray()
+        _signal_offer_total = total
+    elif op == 0x02:
+        if _signal_offer_buf is None:
+            return
+        if len(_signal_offer_buf) + (len(data) - 1) > _signal_offer_total:
+            _signal_offer_buf = None
+            _signal_publish_error("chunk overflow")
+            return
+        _signal_offer_buf.extend(data[1:])
+    elif op == 0x03:
+        if _signal_offer_buf is None or len(_signal_offer_buf) != _signal_offer_total:
+            _signal_offer_buf = None
+            _signal_publish_error("offer incomplete")
+            return
+        try:
+            offer_sdp = _signal_offer_buf.decode("utf-8")
+        except UnicodeDecodeError:
+            _signal_offer_buf = None
+            _signal_publish_error("offer not utf-8")
+            return
+        _signal_offer_buf = None
+        _schedule(_signal_send_to_rtc(offer_sdp))
+
+
+async def _signal_send_to_rtc(offer_sdp: str) -> None:
+    """One-shot RPC to pi-robot-rtc.service over a Unix socket. Send
+    the offer JSON, read the answer JSON, notify it back over BLE."""
+    try:
+        reader, writer = await asyncio.open_unix_connection(_LOCAL_RTC_SOCK)
+    except (OSError, FileNotFoundError) as e:
+        log.warning("signal: rtc unreachable (%s) — is pi-robot-rtc.service up?", e)
+        _signal_publish_error("rtc unreachable")
+        return
+    try:
+        writer.write((json.dumps({"type": "offer", "sdp": offer_sdp}) + "\n").encode())
+        await writer.drain()
+        line = await asyncio.wait_for(reader.readline(), timeout=10)
+        if not line:
+            _signal_publish_error("rtc closed without reply")
+            return
+        msg = json.loads(line)
+        if msg.get("type") == "answer" and "sdp" in msg:
+            _signal_publish_answer(msg["sdp"])
+        else:
+            _signal_publish_error(msg.get("error", "no answer")[:120])
+    except asyncio.TimeoutError:
+        _signal_publish_error("rtc rpc timeout")
+    except (OSError, json.JSONDecodeError) as e:
+        log.exception("signal rtc rpc failed")
+        _signal_publish_error(str(e)[:120])
+    finally:
+        try:
+            writer.close()
+            await writer.wait_closed()
+        except Exception:
+            pass
+
+
+def _signal_publish_answer(sdp: str) -> None:
+    """Chunked notify: begin → chunks → commit. Same envelope OTA uses."""
+    sdp_bytes = sdp.encode("utf-8")
+    total = len(sdp_bytes)
+    if total == 0 or total > 0xFFFF:
+        _signal_publish_error("answer size out of range")
+        return
+    _publish(SIGNAL_CHAR_UUID, bytearray([0x01, (total >> 8) & 0xff, total & 0xff]))
+    for off in range(0, total, _SIG_BLE_CHUNK):
+        chunk = bytearray([0x02]) + sdp_bytes[off:off + _SIG_BLE_CHUNK]
+        _publish(SIGNAL_CHAR_UUID, chunk)
+    _publish(SIGNAL_CHAR_UUID, bytearray([0x03]))
+
+
+def _signal_publish_error(msg: str) -> None:
+    payload = bytearray([0xFF]) + msg.encode("utf-8", errors="replace")[:64]
+    _publish(SIGNAL_CHAR_UUID, payload)
+    log.warning("signal: %s", msg)
 
 
 def _set_robot_status(st: str, msg: str | None = None) -> None:
@@ -1280,6 +1396,9 @@ def on_write(characteristic: BlessGATTCharacteristic, value: bytearray, **_) -> 
     if uuid == OPS_CHAR_UUID:
         _ops_handle_write(value)
         return
+    if uuid == SIGNAL_CHAR_UUID:
+        _signal_handle_write(bytes(value))
+        return
 
 
 def _init_wifi_radio() -> None:
@@ -1361,6 +1480,15 @@ async def main() -> None:
         GATTCharacteristicProperties.read,
         _json_bytes(_fw_info_snapshot()),
         GATTAttributePermissions.readable,
+    )
+    # Phase 2.F.1: chunked SDP exchange for WebRTC signaling. Bridges to
+    # pi-robot-rtc.service over /run/pi-robot-rtc.sock; that service runs
+    # aiortc and produces the answer. See _signal_handle_write above.
+    await _server.add_new_characteristic(
+        SERVICE_UUID, SIGNAL_CHAR_UUID,
+        GATTCharacteristicProperties.write | GATTCharacteristicProperties.notify,
+        bytearray(),
+        GATTAttributePermissions.writeable,
     )
     if MOTORS_ENABLED:
         await _server.add_new_characteristic(
