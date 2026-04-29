@@ -26,6 +26,11 @@ CONFIG_MBEDTLS_HARDWARE_SHA=y
 # without us shipping a per-host PEM in flash.
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
+# Route mbedTLS allocations to SPIRAM. Internal DRAM is heavily fragmented
+# by the time the websocket TLS handshake fires (camera + BLE + WiFi all
+# took their pools), and ssl_setup needs a contiguous ~8 KB for the
+# handshake context. Without this it returns SSL_ALLOC_FAILED (-0x7F00).
+CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y
 
 # Camera framebuffer in PSRAM
 CONFIG_CAMERA_TASK_STACK_SIZE=4096
