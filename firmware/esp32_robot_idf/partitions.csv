@@ -1,9 +1,9 @@
-# Two-slot OTA + factory + NVS for pin config / wifi creds.
-# Sizes match what the Arduino project's existing OTA flow expects so
-# bin compatibility is preserved through migration.
+# Two-slot OTA layout for 4MB flash. App partitions must be 64KB-aligned;
+# otadata ends at 0x11000 so ota_0 starts at the next aligned offset 0x20000.
+# Each app slot is 1920K — large enough for WiFi + BLE + esp32-camera +
+# libpeer; the Arduino-side bin lands around 1.4MB so headroom is real.
 # Name,   Type, SubType, Offset,   Size,   Flags
 nvs,      data, nvs,     0x9000,   0x6000
 otadata,  data, ota,     0xf000,   0x2000
-factory,  app,  factory, 0x10000,  1500K
-ota_0,    app,  ota_0,   ,         1500K
-ota_1,    app,  ota_1,   ,         1500K
+ota_0,    app,  ota_0,   0x20000,  0x1E0000
+ota_1,    app,  ota_1,   0x200000, 0x1E0000

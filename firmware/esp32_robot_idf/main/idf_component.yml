@@ -15,5 +15,10 @@ dependencies:
   # Camera driver. Espressif official component.
   espressif/esp32-camera: "^2.0.15"
 
+  # mDNS — moved out of IDF core into the component registry in IDF 5.x.
+  # Used for `<robotName>.local` resolution from the dashboard's wifi-presence
+  # probe, same publisher avahi handles on the Pi.
+  espressif/mdns: "^1.4.0"
+
   idf:
     version: ">=5.1.0"
