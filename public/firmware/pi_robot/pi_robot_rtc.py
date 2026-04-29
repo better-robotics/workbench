@@ -2,17 +2,22 @@
 """
 pi-robot-rtc — WebRTC peer for one Pi.
 
-Architecture: long-lived WebSocket to wss://signal.neevs.io/<roomId>/ws
-(the same rendezvous phone-pair already uses), waits for an offer from the
-dashboard, generates an answer via aiortc, completes ICE, then bridges any
-opened DataChannel to a local handler. Phase 1.A handles one channel
-("shell"): forks bash with a PTY and bridges stdin/stdout to the channel.
+Two signaling transports run side-by-side:
 
-Why signal.neevs.io and not a local HTTP endpoint:
-  Browser Mixed Content blocks https://neevs.io/... → http://<pi>:82/...
-  before PNA preflight even runs. Routing SDP through wss:// (HTTPS) is
-  the only option that doesn't require a per-Pi cert. The data channel
-  is still P2P after handshake.
+  1. wss://signal.neevs.io/<roomId>/ws — the original. Long-lived
+     WebSocket, room=`pi-rtc-<robotId>`. Survives transient drops via
+     ICE restart. Used for cross-network access (operator + Pi on
+     different networks) and as the fallback when the BLE path is
+     unavailable.
+
+  2. Unix socket /run/pi-robot-rtc.sock — Phase 2.F.1. pi_robot.py
+     receives BLE-signaled offers (chunked write to SIGNAL_CHAR_UUID),
+     forwards them here over the local socket as one-shot RPC frames:
+       request:  {"type": "offer", "sdp": "..."}\\n
+       response: {"type": "answer", "sdp": "..."}\\n   (non-trickle)
+     pi_robot.py then notifies the answer back to the dashboard over
+     BLE. The dashboard's WebRTC ICE then runs P2P over LAN — no
+     internet rendezvous, no Mixed-Content / PNA exposure.
 
 Protocol parity:
   Wire format matches pairing.js (the phone-pair flow). The Pi plays the
@@ -43,6 +48,7 @@ except ImportError as e:
     sys.exit(2)
 
 SIGNAL_WS_URL = "wss://signal.neevs.io"
+LOCAL_SOCK_PATH = "/run/pi-robot-rtc.sock"
 LOG = logging.getLogger("rtc")
 
 
@@ -85,16 +91,12 @@ class ShellBridge:
     def start(self):
         pid, fd = pty.fork()
         if pid == 0:
-            # Child: exec bash -i; inherits PTY slave as stdin/stdout/stderr
             os.execvp("bash", ["bash", "-i"])
             os._exit(127)
         self.pid = pid
         self.master_fd = fd
-        # Set the master non-blocking so reads don't stall the loop
         flags = fcntl.fcntl(fd, fcntl.F_GETFL)
         fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
-        # Reasonable initial size; xterm.js will renegotiate via SIGWINCH
-        # if we wire it later. For Phase 1.A leave at 80x24.
         try:
             fcntl.ioctl(fd, termios.TIOCSWINSZ,
                         struct.pack("HHHH", 24, 80, 0, 0))
@@ -104,12 +106,9 @@ class ShellBridge:
         LOG.info("shell pid=%d started", pid)
 
     async def _pump(self):
-        """Read PTY master, forward bytes to the DataChannel."""
         loop = self.loop
         try:
             while True:
-                # Wait for the master fd to be readable; aiortc's channel
-                # send is synchronous-ish (queues internally).
                 future = loop.create_future()
 
                 def on_readable():
@@ -127,7 +126,7 @@ class ShellBridge:
                         continue
                     break
                 if not data:
-                    break  # PTY closed (shell exited)
+                    break
                 if self.channel.readyState != "open":
                     break
                 self.channel.send(data)
@@ -137,7 +136,6 @@ class ShellBridge:
             self.dispose()
 
     def write(self, data: bytes):
-        """Browser keystroke → write to PTY master (shell stdin)."""
         if self.master_fd is None:
             return
         try:
@@ -158,36 +156,247 @@ class ShellBridge:
             self.pid = None
 
 
-# ── Signaling ─────────────────────────────────────────────────────────────
+# ── Per-channel wiring (transport-agnostic) ───────────────────────────────
+#
+# Lifted out of Session so the Unix-socket signaling path can share the
+# same data-channel handlers without code duplication. `bridges` is the
+# per-PC dict that owns ShellBridges + log-tail tasks; the dispatcher
+# drops entries on channel close.
+
+def wire_channel(channel, bridges):
+    LOG.info("datachannel opened: %s", channel.label)
+    if channel.label == "shell":
+        _wire_shell(channel, bridges)
+    elif channel.label == "ota":
+        _wire_ota(channel, bridges)
+    elif channel.label == "logs":
+        _wire_logs(channel, bridges)
+    else:
+        LOG.warning("ignoring unknown channel label: %s", channel.label)
+
+
+def _wire_shell(channel, bridges):
+    bridge = ShellBridge(channel, asyncio.get_event_loop())
+    bridges[channel.label] = bridge
+    bridge.start()
+
+    @channel.on("message")
+    def on_msg(message):
+        # Binary = raw PTY bytes (stdin). Text = JSON control messages
+        # (resize, future: signals, env). WebRTC's native text/binary
+        # discriminator avoids inline escape-sequence games.
+        if isinstance(message, str):
+            try:
+                ctrl = json.loads(message)
+            except json.JSONDecodeError:
+                return
+            if ctrl.get("type") == "resize" and bridge.master_fd is not None:
+                cols = int(ctrl.get("cols") or 80)
+                rows = int(ctrl.get("rows") or 24)
+                try:
+                    fcntl.ioctl(
+                        bridge.master_fd, termios.TIOCSWINSZ,
+                        struct.pack("HHHH", rows, cols, 0, 0),
+                    )
+                except OSError:
+                    pass
+        else:
+            bridge.write(message)
+
+    @channel.on("close")
+    def on_close():
+        LOG.info("datachannel closed: %s", channel.label)
+        bridge.dispose()
+        bridges.pop(channel.label, None)
+
+
+def _wire_ota(channel, bridges):
+    # OTA staging path: dashboard streams a bundle JSON's bytes here, we
+    # write to a fixed file in /tmp; the dashboard then triggers the
+    # privileged apply via the existing BLE ops verb (apply-staged-ota
+    # in pi_robot.py). Keeps RTC daemon at user privs while pi_robot.py
+    # (root) does the file-system + systemctl work.
+    LOG.info("ota: wiring channel readyState=%s", channel.readyState)
+    state = {"writer": None, "size": 0, "received": 0,
+             "path": "/tmp/pi-robot-staged-ota.json"}
+
+    def reset(reason=None):
+        if state["writer"]:
+            try: state["writer"].close()
+            except Exception: pass
+        state["writer"] = None
+        state["size"] = 0
+        state["received"] = 0
+        try: os.unlink(state["path"])
+        except OSError: pass
+        if reason:
+            try:
+                channel.send(json.dumps({"type": "error", "error": reason}))
+            except Exception:
+                pass
+
+    @channel.on("message")
+    def on_msg(message):
+        LOG.info("ota on_msg: type=%s len=%d", type(message).__name__,
+                 len(message) if hasattr(message, "__len__") else -1)
+        if isinstance(message, str):
+            try:
+                ctrl = json.loads(message)
+            except json.JSONDecodeError:
+                LOG.warning("ota: bad json: %r", message[:200])
+                return
+            t = ctrl.get("type")
+            if t == "begin":
+                reset()
+                state["size"] = int(ctrl.get("size") or 0)
+                try:
+                    state["writer"] = open(state["path"], "wb")
+                except OSError as e:
+                    reset(f"open failed: {e}")
+                    return
+                LOG.info("ota begin: size=%d → %s", state["size"], state["path"])
+            elif t == "commit":
+                if state["writer"]:
+                    state["writer"].close()
+                    state["writer"] = None
+                LOG.info("ota commit: %d / %d bytes", state["received"], state["size"])
+                if state["size"] and state["received"] != state["size"]:
+                    reset(f"size mismatch: {state['received']} != {state['size']}")
+                    return
+                try:
+                    channel.send(json.dumps({
+                        "type": "staged",
+                        "path": state["path"],
+                        "size": state["received"],
+                    }))
+                except Exception:
+                    pass
+            elif t == "abort":
+                LOG.info("ota abort")
+                reset()
+        else:
+            if not state["writer"]:
+                return
+            try:
+                state["writer"].write(message)
+                state["received"] += len(message)
+            except OSError as e:
+                reset(f"write failed: {e}")
+
+    @channel.on("close")
+    def on_close():
+        LOG.info("datachannel closed: %s", channel.label)
+        if state["writer"]:
+            try: state["writer"].close()
+            except Exception: pass
+            state["writer"] = None
+        bridges.pop(channel.label, None)
+
+
+def _wire_logs(channel, bridges):
+    # journalctl -fu <unit> piped to channel as text lines. Dashboard
+    # sends {type:"follow", unit:"<service>"} to start; channel close
+    # (or new follow) terminates the subprocess. Allowlist the unit
+    # names so a malformed message can't shell out to arbitrary commands.
+    ALLOWED_UNITS = (
+        "pi-robot", "pi-robot.service",
+        "pi-robot-heartbeat", "pi-robot-heartbeat.service",
+        "pi-robot-health", "pi-robot-health.service",
+        "pi-robot-rtc", "pi-robot-rtc.service",
+    )
+    state = {"task": None}
+    loop = asyncio.get_event_loop()
+
+    async def follow(unit):
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "journalctl", "-fu", unit, "-n", "100", "--output", "short-iso",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+        except Exception as e:
+            try:
+                channel.send(json.dumps({"type": "error", "error": str(e)[:200]}))
+            except Exception:
+                pass
+            return
+        try:
+            while True:
+                line = await proc.stdout.readline()
+                if not line:
+                    break
+                if channel.readyState != "open":
+                    break
+                try:
+                    channel.send(line.decode("utf-8", errors="replace"))
+                except Exception:
+                    break
+        finally:
+            try: proc.terminate()
+            except Exception: pass
+            try: await proc.wait()
+            except Exception: pass
+
+    def stop_current():
+        t = state["task"]
+        if t and not t.done():
+            t.cancel()
+        state["task"] = None
+
+    @channel.on("message")
+    def on_msg(message):
+        if not isinstance(message, str):
+            return
+        try:
+            ctrl = json.loads(message)
+        except json.JSONDecodeError:
+            return
+        t = ctrl.get("type")
+        if t == "follow":
+            unit = str(ctrl.get("unit") or "pi-robot.service")
+            if unit not in ALLOWED_UNITS:
+                try:
+                    channel.send(json.dumps({"type": "error", "error": f"unit not allowed: {unit}"}))
+                except Exception:
+                    pass
+                return
+            stop_current()
+            state["task"] = loop.create_task(follow(unit))
+        elif t == "stop":
+            stop_current()
+
+    @channel.on("close")
+    def on_close():
+        LOG.info("datachannel closed: %s", channel.label)
+        stop_current()
+        bridges.pop(channel.label, None)
+
+
+# ── wss signaling ─────────────────────────────────────────────────────────
 
 class Session:
-    """One peer connection's lifetime: WebSocket signaling + RTCPeerConnection
-    + per-channel bridges. Recreated whenever the dashboard initiates a fresh
-    offer (single-peer-at-a-time model)."""
+    """One peer connection's lifetime over the wss transport. Recreated
+    whenever the dashboard initiates a fresh offer (single-peer-at-a-time
+    model). ICE is trickled back to the dashboard over the same WS."""
 
     def __init__(self, ws, my_peer_id, room_id):
         self.ws = ws
         self.my_peer_id = my_peer_id
         self.room_id = room_id
         self.pc = None
-        self.bridges = {}  # channel label → ShellBridge
+        self.bridges = {}
 
     async def handle_signal(self, peer_id: str, data: dict):
-        """Inbound signal frame from the other side."""
-        # Don't echo our own signals back to ourselves.
         if peer_id == self.my_peer_id:
             return
-        # Match phone-pair role filter — only accept from the other role.
         if not peer_id.startswith("dashboard-") and not peer_id.startswith("phone-"):
             return
-
         if data.get("offer"):
             await self._on_offer(data["offer"])
         if data.get("ice"):
             await self._on_ice(data["ice"])
 
     async def _on_offer(self, offer_data):
-        # Tear down any previous PC — single-peer model.
         if self.pc:
             await self.pc.close()
             for b in self.bridges.values():
@@ -197,15 +406,7 @@ class Session:
 
         @self.pc.on("datachannel")
         def on_dc(channel):
-            LOG.info("datachannel opened: %s", channel.label)
-            if channel.label == "shell":
-                self._wire_shell(channel)
-            elif channel.label == "ota":
-                self._wire_ota(channel)
-            elif channel.label == "logs":
-                self._wire_logs(channel)
-            else:
-                LOG.warning("ignoring unknown channel label: %s", channel.label)
+            wire_channel(channel, self.bridges)
 
         @self.pc.on("connectionstatechange")
         async def on_state():
@@ -214,7 +415,6 @@ class Session:
                 for b in self.bridges.values():
                     b.dispose()
 
-        # ICE candidates — trickle to the dashboard via the same WS.
         @self.pc.on("icecandidate")
         async def on_candidate(candidate):
             if candidate is None:
@@ -235,201 +435,6 @@ class Session:
             "sdp": self.pc.localDescription.sdp,
             "type": self.pc.localDescription.type,
         }})
-
-    def _wire_shell(self, channel):
-        bridge = ShellBridge(channel, asyncio.get_event_loop())
-        self.bridges[channel.label] = bridge
-        bridge.start()
-
-        @channel.on("message")
-        def on_msg(message):
-            # Binary = raw PTY bytes (stdin). Text = JSON control messages
-            # (resize, future: signals, env). WebRTC's native text/binary
-            # discriminator avoids inline escape-sequence games.
-            if isinstance(message, str):
-                try:
-                    ctrl = json.loads(message)
-                except json.JSONDecodeError:
-                    return
-                if ctrl.get("type") == "resize" and bridge.master_fd is not None:
-                    cols = int(ctrl.get("cols") or 80)
-                    rows = int(ctrl.get("rows") or 24)
-                    try:
-                        fcntl.ioctl(
-                            bridge.master_fd, termios.TIOCSWINSZ,
-                            struct.pack("HHHH", rows, cols, 0, 0),
-                        )
-                    except OSError:
-                        pass
-            else:
-                bridge.write(message)
-
-        @channel.on("close")
-        def on_close():
-            LOG.info("datachannel closed: %s", channel.label)
-            bridge.dispose()
-            self.bridges.pop(channel.label, None)
-
-    def _wire_ota(self, channel):
-        # OTA staging path: dashboard streams a bundle JSON's bytes here, we
-        # write to a fixed file in /tmp; the dashboard then triggers the
-        # privileged apply via the existing BLE ops verb (apply-staged-ota
-        # in pi_robot.py). Keeps RTC daemon at user privs while pi_robot.py
-        # (root) does the file-system + systemctl work.
-        LOG.info("ota: wiring channel readyState=%s", channel.readyState)
-        state = {"writer": None, "size": 0, "received": 0,
-                 "path": "/tmp/pi-robot-staged-ota.json"}
-
-        def reset(reason=None):
-            if state["writer"]:
-                try: state["writer"].close()
-                except Exception: pass
-            state["writer"] = None
-            state["size"] = 0
-            state["received"] = 0
-            try: os.unlink(state["path"])
-            except OSError: pass
-            if reason:
-                try:
-                    channel.send(json.dumps({"type": "error", "error": reason}))
-                except Exception:
-                    pass
-
-        @channel.on("message")
-        def on_msg(message):
-            LOG.info("ota on_msg: type=%s len=%d", type(message).__name__, len(message) if hasattr(message, "__len__") else -1)
-            if isinstance(message, str):
-                try:
-                    ctrl = json.loads(message)
-                except json.JSONDecodeError:
-                    LOG.warning("ota: bad json: %r", message[:200])
-                    return
-                t = ctrl.get("type")
-                if t == "begin":
-                    reset()
-                    state["size"] = int(ctrl.get("size") or 0)
-                    try:
-                        state["writer"] = open(state["path"], "wb")
-                    except OSError as e:
-                        reset(f"open failed: {e}")
-                        return
-                    LOG.info("ota begin: size=%d → %s", state["size"], state["path"])
-                elif t == "commit":
-                    if state["writer"]:
-                        state["writer"].close()
-                        state["writer"] = None
-                    LOG.info("ota commit: %d / %d bytes", state["received"], state["size"])
-                    if state["size"] and state["received"] != state["size"]:
-                        reset(f"size mismatch: {state['received']} != {state['size']}")
-                        return
-                    try:
-                        channel.send(json.dumps({
-                            "type": "staged",
-                            "path": state["path"],
-                            "size": state["received"],
-                        }))
-                    except Exception:
-                        pass
-                elif t == "abort":
-                    LOG.info("ota abort")
-                    reset()
-            else:
-                # Binary chunk — append to file. Bytes are the bundle JSON's
-                # raw UTF-8; pi_robot.py will JSON-decode on apply.
-                if not state["writer"]:
-                    return
-                try:
-                    state["writer"].write(message)
-                    state["received"] += len(message)
-                except OSError as e:
-                    reset(f"write failed: {e}")
-
-        @channel.on("close")
-        def on_close():
-            LOG.info("datachannel closed: %s", channel.label)
-            if state["writer"]:
-                try: state["writer"].close()
-                except Exception: pass
-                state["writer"] = None
-            self.bridges.pop(channel.label, None)
-
-    def _wire_logs(self, channel):
-        # journalctl -fu <unit> piped to channel as text lines. Dashboard
-        # sends {type:"follow", unit:"<service>"} to start; channel close
-        # (or new follow) terminates the subprocess. Allowlist the unit
-        # names so a malformed message can't shell out to arbitrary commands.
-        ALLOWED_UNITS = (
-            "pi-robot", "pi-robot.service",
-            "pi-robot-heartbeat", "pi-robot-heartbeat.service",
-            "pi-robot-health", "pi-robot-health.service",
-            "pi-robot-rtc", "pi-robot-rtc.service",
-        )
-        state = {"task": None}
-        loop = asyncio.get_event_loop()
-
-        async def follow(unit):
-            try:
-                proc = await asyncio.create_subprocess_exec(
-                    "journalctl", "-fu", unit, "-n", "100", "--output", "short-iso",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.STDOUT,
-                )
-            except Exception as e:
-                try:
-                    channel.send(json.dumps({"type": "error", "error": str(e)[:200]}))
-                except Exception:
-                    pass
-                return
-            try:
-                while True:
-                    line = await proc.stdout.readline()
-                    if not line:
-                        break
-                    if channel.readyState != "open":
-                        break
-                    try:
-                        channel.send(line.decode("utf-8", errors="replace"))
-                    except Exception:
-                        break
-            finally:
-                try: proc.terminate()
-                except Exception: pass
-                try: await proc.wait()
-                except Exception: pass
-
-        def stop_current():
-            t = state["task"]
-            if t and not t.done():
-                t.cancel()
-            state["task"] = None
-
-        @channel.on("message")
-        def on_msg(message):
-            if not isinstance(message, str):
-                return  # data channel is text-only for logs
-            try:
-                ctrl = json.loads(message)
-            except json.JSONDecodeError:
-                return
-            t = ctrl.get("type")
-            if t == "follow":
-                unit = str(ctrl.get("unit") or "pi-robot.service")
-                if unit not in ALLOWED_UNITS:
-                    try:
-                        channel.send(json.dumps({"type": "error", "error": f"unit not allowed: {unit}"}))
-                    except Exception:
-                        pass
-                    return
-                stop_current()
-                state["task"] = loop.create_task(follow(unit))
-            elif t == "stop":
-                stop_current()
-
-        @channel.on("close")
-        def on_close():
-            LOG.info("datachannel closed: %s", channel.label)
-            stop_current()
-            self.bridges.pop(channel.label, None)
 
     async def _on_ice(self, ice):
         if not self.pc:
@@ -459,7 +464,6 @@ _CAND_RE = re.compile(
 
 
 def parse_candidate(line: str):
-    """Convert browser-style 'candidate:...' string into RTCIceCandidate."""
     if not line:
         return None
     if line.startswith("candidate:"):
@@ -481,21 +485,131 @@ def parse_candidate(line: str):
     )
 
 
-# ── Main loop ─────────────────────────────────────────────────────────────
+# ── Unix socket signaling ────────────────────────────────────────────────
+#
+# pi_robot.py owns the BLE GATT (root user) and gets BLE-signaled offers
+# from the dashboard. It forwards them here as JSON-over-Unix-socket
+# RPC. We generate a non-trickle answer (all candidates inline; aiortc's
+# setLocalDescription waits for ICE gathering) and return it. pi_robot.py
+# notifies it back to the dashboard via BLE chunks.
+#
+# Live peers are kept in _local_peers so they aren't GC'd between the
+# RPC reply and the actual ICE/data-channel traffic. Each peer self-
+# unregisters on connectionstatechange terminal.
 
-async def run():
+_local_peers = set()
+
+
+async def handle_local_offer(reader, writer):
+    try:
+        line = await reader.readline()
+        if not line:
+            return
+        msg = json.loads(line)
+    except (asyncio.IncompleteReadError, json.JSONDecodeError, OSError) as e:
+        LOG.warning("local offer: bad request: %s", e)
+        writer.close()
+        return
+
+    if msg.get("type") != "offer" or "sdp" not in msg:
+        try:
+            writer.write((json.dumps({"type": "error", "error": "bad offer"}) + "\n").encode())
+            await writer.drain()
+        except Exception:
+            pass
+        writer.close()
+        return
+
+    pc = RTCPeerConnection()
+    bridges = {}
+
+    @pc.on("datachannel")
+    def on_dc(channel):
+        wire_channel(channel, bridges)
+
+    peer_record = {"pc": pc, "bridges": bridges}
+    _local_peers.add(id(peer_record))
+    refs = {"r": peer_record}  # keep strong reference
+
+    @pc.on("connectionstatechange")
+    async def on_state():
+        LOG.info("local pc state: %s", pc.connectionState)
+        if pc.connectionState in ("failed", "closed", "disconnected"):
+            for b in bridges.values():
+                b.dispose()
+            bridges.clear()
+            _local_peers.discard(id(peer_record))
+            refs.pop("r", None)
+
+    try:
+        await pc.setRemoteDescription(RTCSessionDescription(sdp=msg["sdp"], type="offer"))
+        answer = await pc.createAnswer()
+        await pc.setLocalDescription(answer)
+        # aiortc's setLocalDescription waits for ICE gathering, so the
+        # localDescription.sdp here carries every candidate inline —
+        # exactly what BLE non-trickle signaling needs.
+        response = json.dumps({"type": "answer", "sdp": pc.localDescription.sdp})
+        writer.write((response + "\n").encode())
+        await writer.drain()
+        LOG.info("local offer answered (sdp=%d B)", len(pc.localDescription.sdp))
+    except Exception as e:
+        LOG.exception("local offer handling failed")
+        try:
+            writer.write((json.dumps({"type": "error", "error": str(e)}) + "\n").encode())
+            await writer.drain()
+        except Exception:
+            pass
+        try: await pc.close()
+        except Exception: pass
+        _local_peers.discard(id(peer_record))
+        refs.pop("r", None)
+    finally:
+        try:
+            writer.close()
+            await writer.wait_closed()
+        except Exception:
+            pass
+
+
+async def run_unix_server():
+    """Listen on /run/pi-robot-rtc.sock for BLE-signaled offers from
+    pi_robot.py. The socket is created with 0o666 perms so root (the
+    user pi_robot.py runs as) can connect even though we're `robot`."""
+    try:
+        os.unlink(LOCAL_SOCK_PATH)
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        LOG.warning("unix socket cleanup: %s", e)
+    try:
+        os.makedirs(os.path.dirname(LOCAL_SOCK_PATH), exist_ok=True)
+    except OSError:
+        pass
+    server = await asyncio.start_unix_server(handle_local_offer, LOCAL_SOCK_PATH)
+    try:
+        os.chmod(LOCAL_SOCK_PATH, 0o666)
+    except OSError as e:
+        LOG.warning("unix socket chmod: %s", e)
+    LOG.info("local signaling: listening on %s", LOCAL_SOCK_PATH)
+    async with server:
+        await server.serve_forever()
+
+
+# ── wss main loop ────────────────────────────────────────────────────────
+
+async def run_wss():
     robot_id = device_name()
     room_id = f"pi-rtc-{robot_id}"
     my_peer_id = make_peer_id("desktop")
     url = f"{SIGNAL_WS_URL}/{room_id}/ws"
-    LOG.info("connecting to %s as %s (room %s)", SIGNAL_WS_URL, my_peer_id, room_id)
+    LOG.info("wss: connecting to %s as %s (room %s)", SIGNAL_WS_URL, my_peer_id, room_id)
 
     backoff = 1
     async with aiohttp.ClientSession() as http:
         while True:
             try:
                 async with http.ws_connect(url, heartbeat=20) as ws:
-                    LOG.info("ws connected")
+                    LOG.info("wss connected")
                     backoff = 1
                     session = Session(ws, my_peer_id, room_id)
                     async for msg in ws:
@@ -510,12 +624,7 @@ async def run():
                                     payload.get("data", {}),
                                 )
                             elif payload.get("type") == "state":
-                                # signal.neevs.io broadcasts cached signaling
-                                # to peers that join after another peer sent
-                                # an offer (e.g. the dashboard clicked Connect
-                                # while the Pi was momentarily disconnected).
-                                # Extract offer/answer entries for the other
-                                # role and replay them.
+                                # Cached signaling for late-joining peers.
                                 peers = payload.get("peers", {}) or {}
                                 for peer_id, data in peers.items():
                                     if peer_id == my_peer_id:
@@ -526,14 +635,20 @@ async def run():
                                         await session.handle_signal(peer_id, data)
                         elif msg.type in (aiohttp.WSMsgType.ERROR, aiohttp.WSMsgType.CLOSED):
                             break
-                    LOG.info("ws closed")
+                    LOG.info("wss closed")
             except Exception:
-                LOG.exception("ws session failed")
-            # Exponential backoff up to 30s — restart matches systemd's
-            # Restart=always but adds jitter so a flapping signal server
-            # doesn't get hammered.
+                LOG.exception("wss session failed")
             await asyncio.sleep(min(backoff, 30))
             backoff = min(backoff * 2, 30)
+
+
+# ── entry point ──────────────────────────────────────────────────────────
+
+async def run():
+    # wss + Unix-socket servers run concurrently. wss has its own
+    # reconnect loop so a flapping signal server doesn't hammer; the
+    # Unix server is start-once and runs forever.
+    await asyncio.gather(run_wss(), run_unix_server())
 
 
 def main():
