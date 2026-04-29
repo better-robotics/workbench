@@ -1,38 +1,25 @@
-/**
- * esp32_robot — ESP-IDF entry point.
- *
- * Migration scaffold; init order placeholders only. Each subsystem moves
- * over from firmware/esp32_robot/esp32_robot.ino in its own commit. Until
- * the migration completes, the Arduino .ino stays the shipping firmware.
- *
- * Init order (matches CLAUDE.md "connection-first init"):
- *   1. NVS                (Preferences-equivalent for pin config, fw version)
- *   2. WiFi STA           (top of setup so DMA buffers pre-allocate in
- *                          fresh internal heap; camera fights for what's
- *                          left and fails loudly via camera_err if PSRAM
- *                          is missing or constrained)
- *   3. NimBLE             (control plane; comes up before motors/LED so a
- *                          dead camera leaves the robot still drivable)
- *   4. Motors / LED / Flash  (capability surface — gated on pin config)
- *   5. Camera             (esp32-camera; reports camera_err in fw-info if
- *                          init fails so dashboard hides the cap)
- *   6. HTTP server :81    (MJPEG + /health + /ota — kept for compatibility
- *                          with existing dashboard probes during migration)
- *   7. WebRTC peer        (libpeer; signaling via wss://signal.neevs.io/
- *                          esp32-rtc-<robotId>/ws — symmetric with the Pi
- *                          side's pi-rtc-<robotId> rooms)
- */
+#include <stdio.h>
 
 #include "esp_log.h"
+#include "esp_mac.h"
 #include "nvs_flash.h"
+
+#include "ble_host.h"
+#include "mdns_advertise.h"
+#include "wifi_sta.h"
 
 static const char *TAG = "esp32_robot";
 
-void app_main(void) {
-    ESP_LOGI(TAG, "esp32_robot ESP-IDF migration scaffold — see README.md");
+// Init order tracks the .ino's allocation rationale (CLAUDE.md
+// "connection-first init"): NVS → WiFi → BLE → mDNS. Camera + the rest
+// of the capability surface come in 2.C; WebRTC peer in 2.D.
+//
+// On classic ESP32-CAM, BLE+WiFi+camera compete for ~250 KB DRAM. The
+// .ino's ordering put camera first to give it the freshest heap; the IDF
+// rebuild keeps that for 2.C. For 2.B (no camera yet) the order is just
+// connectivity.
 
-    // NVS first — Preferences-equivalent. Pin config + fw stamp + WiFi
-    // credentials all persist here.
+void app_main(void) {
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
@@ -40,13 +27,19 @@ void app_main(void) {
     }
     ESP_ERROR_CHECK(ret);
 
-    // TODO migrate from .ino:
-    //   wifi_init_sta();             // ~lines 200-340 of .ino
-    //   ble_server_start();          // NimBLE service + characteristics
-    //   pinconfig_load();            // Preferences → motor/LED/flash pins
-    //   motors_init();
-    //   led_init(); flash_init();
-    //   camera_init();               // initCamera() in .ino, ~line 355
-    //   http_server_start();         // :81 MJPEG + /ota + /health
-    //   webrtc_peer_start();         // libpeer — NEW in this migration
+    // Stable per-chip suffix — low 16 bits of the WiFi MAC. Same shape as
+    // the .ino so paired robots in localStorage keep matching after the
+    // cutover. BLE name uses the uppercase BR-XXXX form; the mDNS /
+    // hostname form lowercases for `<name>.local` lookups.
+    uint8_t mac[6];
+    ESP_ERROR_CHECK(esp_read_mac(mac, ESP_MAC_WIFI_STA));
+    char ble_name[16];
+    char hostname[32];
+    snprintf(ble_name, sizeof(ble_name), "BR-%02X%02X", mac[4], mac[5]);
+    snprintf(hostname, sizeof(hostname), "br-%02x%02x", mac[4], mac[5]);
+    ESP_LOGI(TAG, "robot id: ble=%s host=%s", ble_name, hostname);
+
+    wifi_sta_init(hostname);
+    ble_host_init(ble_name);
+    mdns_advertise_init(hostname);
 }

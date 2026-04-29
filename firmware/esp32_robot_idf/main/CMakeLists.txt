@@ -1,11 +1,19 @@
 # Component sources — keep flat for now; promote subsystems to subdirs as
 # they grow past ~3 files (mirrors the public/ subsystem-promotion rule).
+#
+# uuids.h is generated from protocol/uuids.json into the Arduino tree;
+# pulled in via INCLUDE_DIRS so a single source of truth survives the
+# migration. Once the Arduino .ino retires, gen-uuids.py emits here too.
 
 idf_component_register(
     SRCS
         "app_main.c"
+        "wifi_sta.c"
+        "ble_host.c"
+        "mdns_advertise.c"
     INCLUDE_DIRS
         "."
+        "../../esp32_robot"
     PRIV_REQUIRES
         # Connectivity
         nvs_flash
