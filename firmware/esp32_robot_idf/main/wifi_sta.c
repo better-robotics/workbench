@@ -31,6 +31,12 @@ static bool s_attempting_join = false;
 // — without this flag the handler reads it as "join failed" and bails,
 // even though the new association completes ~50ms later.
 static bool s_self_disconnect = false;
+// Tracks whether STA_CONNECTED has fired during the current join attempt.
+// Lets the timeout handler distinguish "couldn't associate" (auth/SSID
+// problem) from "associated but never got an IP" (typically beacon loss
+// on a flaky AP — network problem, not credential problem). Reset on
+// each fresh join.
+static bool s_associated = false;
 static bool s_scan_in_flight = false;
 static char s_pending_ssid[33];
 static char s_pending_pass[65];
@@ -159,13 +165,24 @@ static void on_join_timeout(void *arg) {
     if (!s_attempting_join) return;
     s_attempting_join = false;
     esp_wifi_disconnect();
-    publish_status("failed", s_pending_ssid, "timeout", NULL);
+    // "associated, no IP" → DHCP issue, almost always a flaky AP / weak
+    // signal. "never associated" → auth/SSID problem. Distinct messages
+    // help the user pick between "fix the network" and "fix the password".
+    const char *reason = s_associated ? "no IP — AP unstable" : "no association";
+    publish_status("failed", s_pending_ssid, reason, NULL);
+    s_associated = false;
 }
 
 static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *data) {
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
+    } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_CONNECTED) {
+        // Association succeeded (auth + 4-way handshake done). DHCP /
+        // GOT_IP may still be pending. Used by the join-timeout handler
+        // to differentiate "couldn't associate" from "associated but no IP".
+        s_associated = true;
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
+        s_associated = false;
         s_has_ip = false;
         wifi_event_sta_disconnected_t *ev = (wifi_event_sta_disconnected_t *)data;
         if (s_self_disconnect) {
@@ -288,6 +305,7 @@ void wifi_sta_handle_join_write(const uint8_t *json, size_t len) {
     strlcpy(s_pending_ssid, ssid, sizeof(s_pending_ssid));
     strlcpy(s_pending_pass, pass, sizeof(s_pending_pass));
     s_attempting_join = true;
+    s_associated = false;
 
     wifi_config_t wc = {0};
     strlcpy((char *)wc.sta.ssid, ssid, sizeof(wc.sta.ssid));
