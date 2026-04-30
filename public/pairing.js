@@ -576,10 +576,11 @@ export async function hostPairingRoom({ onStatus = () => {}, extraLobbies = [] }
   const applySignal = async (data, sourceChannel) => {
     if (!data) return;
     if (data.offer) {
-      const via = sourceChannel === ws ? "wss" : "lobby";
-      console.log(`[pair-host] offer received via ${via}`);
-      dbg("desktop: offer received via", via);
+      dbg("desktop: offer received via", sourceChannel === ws ? "wss" : "lobby");
       try { onStatus("Phone connected, negotiating…"); } catch {}
+      // Commit to whichever transport delivered the offer. Close the
+      // others so they stop accepting ads from a different (stray) phone
+      // that might also be on the lobby.
       activeChannel = sourceChannel;
       for (const ch of channels) {
         if (ch !== activeChannel) { try { ch.close(); } catch {} }
@@ -591,7 +592,6 @@ export async function hostPairingRoom({ onStatus = () => {}, extraLobbies = [] }
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       activeChannel.send(JSON.stringify({ type: "signal", peer: myPeerId, data: { answer } }));
-      console.log(`[pair-host] answer sent via ${via}`);
       dbg("desktop: answer sent");
     }
     if (data.ice) {
@@ -719,14 +719,12 @@ export async function joinPairingRoom(roomId, { onStatus = () => {}, lobby = nul
     };
 
     ws.addEventListener("open", async () => {
-      console.log(`[pair-join] channel open (lobby=${!!lobby}); creating offer`);
       dbg("phone ws: open");
       try {
         try { onStatus("Signal channel open. Creating offer…"); } catch {}
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
         ws.send(JSON.stringify({ type: "signal", peer: myPeerId, data: { offer } }));
-        console.log(`[pair-join] offer sent`);
         try { onStatus("Offer sent. Waiting for desktop…"); } catch {}
       } catch (err) { fail(err); }
     });
@@ -736,7 +734,6 @@ export async function joinPairingRoom(roomId, { onStatus = () => {}, lobby = nul
       if (msg.type === "signal") {
         if (msg.peer === myPeerId) return;
         if (msg.peer && msg.peer.startsWith("phone-")) return;
-        console.log(`[pair-join] signal received from ${msg.peer}: keys=${Object.keys(msg.data || {}).join(',')}`);
         await applySignal(msg.data);
       } else if (msg.type === "state") {
         for (const d of extractFromState(msg.peers, myPeerId, otherRolePrefix)) {
