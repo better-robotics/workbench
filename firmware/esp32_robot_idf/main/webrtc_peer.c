@@ -396,33 +396,26 @@ static void handle_offer(const char *sdp, offer_src_t src) {
         vTaskDelay(pdMS_TO_TICKS(500));
     }
 
-    // STUN gives us a server-reflexive candidate (chip's public IP through
-    // the AP's NAT). TURN gives us a relay candidate that public peers can
-    // reach even when the AP blocks LAN UDP (Apple Personal Hotspot,
-    // apartment WiFi-as-a-service, guest networks). Without TURN the chip
-    // emits only its private host candidate, and ICE has nowhere to meet
-    // when the LAN path is blocked — chrome://webrtc-internals confirmed
-    // this exact failure mode (2026-04-30).
+    // STUN-only. We tried adding OpenRelay's free public TURN to give
+    // libpeer a relay candidate (so chip + dashboard can always meet at
+    // a public server even when the LAN blocks UDP), but
+    // chrome://webrtc-internals confirmed allocations never completed —
+    // chip kept emitting only host + srflx, no relay. Either OpenRelay
+    // was down or libpeer's TURN client doesn't get on with it. Adding
+    // it cost extra DNS / allocation time during create_answer without
+    // delivering the fallback path. Removed.
     //
-    // libpeer's create_answer is synchronous over getaddrinfo() per ICE
-    // server. On a slow/flaky DNS (iPhone hotspot, captive portals),
-    // hostname-based ICE servers stretch create_answer past the BLE
-    // signaling timeout and the dashboard never receives an answer. So
-    // we bypass DNS for TURN by using a hardcoded IP literal — getaddrinfo
-    // returns immediately on those. STUN keeps a hostname (Google's DNS
-    // is fast everywhere). Cost: TURN IP rotation breaks until reflashed.
-    // Acceptable for personal/dev; swap for a deployment-time endpoint
-    // (and proper async resolver) if this ever ships.
+    // Real fix: have the chip fetch Cloudflare TURN credentials from
+    // proxy.neevs.io/cloudflare/turn (same endpoint the dashboard uses),
+    // populate ice_servers dynamically. ~100 LOC + HTTPS request +
+    // JSON parsing. Punt to a follow-up phase.
     //
-    // OpenRelay free TURN — IP from `host openrelay.metered.ca` on
-    // 2026-04-30. Single UDP port 80 (most permissive); libpeer is
-    // UDP-only so port 443 wouldn't add coverage.
+    // Until then: chip works LAN-to-LAN (home WiFi, normal networks)
+    // and fails on networks with client isolation (apartment WiFi,
+    // some hotspots).
     PeerConfiguration cfg = {
         .ice_servers = {
             { .urls = "stun:stun.l.google.com:19302" },
-            { .urls = "turn:15.235.47.158:80",
-              .username = "openrelayproject",
-              .credential = "openrelayproject" },
         },
         .video_codec = CODEC_NONE,    // 2.D.3 routes frames as binary on a data channel
         .audio_codec = CODEC_NONE,
