@@ -9,12 +9,11 @@
 #include "esp_timer.h"
 
 #include "gatt_svr.h"
-#include "turn_creds.h"
 #include "version.h"
 
 static const char *TAG = "telemetry";
 
-#define TELEMETRY_BUF_SIZE   384
+#define TELEMETRY_BUF_SIZE   256
 #define INTERVAL_US          (10ULL * 1000 * 1000)
 
 static char s_buf[TELEMETRY_BUF_SIZE] = "{}";
@@ -57,24 +56,6 @@ static void on_tick(void *arg) {
         reset_reason_label(esp_reset_reason()),
         GIT_SHA);
     if (ip[0]) o += snprintf(s_buf + o, TELEMETRY_BUF_SIZE - o, ",\"ip\":\"%s\"", ip);
-    // TURN status surfaces what turn_creds has cached without needing a serial
-    // monitor. "ready" = creds + pre-resolved IP both present; webrtc_peer can
-    // populate libpeer's TURN entry. "creds" = creds only, DNS pre-resolve
-    // failed. "none" = nothing fetched yet.
-    const char *turn_url  = turn_creds_url();
-    const char *turn_user = turn_creds_username();
-    const char *turn_err  = turn_creds_last_error();
-    if (turn_url && turn_user) {
-        o += snprintf(s_buf + o, TELEMETRY_BUF_SIZE - o,
-                      ",\"turn\":\"ready\",\"turn_url\":\"%s\"", turn_url);
-    } else if (turn_user) {
-        o += snprintf(s_buf + o, TELEMETRY_BUF_SIZE - o, ",\"turn\":\"creds\"");
-    } else {
-        o += snprintf(s_buf + o, TELEMETRY_BUF_SIZE - o, ",\"turn\":\"none\"");
-    }
-    if (turn_err && turn_err[0]) {
-        o += snprintf(s_buf + o, TELEMETRY_BUF_SIZE - o, ",\"turn_err\":\"%s\"", turn_err);
-    }
     snprintf(s_buf + o, TELEMETRY_BUF_SIZE - o, "}");
     gatt_svr_notify_telemetry();
 }
