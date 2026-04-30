@@ -16,6 +16,10 @@
 import { getMyPubkeyB64, signBytes, verifyBytes, canonical } from './signal-sdk/v1/peer-key.js';
 
 const BLE_CHUNK = 100;
+// Match discover.js's republish cadence so late-joining subscribers
+// always find a fresh ad in the chip's ring even after it has rotated
+// past the original publish. Half of a typical 60s ad TTL with margin.
+const REPUBLISH_MS = 25_000;
 
 async function _envelopeForPublish(id, data) {
   const pubkey = await getMyPubkeyB64();
@@ -53,6 +57,15 @@ export class BleMailboxClient {
     this._writeChain = Promise.resolve();  // serialize writes — chunk order matters
     this._onValueChanged = (e) => this._onNotify(e);
     char.addEventListener('characteristicvaluechanged', this._onValueChanged);
+    // Republish loop — keeps late subscribers seeing the active set
+    // even after the chip's 8-slot ring rotates past the original
+    // publish. Each tick walks _myAds and re-emits.
+    this._republishTimer = setInterval(() => {
+      if (this._closed) return;
+      for (const [id, payload] of this._myAds) {
+        this._writeChain = this._writeChain.then(() => this._publishOnce(id, payload.data));
+      }
+    }, REPUBLISH_MS);
   }
 
   _onNotify(e) {
@@ -177,6 +190,7 @@ export class BleMailboxClient {
 
   close() {
     this._closed = true;
+    if (this._republishTimer) { clearInterval(this._republishTimer); this._republishTimer = null; }
     try { this._char.removeEventListener('characteristicvaluechanged', this._onValueChanged); } catch {}
     this._listeners.clear();
     this._ads.clear();
