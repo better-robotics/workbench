@@ -863,14 +863,10 @@ async function _requestPairWith(macAd) {
   if (!macAd.data._pubkey) return;
   const macLabel = macAd.data.label || 'this computer';
   _setNearbyStatus(`Asking ${macLabel} to pair…`);
-  const useBle = macAd._source === 'ble';
-  console.log('[pair] _requestPairWith source=' + macAd._source + ' useBle=' + useBle + ' bleLobby=' + (!!_bleLobby));
-  const client = useBle ? _getBlePairClient() : _getWssPairClient();
-  console.log('[pair] requesting via ' + (useBle ? 'ble' : 'wss') + ' client');
+  const client = (macAd._source === 'ble') ? _getBlePairClient() : _getWssPairClient();
   const result = await client.request({
     payload: { target: macAd.data._pubkey, label: deviceLabel() },
   });
-  console.log('[pair] request resolved:', result);
   if (result.accepted && result.data && result.data.roomId) {
     _setNearbyStatus('Accepted — connecting…');
     // Mac trusts us per its own "Trust this phone" checkbox decision;
