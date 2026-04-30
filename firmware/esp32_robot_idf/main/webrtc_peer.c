@@ -397,11 +397,14 @@ static void handle_offer(const char *sdp, offer_src_t src) {
         vTaskDelay(pdMS_TO_TICKS(500));
     }
 
-    // STUN + Cloudflare TURN (UDP only — libpeer's TURN client doesn't do
-    // TCP). turn_creds runs in the background and may not have minted
-    // credentials yet (WiFi just up, proxy slow, etc.); on miss we fall
-    // through to STUN-only and the chip works on LAN-friendly networks
-    // but fails on apartment-WiFi-shaped client-isolated ones.
+    // STUN + 1 Cloudflare TURN. libpeer's create_answer is synchronous
+    // over getaddrinfo() per ice_server URL; adding more TURN entries
+    // serialises DNS lookups inside create_answer and on apartment-WiFi
+    // DNS (~5-15s/lookup) blows the dashboard's 30s BLE signaling
+    // timeout. One TURN entry is the right tradeoff — UDP/3478 is the
+    // standard port; 53/80 fallbacks rarely help when 3478 is blocked.
+    // libpeer's TURN client is UDP-only; TCP/TLS URLs would never
+    // allocate even if registered.
     PeerConfiguration cfg = {
         .video_codec = CODEC_NONE,    // 2.D.3 routes frames as binary on a data channel
         .audio_codec = CODEC_NONE,
@@ -410,16 +413,15 @@ static void handle_offer(const char *sdp, offer_src_t src) {
     cfg.ice_servers[0].urls = "stun:stun.l.google.com:19302";
     const char *turn_user = turn_creds_username();
     const char *turn_pass = turn_creds_credential();
-    if (turn_user && turn_pass) {
-        cfg.ice_servers[1].urls       = "turn:turn.cloudflare.com:3478?transport=udp";
+    const char *turn_url  = turn_creds_url();
+    if (turn_user && turn_pass && turn_url) {
+        cfg.ice_servers[1].urls       = turn_url;   // pre-resolved IP literal
         cfg.ice_servers[1].username   = turn_user;
         cfg.ice_servers[1].credential = turn_pass;
-        cfg.ice_servers[2].urls       = "turn:turn.cloudflare.com:53?transport=udp";
-        cfg.ice_servers[2].username   = turn_user;
-        cfg.ice_servers[2].credential = turn_pass;
-        ESP_LOGI(TAG, "ice_servers: STUN + 2 Cloudflare TURN");
+        ESP_LOGI(TAG, "ice_servers: STUN + TURN(%s)", turn_url);
     } else {
-        ESP_LOGW(TAG, "ice_servers: STUN-only (TURN creds not ready)");
+        ESP_LOGW(TAG, "ice_servers: STUN-only (creds=%d, url=%d)",
+                 turn_user != NULL, turn_url != NULL);
     }
     s_pc = peer_connection_create(&cfg);
     if (!s_pc) {

@@ -804,7 +804,9 @@ function wireAppMenu() {
     debugBtnId: "diagnostics-debug",
     probeBtnId: "diagnostics-probe",
     pairBtnId: "diagnostics-pair",
+    copyBtnId: "diagnostics-copy",
     outputId: "diagnostics-output",
+    outputWrapId: "diagnostics-output-wrap",
     onBeforeOpen: () => menu.hidePopover(),
   });
   wireHardRefresh({

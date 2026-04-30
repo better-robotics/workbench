@@ -14,3 +14,10 @@ void turn_creds_init(void);
 // networks but not on apartment-WiFi-shaped ones.
 const char *turn_creds_username(void);
 const char *turn_creds_credential(void);
+
+// Pre-resolved TURN URL with IP literal (e.g. "turn:198.41.x.x:3478?transport=udp").
+// We resolve turn.cloudflare.com once at boot so libpeer's create_answer
+// doesn't do a synchronous getaddrinfo() per ice_server inside the BLE
+// signaling window — apartment-WiFi DNS can take 20+s and blow the 30s
+// timeout. Returns NULL until resolution succeeds.
+const char *turn_creds_url(void);

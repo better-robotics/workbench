@@ -140,8 +140,12 @@
     <button class="secondary" id="diagnostics-debug">Reload with debug logs (<code>?debug</code>)</button>
     <button class="secondary" id="diagnostics-probe">Run network probe (STUN reachability + candidate types)</button>
     <button class="secondary" id="diagnostics-pair">Capture last pair diagnostic snapshot</button>
+    <button class="secondary" id="diagnostics-telemetry">Read connected robot telemetry (TURN status, heap, …)</button>
   </div>
-  <pre id="diagnostics-output" style="max-height:40vh;overflow:auto;margin:0;padding:8px;font:11px ui-monospace,monospace;background:rgba(0,0,0,0.85);color:#8f8;border-radius:4px;white-space:pre-wrap;display:none;"></pre>
+  <div id="diagnostics-output-wrap" style="display:none;">
+    <button class="secondary" id="diagnostics-copy" style="margin-bottom:6px;">Copy</button>
+    <pre id="diagnostics-output" style="max-height:40vh;overflow:auto;margin:0;padding:8px;font:11px ui-monospace,monospace;background:rgba(0,0,0,0.85);color:#8f8;border-radius:4px;white-space:pre-wrap;"></pre>
+  </div>
 </dialog>
 
 <dialog id="hard-refresh-dialog" class="prepare-dialog">

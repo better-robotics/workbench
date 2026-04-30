@@ -1718,7 +1718,11 @@ document.addEventListener("DOMContentLoaded", () => {
     debugBtnId: "diagnostics-debug",
     probeBtnId: "diagnostics-probe",
     pairBtnId: "diagnostics-pair",
+    telemetryBtnId: "diagnostics-telemetry",
+    copyBtnId: "diagnostics-copy",
     outputId: "diagnostics-output",
+    outputWrapId: "diagnostics-output-wrap",
+    getTelemetrySources: () => Array.from(state.devices.values()),
     onBeforeOpen: () => $("app-menu").hidePopover(),
   });
   wireHardRefresh({

@@ -276,23 +276,29 @@ export function setReportIssueLink(anchor, version) {
 // Same shape on both desktop and phone (DEV.md describes each handle).
 export function wireDiagnosticsMenuItem({
   openBtnId, dialogId, closeBtnId,
-  debugBtnId, probeBtnId, pairBtnId, outputId,
+  debugBtnId, probeBtnId, pairBtnId, telemetryBtnId, copyBtnId,
+  outputId, outputWrapId,
+  getTelemetrySources,
   onBeforeOpen,
 }) {
-  const dialog = document.getElementById(dialogId);
-  const open  = document.getElementById(openBtnId);
-  const close = document.getElementById(closeBtnId);
-  const debug = document.getElementById(debugBtnId);
-  const probe = document.getElementById(probeBtnId);
-  const pair  = document.getElementById(pairBtnId);
-  const out   = document.getElementById(outputId);
+  const dialog    = document.getElementById(dialogId);
+  const open      = document.getElementById(openBtnId);
+  const close     = document.getElementById(closeBtnId);
+  const debug     = document.getElementById(debugBtnId);
+  const probe     = document.getElementById(probeBtnId);
+  const pair      = document.getElementById(pairBtnId);
+  const telemetry = telemetryBtnId ? document.getElementById(telemetryBtnId) : null;
+  const copy      = copyBtnId      ? document.getElementById(copyBtnId)      : null;
+  const out       = document.getElementById(outputId);
+  const wrap      = outputWrapId ? document.getElementById(outputWrapId) : null;
   if (!dialog || !open) return;
   open.addEventListener("click", () => { onBeforeOpen?.(); dialog.showModal(); });
   close?.addEventListener("click", () => dialog.close());
 
   const show = (obj) => {
     if (!out) return;
-    out.style.display = "block";
+    if (wrap) wrap.style.display = "block";
+    else out.style.display = "block";
     out.textContent = typeof obj === "string" ? obj : JSON.stringify(obj, null, 2);
   };
 
@@ -328,6 +334,29 @@ export function wireDiagnosticsMenuItem({
       if (!snap.role) { show("No pair attempt yet this session — open a robot card first."); return; }
       show(snap);
     } catch (err) { show("snapshot failed: " + (err.message || err)); }
+  });
+
+  telemetry?.addEventListener("click", () => {
+    const sources = (typeof getTelemetrySources === "function" ? getTelemetrySources() : []) || [];
+    const populated = sources.filter((s) => s && s.telemetry);
+    if (populated.length === 0) {
+      show("No connected robot has telemetry yet — connect a robot first, then wait ~10s.");
+      return;
+    }
+    show(populated.map((s) => ({ name: s.name || s.id || "?", telemetry: s.telemetry })));
+  });
+
+  copy?.addEventListener("click", async () => {
+    if (!out || !out.textContent) return;
+    try {
+      await navigator.clipboard.writeText(out.textContent);
+      const original = copy.textContent;
+      copy.textContent = "Copied";
+      setTimeout(() => { copy.textContent = original; }, 1500);
+    } catch (err) {
+      copy.textContent = "Copy failed";
+      setTimeout(() => { copy.textContent = "Copy"; }, 1500);
+    }
   });
 }
 

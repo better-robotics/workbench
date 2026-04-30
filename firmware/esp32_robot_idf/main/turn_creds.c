@@ -1,6 +1,8 @@
 #include "turn_creds.h"
 
 #include <string.h>
+#include <netdb.h>
+#include <arpa/inet.h>
 
 #include "cJSON.h"
 #include "esp_crt_bundle.h"
@@ -22,6 +24,7 @@ static const char *TAG = "turn_creds";
 
 static char s_username[USER_BUF_SIZE];
 static char s_credential[CRED_BUF_SIZE];
+static char s_turn_url[64];   // "turn:<IPv4>:3478?transport=udp"
 static int64_t s_expires_at_us = 0;
 
 static char s_response[HTTP_BUF_SIZE];
@@ -29,6 +32,27 @@ static size_t s_response_len = 0;
 
 const char *turn_creds_username(void)   { return s_username[0]   ? s_username   : NULL; }
 const char *turn_creds_credential(void) { return s_credential[0] ? s_credential : NULL; }
+const char *turn_creds_url(void)        { return s_turn_url[0]   ? s_turn_url   : NULL; }
+
+static bool resolve_turn_host(void) {
+    struct addrinfo hints = { .ai_family = AF_INET, .ai_socktype = SOCK_DGRAM };
+    struct addrinfo *res = NULL;
+    int64_t t0 = esp_timer_get_time();
+    int rc = getaddrinfo("turn.cloudflare.com", NULL, &hints, &res);
+    int64_t dt_ms = (esp_timer_get_time() - t0) / 1000;
+    if (rc != 0 || !res) {
+        ESP_LOGE(TAG, "resolve turn.cloudflare.com failed rc=%d (%lldms)", rc, dt_ms);
+        if (res) freeaddrinfo(res);
+        return false;
+    }
+    char ip[INET_ADDRSTRLEN];
+    struct sockaddr_in *sa = (struct sockaddr_in *)res->ai_addr;
+    inet_ntop(AF_INET, &sa->sin_addr, ip, sizeof(ip));
+    freeaddrinfo(res);
+    snprintf(s_turn_url, sizeof(s_turn_url), "turn:%s:3478?transport=udp", ip);
+    ESP_LOGI(TAG, "resolved turn.cloudflare.com → %s (%lldms)", ip, dt_ms);
+    return true;
+}
 
 static esp_err_t http_event_handler(esp_http_client_event_t *evt) {
     if (evt->event_id == HTTP_EVENT_ON_DATA && evt->data && evt->data_len > 0) {
@@ -89,6 +113,11 @@ static bool fetch_once(void) {
         s_expires_at_us = esp_timer_get_time() + (int64_t)REFRESH_HOURS * 3600 * 1000 * 1000;
         ESP_LOGI(TAG, "fetched TURN creds (user=%.8s..., refresh in %dh)",
                  s_username, REFRESH_HOURS);
+        // Pre-resolve turn.cloudflare.com so libpeer's create_answer
+        // doesn't synchronously getaddrinfo() inside the BLE 30s window.
+        // Best-effort: failure leaves s_turn_url empty and webrtc_peer
+        // falls back to STUN-only.
+        resolve_turn_host();
     }
     return ok;
 }
