@@ -22,6 +22,7 @@
 #include "camera.h"
 #include "gatt_svr.h"
 #include "ota.h"
+#include "turn_creds.h"
 
 static const char *TAG = "rtc";
 
@@ -396,31 +397,30 @@ static void handle_offer(const char *sdp, offer_src_t src) {
         vTaskDelay(pdMS_TO_TICKS(500));
     }
 
-    // STUN-only. We tried adding OpenRelay's free public TURN to give
-    // libpeer a relay candidate (so chip + dashboard can always meet at
-    // a public server even when the LAN blocks UDP), but
-    // chrome://webrtc-internals confirmed allocations never completed —
-    // chip kept emitting only host + srflx, no relay. Either OpenRelay
-    // was down or libpeer's TURN client doesn't get on with it. Adding
-    // it cost extra DNS / allocation time during create_answer without
-    // delivering the fallback path. Removed.
-    //
-    // Real fix: have the chip fetch Cloudflare TURN credentials from
-    // proxy.neevs.io/cloudflare/turn (same endpoint the dashboard uses),
-    // populate ice_servers dynamically. ~100 LOC + HTTPS request +
-    // JSON parsing. Punt to a follow-up phase.
-    //
-    // Until then: chip works LAN-to-LAN (home WiFi, normal networks)
-    // and fails on networks with client isolation (apartment WiFi,
-    // some hotspots).
+    // STUN + Cloudflare TURN (UDP only — libpeer's TURN client doesn't do
+    // TCP). turn_creds runs in the background and may not have minted
+    // credentials yet (WiFi just up, proxy slow, etc.); on miss we fall
+    // through to STUN-only and the chip works on LAN-friendly networks
+    // but fails on apartment-WiFi-shaped client-isolated ones.
     PeerConfiguration cfg = {
-        .ice_servers = {
-            { .urls = "stun:stun.l.google.com:19302" },
-        },
         .video_codec = CODEC_NONE,    // 2.D.3 routes frames as binary on a data channel
         .audio_codec = CODEC_NONE,
         .datachannel = DATA_CHANNEL_BINARY,
     };
+    cfg.ice_servers[0].urls = "stun:stun.l.google.com:19302";
+    const char *turn_user = turn_creds_username();
+    const char *turn_pass = turn_creds_credential();
+    if (turn_user && turn_pass) {
+        cfg.ice_servers[1].urls       = "turn:turn.cloudflare.com:3478?transport=udp";
+        cfg.ice_servers[1].username   = turn_user;
+        cfg.ice_servers[1].credential = turn_pass;
+        cfg.ice_servers[2].urls       = "turn:turn.cloudflare.com:53?transport=udp";
+        cfg.ice_servers[2].username   = turn_user;
+        cfg.ice_servers[2].credential = turn_pass;
+        ESP_LOGI(TAG, "ice_servers: STUN + 2 Cloudflare TURN");
+    } else {
+        ESP_LOGW(TAG, "ice_servers: STUN-only (TURN creds not ready)");
+    }
     s_pc = peer_connection_create(&cfg);
     if (!s_pc) {
         ESP_LOGE(TAG, "peer_connection_create failed");

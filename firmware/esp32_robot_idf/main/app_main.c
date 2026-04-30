@@ -15,6 +15,7 @@
 #include "pair_mailbox.h"
 #include "pin_config.h"
 #include "telemetry.h"
+#include "turn_creds.h"
 #include "webrtc_peer.h"
 #include "wifi_sta.h"
 
@@ -79,6 +80,11 @@ void app_main(void) {
     telemetry_init();
     wifi_sta_init(hostname);
     mdns_advertise_init(hostname);
+    // turn_creds task waits for GOT_IP, then fetches Cloudflare TURN
+    // credentials so handle_offer can populate libpeer's ice_servers.
+    // Without it the chip falls back to STUN-only and can't pair on
+    // networks with client isolation (apartment WiFi, some hotspots).
+    turn_creds_init();
     // WebRTC peer last — websocket client connects asynchronously when
     // WiFi gets an IP. Safe to start before the first GOT_IP event.
     webrtc_peer_init(ble_name);
