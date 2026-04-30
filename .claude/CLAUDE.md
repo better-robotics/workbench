@@ -26,6 +26,8 @@ Two layers, kept cheap:
 
 Pattern for new pure helpers: extract from `app.js` / cap runtime into `format.js`, import where used, add a test.
 
+`make install-hooks` wires `.githooks/` as `core.hooksPath`. Pre-commit runs `make smoke` plus a gen-uuids drift check (only when `protocol/uuids.json` is staged). Bypassable with `--no-verify`; CI is the binding layer.
+
 # Comment discipline
 
 Default to no comments — every line is context cost in an AI-edited codebase.

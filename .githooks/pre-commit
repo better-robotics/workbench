@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Fast pre-commit checks. Bypassable with `git commit --no-verify` —
+# CI is the binding layer; this is just fast feedback so common
+# mistakes don't survive a 5-minute round-trip.
+#
+# Install: `make install-hooks` (sets core.hooksPath = .githooks).
+
+set -e
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+# 1. Generated-UUIDs drift. Only fires when protocol/uuids.json is staged —
+# casual commits on unrelated files don't pay for the regen.
+if git diff --cached --name-only | grep -q '^protocol/uuids\.json$'; then
+    python3 tools/gen-uuids.py >/dev/null
+    GEN="firmware/esp32_robot_idf/main/uuids.h firmware/pi_robot/uuids.py public/uuids.js"
+    if ! git diff --quiet -- $GEN; then
+        echo "pre-commit: generated UUID files are out of sync with protocol/uuids.json"
+        echo "  fix: make gen-uuids && git add $GEN"
+        exit 1
+    fi
+fi
+
+# 2. Pure-function smoke tests. Sub-second. Catches regressions in
+# format.js (and future pure helpers) before they reach CI.
+make -s smoke

@@ -5,7 +5,7 @@ IDF_DIR     := firmware/esp32_robot_idf
 IDF_BUILD   := $(IDF_DIR)/build
 PUBLISH_DIR := public/firmware/bins
 
-.PHONY: help setup compile flash monitor flash-monitor install-pi-os preview publish publish-firmware publish-pi-firmware smoke gen-uuids
+.PHONY: help setup compile flash monitor flash-monitor install-pi-os preview publish publish-firmware publish-pi-firmware smoke gen-uuids install-hooks
 
 help:
 	@echo ""
@@ -23,6 +23,7 @@ help:
 	@echo ""
 	@echo "\033[2mTesting\033[0m"
 	@echo "  \033[36msmoke\033[0m              Run pure-function smoke tests (node --test). Hardware checks live in SMOKE.md."
+	@echo "  \033[36minstall-hooks\033[0m      Wire .githooks/ as core.hooksPath (pre-commit runs gen-uuids drift + smoke)."
 	@echo ""
 	@echo "\033[2mDashboard & publishing (what the browser serves + OTA fetches)\033[0m"
 	@echo "  \033[36mpreview\033[0m             Serve dashboard at http://localhost:8080 (local)"
@@ -126,3 +127,10 @@ publish: publish-firmware publish-pi-firmware
 # row in tests/format.test.js.
 smoke:
 	node --test tests/*.test.js
+
+# Per-clone, idempotent. CI is the binding layer; the hook is fast
+# feedback so common mistakes (stale gen-uuids, format.test regressions)
+# don't survive a 5-minute round-trip.
+install-hooks:
+	@git config core.hooksPath .githooks
+	@echo "core.hooksPath = .githooks (pre-commit: gen-uuids drift + smoke)"
