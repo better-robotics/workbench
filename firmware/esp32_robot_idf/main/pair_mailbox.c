@@ -17,7 +17,12 @@ static const char *TAG = "mailbox";
 // upper bound — covers the signed-ad envelope (peer-key.js Ed25519
 // pubkey + sig + JSON payload of room id / role / timestamp).
 #define MAILBOX_DEPTH    8
-#define MAILBOX_AD_MAX   384
+// Sized for the largest signed envelope we send: pair-request carries
+// target pubkey (88 B base64) + nonce (UUID 36 B) + label + _pubkey
+// (88 B) + _sig (88 B) + JSON overhead ≈ 480 B. 768 leaves headroom
+// for future fields without forcing a firmware bump every time the
+// signed-ad shape grows by a key.
+#define MAILBOX_AD_MAX   768
 
 // Wire envelope on the mailbox char (matches SIGNAL_CHAR / OPS):
 //   0x01 [u16 BE total]   begin
