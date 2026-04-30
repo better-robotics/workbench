@@ -110,11 +110,11 @@
 
 <div id="avatar-menu" class="menu" popover="manual">
   <div class="menu-header" id="avatar-menu-name">Not set</div>
-  <button class="menu-item" id="menu-settings">Settings</button>
-  <button class="menu-item" id="menu-gpio-ref">GPIO reference</button>
-  <button class="menu-item" id="menu-recovery">Recovery console</button>
-  <button class="menu-item" id="menu-esp-serial">ESP32 serial</button>
-  <button class="menu-item" id="menu-scripts">Scripts</button>
+  <button class="menu-item" id="menu-settings"><svg class="icon-svg"><use href="icons.svg#icon-settings"/></svg>Settings</button>
+  <button class="menu-item" id="menu-gpio-ref"><svg class="icon-svg"><use href="icons.svg#icon-book-open"/></svg>GPIO reference</button>
+  <button class="menu-item" id="menu-recovery"><svg class="icon-svg"><use href="icons.svg#icon-life-buoy"/></svg>Recovery console</button>
+  <button class="menu-item" id="menu-esp-serial"><svg class="icon-svg"><use href="icons.svg#icon-terminal"/></svg>ESP32 serial</button>
+  <button class="menu-item" id="menu-scripts"><svg class="icon-svg"><use href="icons.svg#icon-file-code"/></svg>Scripts</button>
 </div>
 
 <div id="app-menu" class="menu" popover="manual">
@@ -123,10 +123,10 @@
     <span class="menu-meta-value" id="app-menu-version">—</span>
   </div>
   <a class="menu-item" id="menu-phone-view" href="./phone.html"><svg class="icon-svg"><use href="icons.svg#icon-smartphone"/></svg>Mobile view</a>
-  <button class="menu-item" id="menu-install" hidden>Install app</button>
-  <button class="menu-item" id="menu-check-updates">Check for updates</button>
-  <a class="menu-item" id="menu-report-issue" href="https://github.com/jonasneves/better-robotics/issues/new" target="_blank" rel="noopener">Report an issue</a>
-  <button class="menu-item destructive" id="menu-hard-refresh">Hard refresh…</button>
+  <button class="menu-item" id="menu-install" hidden><svg class="icon-svg"><use href="icons.svg#icon-download"/></svg>Install app</button>
+  <button class="menu-item" id="menu-check-updates"><svg class="icon-svg"><use href="icons.svg#icon-refresh-ccw"/></svg>Check for updates</button>
+  <a class="menu-item" id="menu-report-issue" href="https://github.com/jonasneves/better-robotics/issues/new" target="_blank" rel="noopener"><svg class="icon-svg"><use href="icons.svg#icon-message-circle"/></svg>Report an issue</a>
+  <button class="menu-item destructive" id="menu-hard-refresh"><svg class="icon-svg"><use href="icons.svg#icon-trash-2"/></svg>Hard refresh…</button>
 </div>
 
 <dialog id="hard-refresh-dialog" class="prepare-dialog">
@@ -159,18 +159,18 @@
 
 <div id="robot-menu" class="menu" popover="manual">
   <div class="menu-header" id="robot-menu-header" hidden></div>
-  <button class="menu-item" id="menu-label">Show label</button>
-  <button class="menu-item" id="menu-update">Update firmware</button>
-  <button class="menu-item" id="menu-update-file">Update from file…</button>
-  <button class="menu-item" id="menu-restart">Restart service</button>
-  <button class="menu-item" id="menu-reboot">Reboot robot</button>
-  <button class="menu-item" id="menu-log">View log</button>
-  <button class="menu-item" id="menu-shell" hidden>Shell</button>
-  <button class="menu-item" id="menu-pinout">Pinout (GPIO)</button>
-  <button class="menu-item" id="menu-merge">Merge with…</button>
-  <button class="menu-item" id="menu-split" hidden>Split this device into its own robot</button>
-  <button class="menu-item" id="menu-disconnect">Disconnect</button>
-  <button class="menu-item destructive" id="menu-forget">Forget this robot</button>
+  <button class="menu-item" id="menu-label"><svg class="icon-svg"><use href="icons.svg#icon-tag"/></svg>Show label</button>
+  <button class="menu-item" id="menu-update"><svg class="icon-svg"><use href="icons.svg#icon-download-cloud"/></svg>Update firmware</button>
+  <button class="menu-item" id="menu-update-file"><svg class="icon-svg"><use href="icons.svg#icon-file-up"/></svg>Update from file…</button>
+  <button class="menu-item" id="menu-restart"><svg class="icon-svg"><use href="icons.svg#icon-refresh-cw"/></svg>Restart service</button>
+  <button class="menu-item" id="menu-reboot"><svg class="icon-svg"><use href="icons.svg#icon-power"/></svg>Reboot robot</button>
+  <button class="menu-item" id="menu-log"><svg class="icon-svg"><use href="icons.svg#icon-scroll-text"/></svg>View log</button>
+  <button class="menu-item" id="menu-shell" hidden><svg class="icon-svg"><use href="icons.svg#icon-terminal"/></svg>Shell</button>
+  <button class="menu-item" id="menu-pinout"><svg class="icon-svg"><use href="icons.svg#icon-cpu"/></svg>Pinout (GPIO)</button>
+  <button class="menu-item" id="menu-merge"><svg class="icon-svg"><use href="icons.svg#icon-git-merge"/></svg>Merge with…</button>
+  <button class="menu-item" id="menu-split" hidden><svg class="icon-svg"><use href="icons.svg#icon-git-branch"/></svg>Split this device into its own robot</button>
+  <button class="menu-item" id="menu-disconnect"><svg class="icon-svg"><use href="icons.svg#icon-unplug"/></svg>Disconnect</button>
+  <button class="menu-item destructive" id="menu-forget"><svg class="icon-svg"><use href="icons.svg#icon-trash-2"/></svg>Forget this robot</button>
 </div>
 
 <dialog id="log-dialog" class="prepare-dialog log-dialog">
