@@ -396,9 +396,25 @@ static void handle_offer(const char *sdp, offer_src_t src) {
         vTaskDelay(pdMS_TO_TICKS(500));
     }
 
+    // STUN gives us a server-reflexive candidate (chip's public IP through
+    // the AP's NAT). TURN gives us a relay candidate that public peers can
+    // reach even when the AP blocks LAN UDP (Apple Personal Hotspot,
+    // apartment WiFi-as-a-service, guest networks). Without TURN the chip
+    // emits only its private host candidate, and ICE has nowhere to meet
+    // when the LAN path is blocked — chrome://webrtc-internals confirmed
+    // this exact failure mode (2026-04-30). OpenRelay is a free public
+    // TURN service, fine for personal/dev use; swap to a deployment-time
+    // endpoint if this ever ships. libpeer is UDP-only, so we list two
+    // UDP ports rather than including ?transport=tcp variants.
     PeerConfiguration cfg = {
         .ice_servers = {
             { .urls = "stun:stun.l.google.com:19302" },
+            { .urls = "turn:openrelay.metered.ca:80",
+              .username = "openrelayproject",
+              .credential = "openrelayproject" },
+            { .urls = "turn:openrelay.metered.ca:443",
+              .username = "openrelayproject",
+              .credential = "openrelayproject" },
         },
         .video_codec = CODEC_NONE,    // 2.D.3 routes frames as binary on a data channel
         .audio_codec = CODEC_NONE,
