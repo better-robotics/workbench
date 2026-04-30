@@ -16,7 +16,9 @@ BUDGET_BYTES = 100_000
 out = sys.stdin.read()
 sys.stdout.write(out)
 
-m = re.search(r'DRAM\s+\|\s+(\d+)', out)
+# idf.py size renders the table with Unicode box-drawing pipes (│, U+2502)
+# in newer ESP-IDF; older versions used ASCII |. Match both.
+m = re.search(r'DRAM\s+[│|]\s+(\d+)', out)
 if not m:
     print('::error::Could not parse DRAM size from idf.py size output')
     sys.exit(1)
