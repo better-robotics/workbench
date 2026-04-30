@@ -16,7 +16,6 @@ idf_component_register(
         "flash.c"
         "motors.c"
         "ota.c"
-        "http_server.c"
         "camera.c"
         "snapshot.c"
         "restart_util.c"
@@ -43,8 +42,6 @@ idf_component_register(
         # OTA
         app_update
         esp_https_ota
-        # HTTP (existing :81 server: MJPEG, /ota, /health)
-        esp_http_server
         # Capabilities
         driver
         esp_timer

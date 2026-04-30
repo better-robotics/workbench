@@ -8,7 +8,6 @@
 #include "camera.h"
 #include "flash.h"
 #include "fw_info.h"
-#include "http_server.h"
 #include "led.h"
 #include "logs.h"
 #include "mdns_advertise.h"
@@ -37,8 +36,10 @@ static const char *TAG = "esp32_robot";
 //   6. OTA              (no radio; just esp_partition lookup)
 //   7. WiFi STA         (whatever's left — comes up with fewer RX
 //                        buffers if needed)
-//   8. HTTP server :81  (LWIP up by now)
-//   9. mDNS
+//   8. mDNS             (Phase 2.H retired the chip's HTTP server; mDNS
+//                        is now just for hostname resolution, not service
+//                        discovery — control plane is BLE, data plane
+//                        is WebRTC, both find each other via BLE pairing)
 
 void app_main(void) {
     // logs_init() is currently disabled — the vprintf hook panicked
@@ -82,7 +83,6 @@ void app_main(void) {
     ota_init();
     telemetry_init();
     wifi_sta_init(hostname);
-    http_server_init(ble_name);
     mdns_advertise_init(hostname);
     // WebRTC peer last — websocket client connects asynchronously when
     // WiFi gets an IP. Safe to start before the first GOT_IP event.
