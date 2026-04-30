@@ -237,8 +237,8 @@ export function wireHardRefresh({
       );
     } finally {
       // replace(pathname) instead of reload() so query params and hash
-      // don't survive — a hard refresh that lands you back on the same
-      // ?debug=1 isn't fully clean. pathname is preserved so phone.html
+      // don't survive — a hard refresh that lands you back on stale URL
+      // flags isn't fully clean. pathname is preserved so phone.html
       // stays on phone.html and the dashboard stays on the dashboard.
       location.replace(location.pathname);
     }
@@ -269,91 +269,70 @@ export function setReportIssueLink(anchor, version) {
   anchor.href = `https://github.com/jonasneves/better-robotics/issues/new?body=${encodeURIComponent(body)}`;
 }
 
-// Wire the Diagnostics dialog. Three per-session actions: reload with
-// ?debug, run a unilateral STUN probe, capture last-pair-diagnostic
-// snapshot. Output renders inline in a <pre>. Nothing persists —
-// debug logs come back via reload, the rest are read-only inspections.
-// Same shape on both desktop and phone (DEV.md describes each handle).
+// Wire the Diagnostics dialog. One capture combines a STUN probe, the
+// last pair attempt's snapshot (lastPairDiagnostic + getStats), and any
+// connected-robot telemetry into a single object. Refresh re-runs;
+// Copy puts the JSON on the clipboard. Same shape on desktop and phone.
 export function wireDiagnosticsMenuItem({
   openBtnId, dialogId, closeBtnId,
-  debugBtnId, probeBtnId, pairBtnId, telemetryBtnId, copyBtnId,
-  outputId, outputWrapId,
+  refreshBtnId, copyBtnId,
+  outputId,
   getTelemetrySources,
   onBeforeOpen,
 }) {
-  const dialog    = document.getElementById(dialogId);
-  const open      = document.getElementById(openBtnId);
-  const close     = document.getElementById(closeBtnId);
-  const debug     = document.getElementById(debugBtnId);
-  const probe     = document.getElementById(probeBtnId);
-  const pair      = document.getElementById(pairBtnId);
-  const telemetry = telemetryBtnId ? document.getElementById(telemetryBtnId) : null;
-  const copy      = copyBtnId      ? document.getElementById(copyBtnId)      : null;
-  const out       = document.getElementById(outputId);
-  const wrap      = outputWrapId ? document.getElementById(outputWrapId) : null;
-  if (!dialog || !open) return;
-  open.addEventListener("click", () => { onBeforeOpen?.(); dialog.showModal(); });
-  close?.addEventListener("click", () => dialog.close());
+  const dialog  = document.getElementById(dialogId);
+  const open    = document.getElementById(openBtnId);
+  const close   = document.getElementById(closeBtnId);
+  const refresh = document.getElementById(refreshBtnId);
+  const copy    = document.getElementById(copyBtnId);
+  const out     = document.getElementById(outputId);
+  if (!dialog || !open || !out) return;
 
-  const show = (obj) => {
-    if (!out) return;
-    if (wrap) wrap.style.display = "block";
-    else out.style.display = "block";
-    out.textContent = typeof obj === "string" ? obj : JSON.stringify(obj, null, 2);
-  };
+  // One capture combines STUN probe + last pair attempt + connected-robot
+  // telemetry into a single object the user can copy-paste in one shot.
+  // Each section is best-effort; failures are recorded so the structure
+  // stays predictable.
+  async function capture() {
+    out.textContent = "Capturing…";
+    const result = { capturedAt: new Date().toISOString(), userAgent: navigator.userAgent };
 
-  debug?.addEventListener("click", () => {
-    // Append ?debug if not already present, preserving existing query
-    // and hash. Reload kicks pairing.js's URL-flag check, which surfaces
-    // the floating log panel.
-    const url = new URL(window.location.href);
-    if (!/\bdebug\b/.test(url.search + url.hash)) {
-      url.searchParams.set("debug", "1");
+    if (typeof window.probeNetwork === "function") {
+      try { result.netProbe = await window.probeNetwork({ timeoutMs: 4000 }); }
+      catch (err) { result.netProbe = { error: err.message || String(err) }; }
+    } else {
+      result.netProbe = { error: "probeNetwork() not loaded" };
     }
-    window.location.href = url.toString();
-  });
 
-  probe?.addEventListener("click", async () => {
-    if (typeof window.probeNetwork !== "function") {
-      show("probeNetwork() not loaded — pairing.js failed to import?");
-      return;
+    if (typeof window.lastPairDiagnostic === "function") {
+      try {
+        const snap = await window.lastPairDiagnostic();
+        result.pair = snap.role ? snap : { note: "no pair attempt yet this session" };
+      } catch (err) { result.pair = { error: err.message || String(err) }; }
+    } else {
+      result.pair = { error: "lastPairDiagnostic() not loaded" };
     }
-    show("Running STUN probe…");
-    try { show(await window.probeNetwork({ timeoutMs: 4000 })); }
-    catch (err) { show("probe failed: " + (err.message || err)); }
-  });
 
-  pair?.addEventListener("click", async () => {
-    if (typeof window.lastPairDiagnostic !== "function") {
-      show("lastPairDiagnostic() not loaded — pairing.js failed to import?");
-      return;
-    }
-    show("Capturing pair diagnostic + getStats()…");
-    try {
-      const snap = await window.lastPairDiagnostic();
-      if (!snap.role) { show("No pair attempt yet this session — open a robot card first."); return; }
-      show(snap);
-    } catch (err) { show("snapshot failed: " + (err.message || err)); }
-  });
-
-  telemetry?.addEventListener("click", () => {
     const sources = (typeof getTelemetrySources === "function" ? getTelemetrySources() : []) || [];
     const populated = sources.filter((s) => s && s.telemetry);
-    if (populated.length === 0) {
-      show("No connected robot has telemetry yet — connect a robot first, then wait ~10s.");
-      return;
-    }
-    show(populated.map((s) => ({ name: s.name || s.id || "?", telemetry: s.telemetry })));
-  });
+    result.robots = populated.length === 0
+      ? { note: "no connected robot has telemetry — connect first, then wait ~10s" }
+      : populated.map((s) => ({ name: s.name || s.id || "?", telemetry: s.telemetry }));
+
+    out.textContent = JSON.stringify(result, null, 2);
+  }
+
+  open.addEventListener("click", () => { onBeforeOpen?.(); dialog.showModal(); capture(); });
+  close?.addEventListener("click", () => dialog.close());
+  refresh?.addEventListener("click", capture);
 
   copy?.addEventListener("click", async () => {
-    if (!out || !out.textContent) return;
+    if (!out.textContent) return;
     try {
       await navigator.clipboard.writeText(out.textContent);
       const original = copy.textContent;
       copy.textContent = "Copied";
       setTimeout(() => { copy.textContent = original; }, 1500);
-    } catch (err) {
+    } catch {
       copy.textContent = "Copy failed";
       setTimeout(() => { copy.textContent = "Copy"; }, 1500);
     }

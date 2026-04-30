@@ -190,7 +190,7 @@ export async function clearReplay() {
   });
 }
 
-// Dev handles: callable from DevTools console or the ?debug panel.
+// Dev handles: callable from DevTools console.
 // No UI wiring — a full settings panel would be overkill until someone
 // actually needs replay as a workflow, not an occasional debug dump.
 if (typeof window !== "undefined") {

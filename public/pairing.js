@@ -59,17 +59,11 @@ const ICE_TIMEOUT_MS = 30000;
 
 import { parseCandidate, probeNetwork } from "./net-probe.js";
 
-// Verbose transition logging, opt-in via ?debug or #debug in the URL. When
-// set, dbg() mirrors to both console and any subscribed sinks (the floating
-// in-page panel, so phones can diagnose without remote DevTools).
-export const DEBUG = typeof location !== "undefined" && /\bdebug\b/.test((location.search || "") + (location.hash || ""));
-const PROBE = typeof location !== "undefined" && /\bprobe\b/.test((location.search || "") + (location.hash || ""));
-
 // Per-attempt diagnostic capture: every local + remote ICE candidate this
-// side has seen during the most recent pair attempt. State transitions are
-// already covered by ?debug logging; this fills the gap that bit us on
-// 2026-04-30 — the candidate sets are usually what reveals whether STUN
-// succeeded, both sides gathered, etc. Resets per host/joinPairingRoom call.
+// side has seen during the most recent pair attempt. The Diagnostics
+// dialog reads this via lastPairDiagnostic() — candidate sets reveal
+// whether STUN succeeded, both sides gathered, etc., which is usually
+// what answers "why did the pair fail." Resets per host/joinPairingRoom call.
 //
 // `_pc` holds the active RTCPeerConnection so lastPairDiagnostic() can
 // pull a live pc.getStats() snapshot — same data chrome://webrtc-internals
@@ -115,50 +109,10 @@ if (typeof window !== "undefined") {
     return out;
   };
 }
-const _logSinks = new Set();
-export function onDebugLog(fn) { _logSinks.add(fn); return () => _logSinks.delete(fn); }
-
-function dbg(...args) {
-  if (!DEBUG) return;
-  try { console.log("[pairing]", performance.now().toFixed(0) + "ms", ...args); } catch {}
-  if (!_logSinks.size) return;
-  const ts = new Date().toISOString().slice(11, 23);
-  const msg = args.map(x => typeof x === "string" ? x : (() => { try { return JSON.stringify(x); } catch { return String(x); } })()).join(" ");
-  for (const fn of _logSinks) { try { fn(`${ts} ${msg}`); } catch {} }
-}
-
-// Auto-install a floating log panel when ?debug is set so phone-side issues
-// are diagnosable without remote DevTools. Pointer-events: none lets the
-// user tap through it. Module side-effect on purpose — nothing to remember
-// to wire up from callers.
-if (DEBUG && typeof document !== "undefined") {
-  const install = () => {
-    if (document.getElementById("__pairing_debug_panel")) return;
-    const panel = document.createElement("pre");
-    panel.id = "__pairing_debug_panel";
-    panel.style.cssText = "position:fixed;right:8px;bottom:8px;max-width:60vw;max-height:40vh;overflow:auto;margin:0;padding:8px;font:11px ui-monospace,monospace;background:rgba(0,0,0,0.85);color:#8f8;z-index:99999;border-radius:4px;white-space:pre-wrap;pointer-events:none;";
-    document.body.appendChild(panel);
-    onDebugLog((line) => {
-      panel.textContent += line + "\n";
-      panel.scrollTop = panel.scrollHeight;
-    });
-  };
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", install, { once: true });
-  else install();
-}
-
-// ?probe — runs a unilateral STUN probe on module load and reports the
-// result. Composes with ?debug (also surfaces in the floating panel).
-// Useful as a baseline before opening a real pair: did STUN reach Google
-// at all, what candidate types did we get, what's the public IP.
-if (PROBE) {
-  probeNetwork().then((r) => {
-    try { console.log("[net-probe]", r); } catch {}
-    dbg("net-probe", r);
-  }).catch((err) => {
-    try { console.warn("[net-probe] failed", err); } catch {}
-  });
-}
+// dbg() retained as a no-op so the 27 in-module call sites compile;
+// per-step state visibility now lives in the Diagnostics dialog
+// (lastPairDiagnostic + getStats), not a URL-flagged in-page panel.
+function dbg() {}
 
 function makePeerId(role) {
   return role + "-" + Math.random().toString(36).slice(2, 8);

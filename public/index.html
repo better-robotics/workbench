@@ -135,17 +135,12 @@
     <div class="label">Diagnostics</div>
     <button class="icon" id="diagnostics-close" aria-label="Close"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
   </div>
-  <p class="meta" style="margin: 0 0 12px;">Per-session diagnostic actions. Nothing here persists; close the dialog and they're gone.</p>
-  <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px;">
-    <button class="secondary" id="diagnostics-debug">Reload with debug logs (<code>?debug</code>)</button>
-    <button class="secondary" id="diagnostics-probe">Run network probe (STUN reachability + candidate types)</button>
-    <button class="secondary" id="diagnostics-pair">Capture last pair diagnostic snapshot</button>
-    <button class="secondary" id="diagnostics-telemetry">Read connected robot telemetry (TURN status, heap, …)</button>
+  <p class="meta" style="margin: 0 0 12px;">Captures STUN probe, last pair attempt, and connected-robot telemetry. Nothing persists; close to discard.</p>
+  <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+    <button class="secondary" id="diagnostics-refresh">Refresh</button>
+    <button class="secondary" id="diagnostics-copy">Copy</button>
   </div>
-  <div id="diagnostics-output-wrap" style="display:none;">
-    <button class="secondary" id="diagnostics-copy" style="margin-bottom:6px;">Copy</button>
-    <pre id="diagnostics-output" style="max-height:40vh;overflow:auto;margin:0;padding:8px;font:11px ui-monospace,monospace;background:rgba(0,0,0,0.85);color:#8f8;border-radius:4px;white-space:pre-wrap;"></pre>
-  </div>
+  <pre id="diagnostics-output" style="max-height:50vh;overflow:auto;margin:0;padding:8px;font:11px ui-monospace,monospace;background:rgba(0,0,0,0.85);color:#8f8;border-radius:4px;white-space:pre-wrap;">Loading…</pre>
 </dialog>
 
 <dialog id="hard-refresh-dialog" class="prepare-dialog">

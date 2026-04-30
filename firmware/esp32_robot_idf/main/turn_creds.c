@@ -151,5 +151,8 @@ static void fetch_task(void *arg) {
 }
 
 void turn_creds_init(void) {
-    xTaskCreate(fetch_task, "turn_creds", 6144, NULL, 5, NULL);
+    // 12288 because esp_http_client + mbedTLS handshake + cJSON parsing
+    // peaks well above the 6144 we initially gave it (chip panicked on
+    // first fetch). esp-idf examples for HTTPS clients use 8-16K stacks.
+    xTaskCreate(fetch_task, "turn_creds", 12288, NULL, 5, NULL);
 }

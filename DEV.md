@@ -5,16 +5,11 @@ One-page cheat sheet for diagnostic flags, console handles, and debug paths. If 
 ## URL flags
 
 ### Dashboard (`index.html`)
-- `?debug` or `#debug` — verbose pairing logs to console **and** a floating green-on-black log panel (bottom-right). Implementation: `pairing.js`.
-- `?probe` — runs a unilateral STUN probe on load (no pair, no peer) and logs candidate types, public IP, and `stunReachable`. Composes with `?debug` (also goes to the floating panel). Implementation: `pairing.js` + `net-probe.js`.
 - `?prepare` — opens the Customize-card SD-prep dialog on load. Implementation: `app.js`.
 - `?robot=<name>` — pre-selects a robot by name (useful for direct-link workflows). Implementation: `app.js`.
 
 ### Phone (`phone.html`)
-- `?debug` or `#debug` — same pairing debug as above; the floating panel is visible on the phone too.
 - `#pair=<uuid>` — the pairing room id, normally injected by the QR. Required for the phone to find the room. Implementation: `phone.js`.
-
-Combine: `phone.html?debug#pair=<uuid>`.
 
 ## Window handles (DevTools console)
 
@@ -56,7 +51,7 @@ Chrome ships several diagnostic dashboards behind `chrome://` URLs that surface 
 
 ## When to reach for what
 
-- Pairing hangs or fails silently → enable `?debug` on whichever side is stuck, then read `window.lastPairDiagnostic()` from the console for each side's gathered candidates. If even a unilateral probe (`?probe` or `window.probeNetwork()`) returns no `srflx`, the network is blocking outbound STUN/UDP — pair will fail before it starts.
+- Pairing hangs or fails silently → open the Diagnostics dialog (menu) and Refresh — captures STUN probe + last pair attempt's `getStats()` + connected-robot telemetry into one JSON. If even the unilateral probe returns no `srflx`, the network is blocking outbound STUN/UDP — pair will fail before it starts.
 - Understand what Pip did last session → `replayDownload()` from DevTools console, inspect the JSON.
 - Camera / VLM misbehaving → enable Watch, inspect the scene card on the robot's dashboard tile. VLM output is read-only; to cross-check, use the `ask_robot_scene` tool in a Pip chat with a neutrally-framed question.
 - Spatial grounding (which way to turn toward a target) → `get_robot_detections` Pip tool. Returns normalized bboxes. Model loads on first call (~30–60s, cached).
