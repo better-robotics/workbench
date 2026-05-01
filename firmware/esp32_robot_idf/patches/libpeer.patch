@@ -1,6 +1,15 @@
 # Patch sepfy/libpeer (commit 9319aa434cb9) to fix four bugs that block
 # WebRTC data channels from working with browser-initiated channels:
 #
+# 5. sctp_outgoing_data fires N fragments back-to-back via dtls_srtp_write
+#    → udp_socket_sendto with zero yield between them. For a 3.7 KB JPEG
+#    at SCTP_MTU=1200 that's 3-4 sendto calls in microseconds — lwIP's
+#    pbuf pool can't refill in between. The retry in #4 doesn't help
+#    because more fragments queue while we sleep. Add a tiny vTaskDelay
+#    between fragments inside the while loop, so the TX path actually
+#    drains. Empirically necessary on weak-signal networks (RSSI -80
+#    apartment WiFi) where WiFi retransmits compound the pressure.
+#
 # 4. udp_socket_sendto bare-call to sendto(2) returns -1 on ENOMEM/ENOBUFS
 #    without retry. libpeer's manual SCTP path fragments each video JPEG
 #    into ~4-6 back-to-back sendto calls; lwIP's pbuf pool drains during
@@ -44,7 +53,16 @@
 
 --- a/managed_components/libpeer/src/sctp.c
 +++ b/managed_components/libpeer/src/sctp.c
-@@ -124,7 +124,12 @@
+@@ -1,6 +1,8 @@
+ #include <stdlib.h>
+ #include <string.h>
++#include "freertos/FreeRTOS.h"
++#include "freertos/task.h"
+
+ #include "dtls_srtp.h"
+ #include "sctp.h"
+ #include "utils.h"
+@@ -124,7 +126,12 @@
  
    chunk->type = SCTP_DATA;
    chunk->iube = 0x06;
@@ -57,8 +75,19 @@
 +  chunk->sid = htons(sid);
    chunk->sqn = htons(sqn++);
    chunk->ppid = htonl(ppid);
- 
-@@ -261,6 +266,27 @@
+
+@@ -137,6 +144,10 @@
+     packet->header.checksum = sctp_get_checksum(sctp, (const uint8_t*)sctp->buf, SCTP_MTU);
+
+     sctp_outgoing_data_cb(sctp, sctp->buf, SCTP_MTU, 0, 0);
++    // LOCAL PATCH: yield 2ms between SCTP fragments so lwIP's pbuf
++    // pool can drain. Without this, multi-fragment sends fire all
++    // packets in microseconds and ENOMEM cascades through sendto.
++    vTaskDelay(pdMS_TO_TICKS(2));
+     chunk->iube = 0x04;
+     len -= payload_max;
+     pos += payload_max;
+@@ -261,6 +272,27 @@
  
          LOGD("SCTP_DATA. ppid = %ld, data = %.2x", ntohl(data_chunk->ppid), data_chunk->data[0]);
          if (ntohl(data_chunk->ppid) == DATA_CHANNEL_PPID_CONTROL && data_chunk->data[0] == DATA_CHANNEL_OPEN) {
@@ -86,7 +115,7 @@
            data_chunk = (SctpDataChunk*)sack_chunk->blocks;
            data_chunk->type = SCTP_DATA;
            data_chunk->iube = 0x03;
-@@ -417,6 +443,14 @@
+@@ -417,6 +449,14 @@
  #if CONFIG_USE_USRSCTP
    switch (ppid) {
      case DATA_CHANNEL_PPID_CONTROL:
