@@ -1,5 +1,19 @@
-# Patch sepfy/libpeer (commit 9319aa434cb9) to fix three bugs that block
+# Patch sepfy/libpeer (commit 9319aa434cb9) to fix four bugs that block
 # WebRTC data channels from working with browser-initiated channels:
+#
+# 4. udp_socket_sendto bare-call to sendto(2) returns -1 on ENOMEM/ENOBUFS
+#    without retry. libpeer's manual SCTP path fragments each video JPEG
+#    into ~4-6 back-to-back sendto calls; lwIP's pbuf pool drains during
+#    the burst and the 2nd-through-Nth calls fail with "Not enough space".
+#    The application API (peer_connection_datachannel_send_sid) returns
+#    a partial byte count, the dashboard sees ~1 chunk of every frame,
+#    image freezes after the first decoded frame. Wrap sendto in a tiny
+#    retry loop with vTaskDelay so the WiFi TX path can drain. Same shape
+#    as upstream PR #227 (which is at the SSL layer and incomplete) and
+#    matches what every working ESP32 + libpeer + datachannel video
+#    project ends up doing in fork. Refs: sepfy/libpeer issues #130,
+#    #184, #219.
+#
 #
 # 1. sctp_outgoing_data hardcoded chunk->sid to htons(0), ignoring the
 #    sid arg from peer_connection_datachannel_send_sid. Frames went out
@@ -87,3 +101,41 @@
        break;
  
      case DATA_CHANNEL_PPID_DOMSTRING:
+
+--- a/managed_components/libpeer/src/socket.c
++++ b/managed_components/libpeer/src/socket.c
+@@ -1,6 +1,9 @@
+ #include <errno.h>
+ #include <string.h>
+ #include <unistd.h>
++
++#include "freertos/FreeRTOS.h"
++#include "freertos/task.h"
+
+ #include "socket.h"
+ #include "utils.h"
+@@ -124,9 +127,21 @@
+       break;
+   }
+
+-  if ((ret = sendto(udp_socket->fd, buf, len, 0, sa, sock_len)) < 0) {
+-    LOGE("Failed to sendto: %s", strerror(errno));
+-    return -1;
++  // LOCAL PATCH: retry sendto on ENOMEM/ENOBUFS with a short yield.
++  // libpeer's SCTP path emits 4-6 sendto calls per JPEG frame back-to-
++  // back; lwIP's pbuf pool drains during the burst and the 2nd-through-
++  // Nth calls fail. Retrying with vTaskDelay(1) lets the WiFi TX path
++  // drain. Without this ~80% of each frame is lost and the dashboard
++  // freezes on the first decoded frame. TODO: upstream to sepfy/libpeer.
++  int retries = 0;
++  while ((ret = sendto(udp_socket->fd, buf, len, 0, sa, sock_len)) < 0
++         && (errno == ENOMEM || errno == ENOBUFS)
++         && ++retries <= 5) {
++    vTaskDelay(pdMS_TO_TICKS(1));
++  }
++  if (ret < 0) {
++    LOGE("Failed to sendto: %s", strerror(errno));
++    return -1;
+   }
+
+   return ret;
