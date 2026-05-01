@@ -65,7 +65,7 @@ export async function openChannel(robotId, robotName, label, opts = {}) {
 // ── BLE signaling path ──────────────────────────────────────────────────
 
 async function openChannelViaBLE(robotId, label, signalChar, opts) {
-  const { onStatus = () => {} } = opts;
+  const { onStatus = () => {}, addVideoRecv = false, onTrack } = opts;
   closePeer(robotId);
 
   onStatus("Opening peer over BLE…");
@@ -75,6 +75,16 @@ async function openChannelViaBLE(robotId, label, signalChar, opts) {
   const pc = new RTCPeerConnection({ iceServers });
   const entry = { pc, channels: new Map() };
   _peers.set(robotId, entry);
+
+  // Video transceiver (recv-only): added before createOffer so the SDP
+  // includes m=video. Chip's esp_peer answers with the matching MJPEG
+  // codec; pc.ontrack fires when the remote stream arrives.
+  if (addVideoRecv) {
+    pc.addTransceiver("video", { direction: "recvonly" });
+    pc.addEventListener("track", (e) => {
+      if (onTrack) onTrack(e.streams[0] || new MediaStream([e.track]));
+    });
+  }
 
   const channel = pc.createDataChannel(label, { ordered: true });
   entry.channels.set(label, channel);
@@ -121,14 +131,10 @@ async function openChannelViaBLE(robotId, label, signalChar, opts) {
   try {
     onStatus("Generating offer…");
     const offer = await pc.createOffer();
-    // libpeer's create_answer hardcodes the data-channel mid as
-    // "datachannel" (sdp.c:75) and the BUNDLE group as "datachannel"
-    // (sdp.c:103). Browsers auto-assign mids ("0", "1", ...). Without
-    // patching, Chrome's setRemoteDescription rejects libpeer's answer
-    // with "The order of m-lines in answer doesn't match order in offer"
-    // because the mids differ. Rewriting our offer to use libpeer's
-    // expected mid up-front makes both sides consistent.
-    offer.sdp = patchOfferForLibpeer(offer.sdp);
+    // No MID rewrite here — esp_peer always emits MID="0" in its answer
+    // and chip-side webrtc_peer.c rewrites the answer's BUNDLE/mid back
+    // to whatever the offer's MID was before forwarding over BLE. This
+    // keeps the dashboard side simple regardless of esp_peer quirks.
     await pc.setLocalDescription(offer);
 
     // Non-trickle ICE: wait for gathering to complete so the SDP carries
@@ -155,20 +161,6 @@ async function openChannelViaBLE(robotId, label, signalChar, opts) {
     signalChar.removeEventListener("characteristicvaluechanged", onSignal);
     throw err;
   }
-}
-
-// Match libpeer's hardcoded mid for the data channel m-section. Single
-// m-line per session in our use (one data channel per peer), so a
-// straight rename is enough; multi-channel peers will need a richer
-// patch keyed off m=application sections individually.
-function patchOfferForLibpeer(sdp) {
-  const midMatch = sdp.match(/^a=mid:(\S+)$/m);
-  if (!midMatch) return sdp;
-  const browserMid = midMatch[1];
-  if (browserMid === "datachannel") return sdp;  // already matches
-  return sdp
-    .replaceAll(`a=mid:${browserMid}`, "a=mid:datachannel")
-    .replaceAll(`BUNDLE ${browserMid}`, "BUNDLE datachannel");
 }
 
 async function sendChunked(char, bytes) {

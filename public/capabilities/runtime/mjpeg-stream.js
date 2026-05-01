@@ -26,17 +26,11 @@ import { renderEntry } from "./render-bus.js";
 // signal the SDP but the actual media path is P2P over the LAN.
 function hasWifi(entry) { return !!entry.wifiStatus?.ip; }
 
-// Open a WebRTC `video` data channel, ask the firmware for a stream at
-// 5 fps, render incoming binary frames into the existing <img> via
-// blob URLs. Returns a disposer; null on open failure.
-//
-// 5 fps, not 10: classic ESP32 + libpeer can't drain JPEGs over UDP
-// fast enough at 10 fps with BLE notifies and STUN keepalives also
-// using lwIP — symptom was "Failed to sendto: Not enough space"
-// flooding serial and the dashboard <img> freezing on the first
-// received frame. 5 fps gives lwIP twice as long to drain pbufs
-// between frames; bump back when the libpeer fork lands a tx-queue.
-async function startEsp32WebRTCVideo(entry, img) {
+// Open a WebRTC peer with an MJPEG-RTP video transceiver and a control
+// data channel. The chip's esp_peer pumps frames as RTP (no chunking,
+// no per-frame framing), browser renders via <video srcObject>. The
+// "video" data channel carries start/stop control messages only.
+async function startEsp32WebRTCVideo(entry, videoEl) {
   const { openChannel, closePeer } = await import("../../webrtc-robot.js");
   let channel;
   try {
@@ -44,60 +38,27 @@ async function startEsp32WebRTCVideo(entry, img) {
       onStatus: (s) => logFor(entry, `video webrtc: ${s}`),
       robotType: entry.fwType,
       signalChar: entry.signalChar,
+      addVideoRecv: true,
+      onTrack: (stream) => {
+        try {
+          videoEl.srcObject = stream;
+          videoEl.play?.().catch(() => {});
+        } catch {}
+        logFor(entry, `video webrtc: track received, ${stream.getVideoTracks().length} tracks`);
+      },
     });
   } catch (err) {
     logFor(entry, `video webrtc open failed: ${err.message}`);
     return null;
   }
-  channel.binaryType = "arraybuffer";
-  let prevUrl = null;
-  // Chip chunks each JPEG into ≤900 B pieces and explicitly paces them
-  // (vTaskDelay(2) between sends) — avoids libpeer's burst-of-sendto's
-  // overflowing lwIP's pbuf pool on classic ESP32. Wire format per
-  // chunk: [frame_id u16 BE][chunk_idx u8][total_chunks u8][jpeg bytes].
-  // Reassemble per frame_id; drop incomplete frames if chunks arrive
-  // out-of-order with the next frame_id starting before completion.
-  const pending = new Map();   // frame_id -> { total, parts: Map<idx, Uint8Array> }
-  const onMsg = (e) => {
-    if (typeof e.data === "string") return;  // ignore control replies
-    const data = new Uint8Array(e.data);
-    if (data.length < 4) return;
-    const frameId = (data[0] << 8) | data[1];
-    const chunkIdx = data[2];
-    const totalChunks = data[3];
-    const payload = data.subarray(4);
-    let frame = pending.get(frameId);
-    if (!frame) { frame = { total: totalChunks, parts: new Map() }; pending.set(frameId, frame); }
-    frame.parts.set(chunkIdx, payload);
-    if (frame.parts.size !== frame.total) return;
-    let totalLen = 0;
-    for (let i = 0; i < frame.total; i++) {
-      const p = frame.parts.get(i);
-      if (!p) { pending.delete(frameId); return; }   // missing chunk; drop
-      totalLen += p.length;
-    }
-    const merged = new Uint8Array(totalLen);
-    let off = 0;
-    for (let i = 0; i < frame.total; i++) { merged.set(frame.parts.get(i), off); off += frame.parts.get(i).length; }
-    pending.delete(frameId);
-    // Garbage-collect stale incomplete frames (older than current).
-    for (const id of pending.keys()) if (id < frameId) pending.delete(id);
-    const blob = new Blob([merged], { type: "image/jpeg" });
-    const url = URL.createObjectURL(blob);
-    img.src = url;
-    if (prevUrl) URL.revokeObjectURL(prevUrl);
-    prevUrl = url;
-  };
-  channel.addEventListener("message", onMsg);
-  try { channel.send(JSON.stringify({ type: "start", fps: 5 })); } catch {}
+  try { channel.send(JSON.stringify({ type: "start", fps: 10 })); } catch {}
   logFor(entry, `video webrtc: streaming`);
   return {
     channel,
     dispose() {
-      channel.removeEventListener("message", onMsg);
       try { channel.send(JSON.stringify({ type: "stop" })); } catch {}
       try { channel.close(); } catch {}
-      if (prevUrl) URL.revokeObjectURL(prevUrl);
+      try { videoEl.srcObject = null; } catch {}
       closePeer(entry.id);
     },
   };
@@ -141,10 +102,14 @@ export function makeMjpegStreamCap(schema) {
       if (!wifi) {
         body = `<div class="meta">Waiting for the robot to join WiFi — video needs a LAN IP.</div>`;
       } else if (running) {
-        // crossOrigin lets perception.js's canvas read the pixels.
-        // No src at render time — the click handler attaches frames
-        // via blob URLs as the WebRTC data channel delivers them.
-        body = `<img class="robot-camera" crossorigin="anonymous" data-cam-id="${entry.id}" alt="WebRTC video">`;
+        // For ESP32 (RTP-MJPEG via esp_peer): <video srcObject> rendered
+        // by mjpeg-stream.js's onTrack handler. No CORS — srcObject is
+        // same-origin by definition. perception.js's canvas can drawImage
+        // a <video> element the same as <img>. For Pi (HTTP MJPEG) we
+        // still render an <img> below — the schema doesn't currently
+        // disambiguate so we render <video> for both; <img> fallback
+        // would belong here once Pi exposes its own renderer hook.
+        body = `<video class="robot-camera" data-cam-id="${entry.id}" autoplay muted playsinline></video>`;
       }
       // Stream URL omitted from idle body — it's debug info that leaked
       // into daily UX. The dashboard log echoes it on connect for anyone
@@ -197,7 +162,7 @@ export function makeMjpegStreamCap(schema) {
       node.querySelector(`[data-action="${actionStart}"]`)?.addEventListener("click", async () => {
         entry[runningField] = true;
         renderEntry(entry);
-        const img = entry.node?.querySelector(`img.robot-camera[data-cam-id="${entry.id}"]`);
+        const img = entry.node?.querySelector(`.robot-camera[data-cam-id="${entry.id}"]`);
         if (!img) return;
 
         // ESP32 path: WebRTC video only. firmware/webrtc_peer.c routes
@@ -235,7 +200,7 @@ export function makeMjpegStreamCap(schema) {
       // from elsewhere) and the stream is already running, the old <img> is
       // gone and we're drawing into nothing. Re-point at the fresh img.
       if (entry[runningField] && entry._mjpegForward) {
-        const img = entry.node?.querySelector(`img.robot-camera[data-cam-id="${entry.id}"]`);
+        const img = entry.node?.querySelector(`.robot-camera[data-cam-id="${entry.id}"]`);
         if (img && img !== entry._mjpegForward.imgEl) {
           startMjpegForward(entry, img);
         }
