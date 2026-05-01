@@ -143,7 +143,7 @@
 
  #include "socket.h"
  #include "utils.h"
-@@ -124,9 +127,21 @@
+@@ -124,9 +127,23 @@
        break;
    }
 
@@ -153,14 +153,16 @@
 +  // LOCAL PATCH: retry sendto on ENOMEM/ENOBUFS with a short yield.
 +  // libpeer's SCTP path emits 4-6 sendto calls per JPEG frame back-to-
 +  // back; lwIP's pbuf pool drains during the burst and the 2nd-through-
-+  // Nth calls fail. Retrying with vTaskDelay(1) lets the WiFi TX path
-+  // drain. Without this ~80% of each frame is lost and the dashboard
-+  // freezes on the first decoded frame. TODO: upstream to sepfy/libpeer.
++  // Nth calls fail. Retrying with vTaskDelay(3) lets the WiFi TX path
++  // drain. With 5 retries × 1ms (~5ms total) only the first SCTP
++  // fragment got through (~50% of each frame). 10 × 3ms (~30ms) covers
++  // the typical pool-drain window for a 5fps camera burst, well under
++  // the 200ms-per-frame budget. TODO: upstream to sepfy/libpeer.
 +  int retries = 0;
 +  while ((ret = sendto(udp_socket->fd, buf, len, 0, sa, sock_len)) < 0
 +         && (errno == ENOMEM || errno == ENOBUFS)
-+         && ++retries <= 5) {
-+    vTaskDelay(pdMS_TO_TICKS(1));
++         && ++retries <= 10) {
++    vTaskDelay(pdMS_TO_TICKS(3));
 +  }
 +  if (ret < 0) {
 +    LOGE("Failed to sendto: %s", strerror(errno));
