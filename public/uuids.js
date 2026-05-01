@@ -23,7 +23,6 @@ export const CAMERA_PROFILE_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da2";
 export const FLASH_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da3";
 export const PIN_CONFIG_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da4";
 export const SIGNAL_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da5";
-export const PAIR_MAILBOX_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da6";
 
 // heartbeat_service
 export const HEARTBEAT_SVC_UUID = "b6e8d5f3-2c9d-4bba-ae5e-6f9b8c7d5eb0";

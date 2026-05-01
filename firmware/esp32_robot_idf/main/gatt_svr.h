@@ -39,13 +39,3 @@ void gatt_svr_snapshot_send(const uint8_t *buf, size_t len);
 // offer so the right window receives the response when multiple
 // browsers are simultaneously connected.
 void gatt_svr_signal_send(uint16_t conn, const uint8_t *buf, size_t len);
-
-// Phase 2.F.2: pair-mailbox notifies. Per-conn target so the mailbox
-// can broadcast (skipping the writer) and replay (single subscriber).
-// `conn_handle` must be a currently-connected central's handle.
-void gatt_svr_pair_mailbox_send(uint16_t conn_handle, const uint8_t *buf, size_t len);
-
-// Returns the pair-mailbox char's val_handle, used by ble_host's
-// SUBSCRIBE event hook to discriminate mailbox subscribes from
-// snapshot / signal-char subscribes.
-uint16_t gatt_svr_pair_mailbox_handle(void);

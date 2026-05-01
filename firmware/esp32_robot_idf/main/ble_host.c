@@ -10,7 +10,6 @@
 #include "services/gatt/ble_svc_gatt.h"
 
 #include "gatt_svr.h"
-#include "pair_mailbox.h"
 
 static const char *TAG = "ble_host";
 
@@ -79,17 +78,9 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
             start_advertising();
             break;
         case BLE_GAP_EVENT_SUBSCRIBE:
-            // Replay buffered pair-mailbox ads to a new subscriber. The
-            // mailbox helper checks the attr_handle against the mailbox
-            // char itself before replaying, so this is safe to call on
-            // every subscribe event.
             ESP_LOGI(TAG, "subscribe conn=%u attr=%u cur_notify=%d",
                      event->subscribe.conn_handle, event->subscribe.attr_handle,
                      event->subscribe.cur_notify);
-            if (event->subscribe.cur_notify
-                && event->subscribe.attr_handle == gatt_svr_pair_mailbox_handle()) {
-                pair_mailbox_replay_to(event->subscribe.conn_handle);
-            }
             break;
         case BLE_GAP_EVENT_ADV_COMPLETE:
             start_advertising();

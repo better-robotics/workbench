@@ -1,7 +1,6 @@
 import { SERVICE_UUID, HEARTBEAT_SVC_UUID, HEARTBEAT_CHAR_UUID,
   FW_INFO_CHAR_UUID, ROBOT_STATUS_CHAR_UUID,
   OPS_RESPONSE_CHAR_UUID, TELEMETRY_CHAR_UUID, SIGNAL_CHAR_UUID,
-  PAIR_MAILBOX_CHAR_UUID,
   decodeJson } from "./ble.js";
 import { $, escapeHtml } from "./dom.js";
 import { log, logFor } from "./log.js";
@@ -25,8 +24,7 @@ import { initMotorsKeyboard } from "./capabilities/runtime/signed-pair.js";
 import { initAuthUI, fingerprint as dashFingerprint, pubkeySsh, onKeyChange } from "./auth.js";
 import { initPasswordsUI } from "./passwords.js";
 import { initAssistant, emitPipEvent } from "./assistant.js";
-import { initPhones, broadcastTargetInfo, sendArucoStatus,
-  notifyRobotConnected, notifyRobotDisconnected } from "./phones.js";
+import { initPhones, broadcastTargetInfo, sendArucoStatus } from "./phones.js";
 import { getLoadState as getLocalLoadState, onLoadStateChange as onLocalLoadStateChange, loadModel as loadLocalModel, reloadModel as reloadLocalModel } from "./local-llm.js";
 import { initHelpers, setHelpersRobotRenderer, renderHelpers } from "./helpers.js";
 import { startTracking as startArucoTracking, stopTracking as stopArucoTracking } from "./aruco.js";
@@ -525,18 +523,6 @@ async function connect(id) {
       entry.signalChar = null;
     }
 
-    // pair-mailbox char (Phase 2.F.2) — robot relays signed pair-request
-    // / pair-response ads between phone and desktop, both BLE-connected
-    // to the same robot. phones.js wires a parallel pairRequestClient
-    // when this is present so phone-pair works without signal.neevs.io
-    // for the co-located case. Older firmware: silently absent.
-    try {
-      entry.pairMailboxChar = await service.getCharacteristic(PAIR_MAILBOX_CHAR_UUID);
-      await entry.pairMailboxChar.startNotifications();
-    } catch {
-      entry.pairMailboxChar = null;
-    }
-
     entry.runtimeCaps = [];
     for (const cap of CAPABILITIES) {
       try { await cap.probe(entry, service); } catch { /* optional */ }
@@ -546,9 +532,6 @@ async function connect(id) {
     // this, a phone that paired before the robot connected stays wedged
     // with target=null forever (joypad + panic-stop hidden).
     try { broadcastTargetInfo(); } catch {}
-    // Phase 2.F.2: arm BLE-relay pair signaling on this robot's
-    // pair-mailbox char. No-op when entry.pairMailboxChar is absent.
-    try { notifyRobotConnected(entry); } catch {}
   } catch (err) {
     entry.status = "error";
     entry.lastConnectError = err.message || String(err);
@@ -637,10 +620,6 @@ function onDisconnected(id) {
   }
   entry.robotStatus = null;
   entry.heartbeat = null;
-  // Tear down the BLE-relay pair listener for this robot — the char
-  // handle is dead once the GATT connection drops.
-  try { notifyRobotDisconnected(entry); } catch {}
-  entry.pairMailboxChar = null;
   for (const cap of CAPABILITIES) cap.cleanup(entry);
   for (const cap of entry.runtimeCaps || []) cap.cleanup(entry);
   entry.runtimeCaps = [];

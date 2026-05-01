@@ -18,7 +18,6 @@ import { discover } from "./signal-sdk/v1/discover.js";
 import { getMyPubkeyB64 } from "./signal-sdk/v1/peer-key.js";
 import { makeTrustStore } from "./trust.js";
 import { pairRequestClient } from "./signal-sdk/v1/pair-request.js";
-import { bleMailbox } from "./ble-mailbox.js";
 const _trust = makeTrustStore("better-robotics:trust:v1");
 
 // Single shared lobby in signed mode: ads carry our device pubkey so the
@@ -266,15 +265,9 @@ function renderPhonePresence(ads) {
 // and the UI (existing modal in this file). The library owns
 // nonce-dedup, subscribe filter, response publish, and timeout.
 //
-// Two transports run in parallel: the wss://signal.neevs.io discover
-// lobby (cross-network, always-on) and a per-robot BLE-relay lobby
-// (Phase 2.F.2 — robot's pair-mailbox char relays signed ads between
-// phone and desktop when both are BLE-connected to the same robot).
-// Each transport gets its own pairRequestClient with the SAME handler;
-// nonces prevent duplicate accept on the rare case a single request
-// flies through both transports at once.
+// Transport: the wss://signal.neevs.io discover lobby (cross-network,
+// always-on).
 let _wssPairClient = null;
-const _robotPairClients = new Map();   // entry.id → { transport, client }
 
 async function _onPairRequest(req) {
   const senderPubkey = req.senderPubkey;
@@ -301,57 +294,6 @@ function _initPairListener() {
   if (_wssPairClient) return;
   _wssPairClient = pairRequestClient({ app: 'better-robotics-pair', sign: true, lobby: getLobby() });
   _wssPairClient.onRequest(_onPairRequest, _pairOnRequestOpts);
-}
-
-// Called from app.js when a robot connects with a working pair-mailbox
-// char (Phase 2.F.2 firmware). Wires a parallel pairRequestClient onto
-// the BLE-relay transport so a co-located phone can pair without
-// signal.neevs.io round-trips.
-// Pick a robot the phone can use as a BLE rendezvous. Any robot with a
-// live pair-mailbox char will do — we just need its BLE name so the
-// phone can find it via Web Bluetooth. Returns null when no robot is
-// armed for BLE-relay, in which case the QR omits the hint and the
-// phone falls back to the wss lobby.
-function _bleRendezvousHint() {
-  for (const entry of state.devices.values()) {
-    if (entry.pairMailboxChar && entry.name) return entry.name;
-  }
-  return null;
-}
-
-export async function notifyRobotConnected(entry) {
-  if (!entry || !entry.pairMailboxChar) return;
-  if (_robotPairClients.has(entry.id)) return;
-  let transport;
-  try { transport = bleMailbox({ char: entry.pairMailboxChar, sign: true }); }
-  catch (err) { log("ble-mailbox init failed: " + err.message, "phone"); return; }
-  const client = pairRequestClient({ app: 'better-robotics-pair', sign: true, lobby: transport });
-  client.onRequest(_onPairRequest, _pairOnRequestOpts);
-  _robotPairClients.set(entry.id, { transport, client });
-  // Republish Mac presence on this transport so phones connecting to
-  // the same robot via BLE see us in their nearby list — same wire
-  // shape as the wss lobby's "better-robotics-mac" ad. Auto-reconnect
-  // can fire before initPhones finishes its getMyPubkeyB64 await, so
-  // resolve it here directly to avoid the publish silently no-op'ing.
-  const myPk = _myPubkey || await getMyPubkeyB64();
-  _myPubkey = myPk;
-  try {
-    await transport.publish("better-robotics-mac:" + myPk, {
-      app: "better-robotics-mac",
-      label: deviceLabel(),
-    }, 60000);
-    log(`pair-mailbox armed on ${entry.name || entry.id} (presence ad sent)`, "phone");
-  } catch (err) {
-    log(`pair-mailbox publish failed on ${entry.name || entry.id}: ${err.message}`, "phone");
-  }
-}
-
-export function notifyRobotDisconnected(entry) {
-  if (!entry) return;
-  const slot = _robotPairClients.get(entry.id);
-  if (!slot) return;
-  try { slot.transport.close(); } catch {}
-  _robotPairClients.delete(entry.id);
 }
 
 // Modal prompt promise — single in-flight; if a second request comes
@@ -502,18 +444,9 @@ async function beginPairing() {
   // QR-fallback path: encode our pubkey alongside the room id so a
   // cross-network phone can establish trust without going through the
   // request/accept lobby (which only works on the same wifi).
-  //
-  // Phase 2.F.2: also encode &ble=<robotName> when we have at least one
-  // robot reachable via the BLE-mailbox lobby. Lets a Web-Bluetooth-
-  // capable phone skip signal.neevs.io for the trust handshake — same
-  // pair-request protocol, different lobby plugin. iPhones (no Web
-  // Bluetooth) ignore it and still use the wss lobby.
   const myPubkey = _myPubkey || await getMyPubkeyB64();
   const url = new URL("phone.html", window.location.href);
-  let hash = `pair=${session.roomId}&pk=${myPubkey}`;
-  const bleHint = _bleRendezvousHint();
-  if (bleHint) hash += `&ble=${encodeURIComponent(bleHint)}`;
-  url.hash = hash;
+  url.hash = `pair=${session.roomId}&pk=${myPubkey}`;
   const urlText = url.toString();
 
   if (window.qrcode) {

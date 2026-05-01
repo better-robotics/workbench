@@ -5,8 +5,6 @@ import { discover } from "./signal-sdk/v1/discover.js";
 import { getMyPubkeyB64 } from "./signal-sdk/v1/peer-key.js";
 import { makeTrustStore } from "./trust.js";
 import { pairRequestClient } from "./signal-sdk/v1/pair-request.js";
-import { bleMailbox } from "./ble-mailbox.js";
-import { SERVICE_UUID, PAIR_MAILBOX_CHAR_UUID } from "./uuids.js";
 import {
   setupServiceWorker, wireInstallMenuItem, wireCheckUpdatesMenuItem,
   wireHardRefresh, wireDiagnosticsMenuItem, setReportIssueLink, readSwVersion,
@@ -850,29 +848,17 @@ function _setNearbyStatus(text, kind) {
   status.className = "phone-nearby-status" + (kind ? " " + kind : "");
 }
 
-// One pairRequestClient per lobby. Each ad is tagged with which lobby
-// it came from (wss vs ble-mailbox) so _requestPairWith can route the
-// pair-request through the same transport the presence ad arrived on.
-// Different transport per ad source = no cross-talk between lobbies.
 let _wssPairClient = null;
 function _getWssPairClient() {
   if (!_wssPairClient) _wssPairClient = pairRequestClient({ app: 'better-robotics-pair', sign: true, lobby: _lobby });
   return _wssPairClient;
 }
 
-let _bleLobby = null;        // bleMailbox lobby instance, when BT-paired
-let _blePairClient = null;
-let _bleDevice = null;       // BluetoothDevice handle, kept for disconnect signal
-function _getBlePairClient() {
-  if (!_blePairClient) _blePairClient = pairRequestClient({ app: 'better-robotics-pair', sign: true, lobby: _bleLobby });
-  return _blePairClient;
-}
-
 async function _requestPairWith(macAd) {
   if (!macAd.data._pubkey) return;
   const macLabel = macAd.data.label || 'this computer';
   _setNearbyStatus(`Asking ${macLabel} to pair…`);
-  const client = (macAd._source === 'ble') ? _getBlePairClient() : _getWssPairClient();
+  const client = _getWssPairClient();
   const result = await client.request({
     payload: { target: macAd.data._pubkey, label: deviceLabel() },
   });
@@ -902,123 +888,6 @@ async function _requestPairWith(macAd) {
   _setNearbyStatus('Pair declined.', 'alert');
 }
 
-// Phase 2.F.2: open the Web Bluetooth chooser, connect to a robot
-// advertising SERVICE_UUID, subscribe to its pair-mailbox char, and
-// run a parallel pairRequestClient against that lobby. The phone
-// then sees Mac presence ads relayed by the robot in the same nearby
-// list as wss-lobby ads (just tagged _source='ble' for routing).
-//
-// Hidden on iOS Safari (no navigator.bluetooth). On supporting
-// browsers the button is wired in init().
-async function startBluetoothPair() {
-  if (_bleDevice) {
-    _setNearbyStatus("Already connected to a robot via Bluetooth.", "info");
-    return;
-  }
-  if (!navigator.bluetooth) {
-    _setNearbyStatus("This browser doesn't support Web Bluetooth.", "alert");
-    return;
-  }
-  _setNearbyStatus("Pick a robot from the chooser…");
-  let device, server, char;
-  try {
-    device = await navigator.bluetooth.requestDevice({
-      filters: [{ services: [SERVICE_UUID] }],
-      optionalServices: [SERVICE_UUID],
-    });
-    _setNearbyStatus(`Connecting to ${device.name || "robot"}…`);
-    server = await device.gatt.connect();
-    const svc = await server.getPrimaryService(SERVICE_UUID);
-    char = await svc.getCharacteristic(PAIR_MAILBOX_CHAR_UUID);
-  } catch (err) {
-    if (err.name === "NotFoundError") { _setNearbyStatus("", null); return; }
-    _setNearbyStatus(`Bluetooth pair failed: ${err.message || err}`, "alert");
-    return;
-  }
-  _bleDevice = device;
-  // Install the bleMailbox NOTIFY listener BEFORE enabling
-  // notifications. The chip's BLE_GAP_EVENT_SUBSCRIBE handler fires
-  // pair_mailbox_replay_to as soon as the CCCD write lands; if we
-  // turn on notifications first and add the listener after, the
-  // replayed Mac presence ad is delivered to the OS but the page
-  // has nothing listening — and the desktop only publishes once,
-  // so we never see it again.
-  _bleLobby = bleMailbox({ char, sign: true });
-  // Reset the ble pair client so it picks up the new lobby on next use.
-  _blePairClient = null;
-  try {
-    await char.startNotifications();
-  } catch (err) {
-    _setNearbyStatus(`Bluetooth notify failed: ${err.message || err}`, "alert");
-    try { _bleLobby.close(); } catch {}
-    _bleLobby = null;
-    _bleDevice = null;
-    return;
-  }
-
-  // Republish phone presence on this transport so the desktop sees us
-  // via the robot relay even if it hasn't been on the wss lobby.
-  if (!_myPubkey) _myPubkey = await getMyPubkeyB64();
-  _bleLobby.publish("better-robotics-phone:" + _myPubkey, {
-    app: "better-robotics-phone",
-    label: deviceLabel(),
-  }, 60000);
-
-  // Merge ble-sourced Mac ads into the same nearby list rendered by the
-  // wss lobby's onChange handler. Tag with _source='ble' so the click
-  // handler routes the pair-request through the right transport.
-  _bleLobby.onChange((ads) => {
-    const macs = ads.filter(a => a.data && a.data.app === "better-robotics-mac" && a.data._pubkey);
-    _renderBleMacs(macs.map(a => ({ ...a, _source: 'ble' })));
-  });
-
-  device.addEventListener("gattserverdisconnected", () => {
-    _setNearbyStatus("Robot disconnected from Bluetooth.", "alert");
-    try { _bleLobby?.close(); } catch {}
-    _bleLobby = null;
-    _blePairClient = null;
-    _bleDevice = null;
-    _renderBleMacs([]);
-  });
-
-  _setNearbyStatus(`Connected via ${device.name || "robot"}. Looking for nearby Macs…`);
-}
-
-// Renders the BLE-sourced Mac list separately from the wss list so
-// disappearing/reappearing ads on either transport don't fight each
-// other. Mounted as a sibling of the wss list inside #phone-nearby.
-function _renderBleMacs(macs) {
-  const list = $("phone-nearby-list");
-  if (!list) return;
-  let bleSection = $("phone-nearby-ble-section");
-  if (!macs.length) {
-    if (bleSection) bleSection.remove();
-    return;
-  }
-  if (!bleSection) {
-    bleSection = document.createElement("div");
-    bleSection.id = "phone-nearby-ble-section";
-    bleSection.className = "phone-nearby-ble";
-    list.parentElement.insertBefore(bleSection, list.nextSibling);
-  }
-  bleSection.innerHTML = "";
-  const label = document.createElement("p");
-  label.className = "phone-nearby-label";
-  label.textContent = "Via Bluetooth";
-  bleSection.appendChild(label);
-  for (const ad of macs) {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "phone-nearby-btn";
-    btn.textContent = `Pair with ${ad.data.label || "this computer"}`;
-    btn.addEventListener("click", () => _requestPairWith(ad));
-    bleSection.appendChild(btn);
-  }
-  // Make sure the parent wrapper is visible.
-  const wrap = $("phone-nearby");
-  if (wrap) wrap.hidden = false;
-}
-
 async function startNearbyDiscovery() {
   if (_lobby) return;  // idempotent — init might call us twice across reconnects
   _lobby = discover({ sign: true });
@@ -1046,10 +915,7 @@ async function startNearbyDiscovery() {
   _lobby.onChange((ads) => {
     const macs = ads.filter(a => a.data && a.data.app === "better-robotics-mac" && a.data._pubkey);
     list.innerHTML = "";
-    // The ble-mailbox section may have its own Macs visible — only
-    // hide the whole wrap when BOTH lists are empty.
-    const bleSection = $("phone-nearby-ble-section");
-    if (!macs.length) { wrap.hidden = !bleSection; return; }
+    if (!macs.length) { wrap.hidden = true; return; }
     clearTimeout(hintTimer);
     if (emptyHint) emptyHint.hidden = true;
     wrap.hidden = false;
@@ -1058,20 +924,10 @@ async function startNearbyDiscovery() {
       btn.type = "button";
       btn.className = "phone-nearby-btn";
       btn.textContent = `Pair with ${ad.data.label || "this computer"}`;
-      // Tag with _source so _requestPairWith picks the wss client.
-      btn.addEventListener("click", () => _requestPairWith({ ...ad, _source: 'wss' }));
+      btn.addEventListener("click", () => _requestPairWith(ad));
       list.appendChild(btn);
     }
   });
-
-  // Surface the Bluetooth pair button when supported. Hidden on iOS
-  // Safari since navigator.bluetooth is undefined there. Click handler
-  // is idempotent — pressing twice just re-pings the active device.
-  const btBtn = $("phone-bt-pair-btn");
-  if (btBtn && navigator.bluetooth) {
-    btBtn.hidden = false;
-    btBtn.addEventListener("click", startBluetoothPair);
-  }
 }
 
 async function init() {

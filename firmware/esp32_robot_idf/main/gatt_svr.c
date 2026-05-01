@@ -14,7 +14,6 @@
 #include "led.h"
 #include "motors.h"
 #include "ota.h"
-#include "pair_mailbox.h"
 #include "pin_config.h"
 #include "snapshot.h"
 #include "telemetry.h"
@@ -40,7 +39,6 @@ static ble_uuid128_t s_camera_profile_uuid;
 static ble_uuid128_t s_telemetry_uuid;
 static ble_uuid128_t s_fw_info_uuid;
 static ble_uuid128_t s_signal_uuid;
-static ble_uuid128_t s_pair_mailbox_uuid;
 
 static uint16_t s_led_handle;
 static uint16_t s_flash_handle;
@@ -52,9 +50,6 @@ static uint16_t s_snapshot_data_handle;
 static uint16_t s_telemetry_handle;
 static uint16_t s_fw_info_handle;
 static uint16_t s_signal_handle;
-static uint16_t s_pair_mailbox_handle;
-
-uint16_t gatt_svr_pair_mailbox_handle(void) { return s_pair_mailbox_handle; }
 
 const ble_uuid128_t *gatt_svr_service_uuid(void) { return &s_service_uuid; }
 
@@ -273,23 +268,6 @@ static int signal_access(uint16_t conn, uint16_t attr,
     return BLE_ATT_ERR_UNLIKELY;
 }
 
-// PAIR_MAILBOX char (Phase 2.F.2): write = post a signed pair-request /
-// pair-response ad; the firmware broadcasts the bytes to every other
-// connected client (so phone and desktop see each other's ads via the
-// robot as relay). Notify is the broadcast/replay path — fired by
-// pair_mailbox.c via gatt_svr_pair_mailbox_send.
-static int pair_mailbox_access(uint16_t conn, uint16_t attr,
-                               struct ble_gatt_access_ctxt *ctxt, void *arg) {
-    if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
-        uint8_t buf[512];
-        uint16_t copied = 0;
-        ble_hs_mbuf_to_flat(ctxt->om, buf, sizeof(buf), &copied);
-        if (copied > 0) pair_mailbox_handle_write(conn, buf, copied);
-        return 0;
-    }
-    return BLE_ATT_ERR_UNLIKELY;
-}
-
 static const struct ble_gatt_chr_def s_chars[] = {
     {
         .uuid = &s_led_uuid.u,
@@ -378,14 +356,6 @@ static const struct ble_gatt_chr_def s_chars[] = {
         .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_NOTIFY,
         .val_handle = &s_signal_handle,
     },
-    {
-        .uuid = &s_pair_mailbox_uuid.u,
-        .access_cb = pair_mailbox_access,
-        // WRITE_NO_RSP for fast ad-posting from clients; ATT acks add
-        // latency that's wasted for fire-and-forget broadcasts.
-        .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP | BLE_GATT_CHR_F_NOTIFY,
-        .val_handle = &s_pair_mailbox_handle,
-    },
     { 0 },
 };
 
@@ -415,7 +385,6 @@ void gatt_svr_init(void) {
     parse_uuid128(TELEMETRY_CHAR_UUID,        &s_telemetry_uuid);
     parse_uuid128(FW_INFO_CHAR_UUID,          &s_fw_info_uuid);
     parse_uuid128(SIGNAL_CHAR_UUID,           &s_signal_uuid);
-    parse_uuid128(PAIR_MAILBOX_CHAR_UUID,     &s_pair_mailbox_uuid);
 
     int rc = ble_gatts_count_cfg(s_svcs);
     if (rc != 0) { ESP_LOGE(TAG, "count_cfg rc=%d", rc); return; }
@@ -450,12 +419,4 @@ void gatt_svr_signal_send(uint16_t conn, const uint8_t *buf, size_t len) {
     struct os_mbuf *om = ble_hs_mbuf_from_flat(buf, len);
     if (!om) return;
     ble_gatts_notify_custom(conn, s_signal_handle, om);
-}
-
-void gatt_svr_pair_mailbox_send(uint16_t conn_handle, const uint8_t *buf, size_t len) {
-    if (conn_handle == BLE_HS_CONN_HANDLE_NONE) return;
-    if (!s_pair_mailbox_handle) return;
-    struct os_mbuf *om = ble_hs_mbuf_from_flat(buf, len);
-    if (!om) return;
-    ble_gatts_notify_custom(conn_handle, s_pair_mailbox_handle, om);
 }
