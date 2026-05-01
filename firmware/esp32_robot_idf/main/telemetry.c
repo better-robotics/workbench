@@ -11,6 +11,7 @@
 #include "gatt_svr.h"
 #include "turn_creds.h"
 #include "version.h"
+#include "webrtc_peer.h"
 
 static const char *TAG = "telemetry";
 
@@ -39,6 +40,11 @@ static const char *reset_reason_label(esp_reset_reason_t r) {
 }
 
 static void on_tick(void *arg) {
+    // Skip notifies while video is streaming. Each telemetry notify
+    // bursts ~250 B over BLE, and during active streaming it competes
+    // with WiFi for radio time — observed as "wifi:m f null" mgmt-frame
+    // drops. Resume cadence resumes the moment video stops.
+    if (webrtc_peer_video_active()) return;
     char ip[16] = {0};
     esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
     if (netif) {

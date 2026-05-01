@@ -243,16 +243,22 @@ static void video_pump_tick(void) {
             .size = VIDEO_CHUNK_HEADER + plen,
         };
         int rc = esp_peer_send_data(s_peer, &df);
-        // WOULD_BLOCK = esp_peer's tx queue full; brief yield + retry.
-        // After a few retries, drop the chunk (frame will be incomplete;
-        // browser drops by frame_id mismatch on next frame).
+        // WOULD_BLOCK = esp_peer's tx queue full; yield + retry. 20×3ms
+        // (~60ms per chunk worst case) absorbs more transient backpressure
+        // from BLE-coex-induced WiFi stalls. Total worst case: ~5 chunks ×
+        // 60ms = 300ms — still acceptable for a 5fps target (200ms budget
+        // per frame, but we miss at most one frame, not the whole stream).
         int retries = 0;
-        while (rc == ESP_PEER_ERR_WOULD_BLOCK && retries++ < 5) {
+        while (rc == ESP_PEER_ERR_WOULD_BLOCK && retries++ < 20) {
             vTaskDelay(pdMS_TO_TICKS(3));
             rc = esp_peer_send_data(s_peer, &df);
         }
         if (rc != ESP_PEER_ERR_NONE) full_send = false;
-        if (chunk + 1 < total_chunks) vTaskDelay(pdMS_TO_TICKS(2));
+        // Inter-chunk pacing 5ms (was 2ms): smaller bursts that don't
+        // collide as hard with BLE notify windows. Trades peak rate for
+        // delivered rate — 5 chunks × 5ms = 25ms total send time, still
+        // within frame budget.
+        if (chunk + 1 < total_chunks) vTaskDelay(pdMS_TO_TICKS(5));
     }
 
     s_video_frame_count++;
@@ -263,6 +269,8 @@ static void video_pump_tick(void) {
     }
     esp_camera_fb_return(fb);
 }
+
+bool webrtc_peer_video_active(void) { return s_video_active; }
 
 static void start_video_streaming(int fps) {
     s_video_fps = (fps > 0 && fps <= 30) ? fps : 10;
@@ -602,6 +610,13 @@ void webrtc_peer_init(const char *robot_name) {
     // — only attr=8 subscribed before Chrome timed out (reason 531). The
     // cert will generate on first handle_offer instead; that's fine since
     // BLE signaling already takes a few seconds.
+
+    // Silence the chatty internal tags from esp_peer's binary lib once the
+    // session is up. DTLS spams ERROR-level mbedtls_ssl_read=-26752 (which
+    // is just "no UDP data right now," not a real failure). SCTP logs every
+    // chunk receive. Keep PEER_DEF and AGENT (state transitions are useful).
+    esp_log_level_set("DTLS", ESP_LOG_NONE);
+    esp_log_level_set("SCTP", ESP_LOG_WARN);
 
     s_events = xQueueCreate(8, sizeof(event_t));
     if (!s_events) { ESP_LOGE(TAG, "queue create failed"); return; }
