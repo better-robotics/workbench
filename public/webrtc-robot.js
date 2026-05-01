@@ -334,3 +334,36 @@ export function closePeer(robotId) {
   try { entry.ws?.close(); } catch {}
   _peers.delete(robotId);
 }
+
+// DevTools / Diagnostics-dialog handle: snapshot every active robot
+// peer connection's getStats() output. Tells you which candidate-pair
+// won (look for type=candidate-pair, state=succeeded) so you can
+// answer "host vs srflx vs relay" without chrome://webrtc-internals.
+// Returns a Promise — DevTools auto-awaits.
+if (typeof window !== "undefined") {
+  window.lastRobotWebRTCDiagnostic = async () => {
+    const out = [];
+    for (const [robotId, entry] of _peers.entries()) {
+      const row = {
+        robotId,
+        state: {
+          iceConnection: entry.pc?.iceConnectionState,
+          connection: entry.pc?.connectionState,
+          signaling: entry.pc?.signalingState,
+          iceGathering: entry.pc?.iceGatheringState,
+        },
+        channels: [...entry.channels.keys()],
+      };
+      try {
+        const report = await entry.pc.getStats();
+        const stats = [];
+        report.forEach((s) => stats.push(s));
+        row.stats = stats;
+      } catch (err) {
+        row.statsError = err.message || String(err);
+      }
+      out.push(row);
+    }
+    return out;
+  };
+}

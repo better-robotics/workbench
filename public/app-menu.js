@@ -306,10 +306,21 @@ export function wireDiagnosticsMenuItem({
     if (typeof window.lastPairDiagnostic === "function") {
       try {
         const snap = await window.lastPairDiagnostic();
-        result.pair = snap.role ? snap : { note: "no pair attempt yet this session" };
-      } catch (err) { result.pair = { error: err.message || String(err) }; }
+        result.phonePair = snap.role ? snap : { note: "no phone-pair attempt yet this session" };
+      } catch (err) { result.phonePair = { error: err.message || String(err) }; }
     } else {
-      result.pair = { error: "lastPairDiagnostic() not loaded" };
+      result.phonePair = { error: "lastPairDiagnostic() not loaded" };
+    }
+
+    if (typeof window.lastRobotWebRTCDiagnostic === "function") {
+      try {
+        const peers = await window.lastRobotWebRTCDiagnostic();
+        result.robotWebRTC = peers.length
+          ? peers
+          : { note: "no robot WebRTC peer open — start camera first" };
+      } catch (err) { result.robotWebRTC = { error: err.message || String(err) }; }
+    } else {
+      result.robotWebRTC = { error: "lastRobotWebRTCDiagnostic() not loaded" };
     }
 
     const sources = (typeof getTelemetrySources === "function" ? getTelemetrySources() : []) || [];
