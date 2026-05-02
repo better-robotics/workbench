@@ -13,7 +13,6 @@
 #include "ota.h"
 #include "pin_config.h"
 #include "telemetry.h"
-#include "turn_creds.h"
 #include "webrtc_peer.h"
 #include "wifi_sta.h"
 
@@ -72,13 +71,9 @@ void app_main(void) {
     ota_init();
     telemetry_init();
     wifi_sta_init(hostname);
-    // Re-added after the cleanups freed enough DRAM (47 KB free internal,
-    // mbedTLS now in DRAM not PSRAM). Fetches Cloudflare TURN creds from
-    // proxy.neevs.io once WiFi has GOT_IP; webrtc_peer pulls them into
-    // libpeer's ice_servers when handle_offer runs. Without this the chip
-    // emits only host candidates — unreachable on CGNAT-style networks.
-    turn_creds_init();
-    // WebRTC peer last — websocket client connects asynchronously when
-    // WiFi gets an IP. Safe to start before the first GOT_IP event.
+    // ICE servers (TURN creds + STUN/TURN URLs) come pre-resolved from
+    // the dashboard via BLE before each offer — chip no longer fetches
+    // proxy.neevs.io itself, freeing flash + dropping the multi-second
+    // mbedTLS-handshake-during-coex stall.
     webrtc_peer_init(ble_name);
 }

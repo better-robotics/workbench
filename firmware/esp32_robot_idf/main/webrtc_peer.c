@@ -20,7 +20,6 @@
 #include "camera.h"
 #include "gatt_svr.h"
 #include "ota.h"
-#include "turn_creds.h"
 
 static const char *TAG = "rtc";
 
@@ -49,13 +48,33 @@ static void stop_video_streaming(void);
 static char *rewrite_answer_mid(const char *answer, const char *target_mid);
 
 // ── BLE signaling ────────────────────────────────────────────────────────
+//
+// Two chunked transfers cross the signal char before the SDP answer goes
+// back: the dashboard pushes ICE servers (TURN creds + STUN/TURN URLs as
+// IP literals — DNS + HTTPS happen on the browser, not the chip), then
+// the SDP offer. Each transfer uses a 3-opcode flow (begin/chunk/commit).
+//
+// Wire format:
+//   0x01 [u16 BE total]  offer begin
+//   0x02 [bytes]         offer chunk
+//   0x03                 offer commit
+//   0x04 [u16 BE total]  ice-servers begin
+//   0x05 [bytes]         ice-servers chunk
+//   0x06                 ice-servers commit
+//   0xFF [utf8 msg]      error (notify-only, chip → dashboard)
 
-#define BLE_SIG_MAX_OFFER 8192
-#define BLE_SIG_CHUNK     100
+#define BLE_SIG_MAX_OFFER  8192
+#define BLE_SIG_MAX_ICE    1024
+#define BLE_SIG_CHUNK      100
 
 static char *s_ble_offer_buf = NULL;
 static size_t s_ble_offer_total = 0;
 static size_t s_ble_offer_received = 0;
+
+static char  s_ice_buf[BLE_SIG_MAX_ICE + 1];
+static size_t s_ice_total = 0;
+static size_t s_ice_received = 0;
+static bool   s_ice_ready = false;
 
 static void send_ble_signal_error(const char *msg) {
     uint8_t buf[1 + 64];
@@ -137,6 +156,34 @@ void webrtc_peer_handle_ble_signal_write(uint16_t from_conn, const uint8_t *buf,
         s_ble_offer_buf = NULL;
         s_ble_offer_total = 0;
         s_ble_offer_received = 0;
+    } else if (op == 0x04) {
+        if (len < 3) { send_ble_signal_error("bad ice begin"); return; }
+        size_t total = ((size_t)buf[1] << 8) | buf[2];
+        if (total == 0 || total > BLE_SIG_MAX_ICE) {
+            send_ble_signal_error("ice size out of range");
+            return;
+        }
+        s_ice_total = total;
+        s_ice_received = 0;
+        s_ice_ready = false;
+    } else if (op == 0x05) {
+        size_t add = len - 1;
+        if (s_ice_received + add > s_ice_total) {
+            send_ble_signal_error("ice chunk overflow");
+            s_ice_total = 0;
+            return;
+        }
+        memcpy(s_ice_buf + s_ice_received, buf + 1, add);
+        s_ice_received += add;
+    } else if (op == 0x06) {
+        if (s_ice_total == 0 || s_ice_received != s_ice_total) {
+            send_ble_signal_error("ice incomplete");
+            s_ice_total = 0;
+            return;
+        }
+        s_ice_buf[s_ice_total] = 0;
+        s_ice_ready = true;
+        ESP_LOGI(TAG, "ble signal: ice servers received, %u B", (unsigned)s_ice_total);
     }
 }
 
@@ -495,27 +542,51 @@ static void handle_offer(const char *sdp) {
         vTaskDelay(pdMS_TO_TICKS(500));
     }
 
-    // ICE servers — STUN baseline + Cloudflare TURN if creds are ready.
-    // turn_url is pre-resolved to an IP literal (turn_creds.c) so the
-    // peer's gather doesn't synchronously getaddrinfo() in the BLE
-    // signaling window.
-    static esp_peer_ice_server_cfg_t servers[2];
+    // ICE servers come pre-resolved from the dashboard via BLE opcode 0x04.
+    // Browser already has working DNS + HTTPS, so it fetches Cloudflare
+    // TURN creds and resolves hostnames before sending us IP literals;
+    // chip skips DNS resolution and avoids the mbedTLS-over-PSRAM
+    // handshake that used to add 5-30s of "perform: ESP_ERR_HTTP_CONNECT"
+    // latency. Format (chunked utf-8 JSON):
+    //   {"ice":[{"url":"turn:1.2.3.4:3478?transport=udp","user":"u","pass":"p"}, ...]}
+    #define MAX_ICE_SERVERS 4
+    static esp_peer_ice_server_cfg_t servers[MAX_ICE_SERVERS];
+    static char server_url_storage[MAX_ICE_SERVERS][96];
+    static char server_user_storage[MAX_ICE_SERVERS][160];
+    static char server_pass_storage[MAX_ICE_SERVERS][160];
     int n_servers = 0;
-    servers[n_servers++] = (esp_peer_ice_server_cfg_t){
-        .stun_url = (char *)"stun:stun.l.google.com:19302",
-    };
-    const char *turn_user = turn_creds_username();
-    const char *turn_pass = turn_creds_credential();
-    const char *turn_url  = turn_creds_url();
-    if (turn_user && turn_pass && turn_url) {
-        servers[n_servers++] = (esp_peer_ice_server_cfg_t){
-            .stun_url = (char *)turn_url,
-            .user     = (char *)turn_user,
-            .psw      = (char *)turn_pass,
-        };
-        ESP_LOGI(TAG, "ice_servers: STUN + Cloudflare TURN(%s)", turn_url);
-    } else {
-        ESP_LOGW(TAG, "ice_servers: STUN-only (turn_creds not ready)");
+    if (s_ice_ready) {
+        cJSON *root = cJSON_ParseWithLength(s_ice_buf, s_ice_total);
+        cJSON *arr = root ? cJSON_GetObjectItem(root, "ice") : NULL;
+        if (cJSON_IsArray(arr)) {
+            cJSON *item = NULL;
+            cJSON_ArrayForEach(item, arr) {
+                if (n_servers >= MAX_ICE_SERVERS) break;
+                cJSON *url  = cJSON_GetObjectItem(item, "url");
+                cJSON *user = cJSON_GetObjectItem(item, "user");
+                cJSON *pass = cJSON_GetObjectItem(item, "pass");
+                if (!cJSON_IsString(url)) continue;
+                strlcpy(server_url_storage[n_servers], url->valuestring, sizeof(server_url_storage[n_servers]));
+                servers[n_servers].stun_url = server_url_storage[n_servers];
+                if (cJSON_IsString(user) && cJSON_IsString(pass)) {
+                    strlcpy(server_user_storage[n_servers], user->valuestring, sizeof(server_user_storage[n_servers]));
+                    strlcpy(server_pass_storage[n_servers], pass->valuestring, sizeof(server_pass_storage[n_servers]));
+                    servers[n_servers].user = server_user_storage[n_servers];
+                    servers[n_servers].psw  = server_pass_storage[n_servers];
+                } else {
+                    servers[n_servers].user = NULL;
+                    servers[n_servers].psw  = NULL;
+                }
+                ESP_LOGI(TAG, "ice_servers[%d]: %s%s",
+                         n_servers, server_url_storage[n_servers],
+                         servers[n_servers].user ? " (auth)" : "");
+                n_servers++;
+            }
+        }
+        if (root) cJSON_Delete(root);
+    }
+    if (n_servers == 0) {
+        ESP_LOGW(TAG, "ice_servers: none — host candidates only");
     }
 
     // Default-impl config — ipv6_support tells the agent to gather IPv6

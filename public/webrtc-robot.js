@@ -132,6 +132,15 @@ async function openChannelViaBLE(robotId, label, signalChar, opts) {
     // hang, we ship what we have after 3 s rather than stalling forever.
     await waitForIceGathering(pc, 3000);
 
+    // Browser-as-brain: resolve hostnames + flatten the ICE-server list
+    // and push it to the chip before the offer. Chip skips DNS + HTTPS
+    // entirely — saved ~6 s of "Fail to resolve server address" stalls
+    // on iCloud-Private-Relay-style networks.
+    onStatus("Sending ICE servers…");
+    const chipIce = await iceServersForChip(iceServers);
+    const iceBytes = new TextEncoder().encode(JSON.stringify({ ice: chipIce }));
+    await sendChunkedOp(signalChar, iceBytes, 0x04, 0x05, 0x06);
+
     onStatus("Writing offer over BLE…");
     const sdpBytes = new TextEncoder().encode(pc.localDescription.sdp);
     await sendChunked(signalChar, sdpBytes);
@@ -154,23 +163,68 @@ async function openChannelViaBLE(robotId, label, signalChar, opts) {
 }
 
 async function sendChunked(char, bytes) {
+  return sendChunkedOp(char, bytes, 0x01, 0x02, 0x03);
+}
+
+async function sendChunkedOp(char, bytes, beginOp, chunkOp, commitOp) {
   const total = bytes.length;
   if (total === 0 || total > 0xFFFF) {
-    throw new Error(`offer size out of range: ${total}`);
+    throw new Error(`payload size out of range: ${total}`);
   }
   const begin = new Uint8Array(3);
-  begin[0] = 0x01;
+  begin[0] = beginOp;
   begin[1] = (total >> 8) & 0xff;
   begin[2] = total & 0xff;
   await char.writeValueWithResponse(begin);
   for (let off = 0; off < total; off += BLE_SIG_CHUNK) {
     const take = Math.min(BLE_SIG_CHUNK, total - off);
     const buf = new Uint8Array(1 + take);
-    buf[0] = 0x02;
+    buf[0] = chunkOp;
     buf.set(bytes.subarray(off, off + take), 1);
     await char.writeValueWithResponse(buf);
   }
-  await char.writeValueWithResponse(new Uint8Array([0x03]));
+  await char.writeValueWithResponse(new Uint8Array([commitOp]));
+}
+
+// DoH lookup via Cloudflare 1.1.1.1 — browser already has working DNS
+// for the page itself but JS can't query records directly. Returns the
+// host unchanged on failure (chip falls back to its own getaddrinfo).
+async function resolveHostA(host) {
+  if (/^[\d.]+$/.test(host)) return host;            // already an IPv4 literal
+  try {
+    const r = await fetch(`https://1.1.1.1/dns-query?name=${encodeURIComponent(host)}&type=A`,
+      { headers: { Accept: "application/dns-json" } });
+    if (!r.ok) return host;
+    const json = await r.json();
+    const a = json.Answer?.find((x) => x.type === 1)?.data;
+    return a || host;
+  } catch { return host; }
+}
+
+// Flatten + resolve the ICE-server list for the chip. Drops TCP/TLS
+// transports (chip is UDP-only), substitutes hostnames with A-record
+// IPs, and caps at 4 entries (matches chip MAX_ICE_SERVERS).
+async function iceServersForChip(iceServers) {
+  const out = [];
+  for (const s of iceServers) {
+    const urls = Array.isArray(s.urls) ? s.urls : [s.urls];
+    for (const url of urls) {
+      if (out.length >= 4) return out;
+      if (/transport=tcp/i.test(url)) continue;
+      const m = url.match(/^(turns?|stuns?):([^:]+):(\d+)(.*)$/i);
+      if (!m) continue;
+      const proto = m[1].toLowerCase();
+      if (proto === "stuns" || proto === "turns") continue;  // no DTLS to TURN on chip
+      const ip = await resolveHostA(m[2]);
+      const flat = { url: `${proto}:${ip}:${m[3]}${m[4]}` };
+      if (s.username && s.credential) {
+        flat.user = s.username;
+        flat.pass = s.credential;
+      }
+      out.push(flat);
+    }
+  }
+  return out;
 }
 
 function waitForIceGathering(pc, timeoutMs) {

@@ -49,22 +49,12 @@ CONFIG_LWIP_IPV6_AUTOCONFIG=y
 # server. Phones get global v6 because Apple stacks do DHCPv6 by default.
 CONFIG_LWIP_IPV6_DHCP6=y
 
-# mbedTLS — libpeer needs DTLS; default subset usually works but be explicit
+# mbedTLS — esp_peer needs DTLS for the WebRTC handshake; HTTPS / cert
+# bundle are no longer needed since the chip pulls ICE creds from the
+# dashboard over BLE instead of fetching them itself.
 CONFIG_MBEDTLS_SSL_PROTO_DTLS=y
 CONFIG_MBEDTLS_HARDWARE_AES=y
 CONFIG_MBEDTLS_HARDWARE_SHA=y
-# Mozilla root CA bundle — wss://signal.neevs.io needs server cert verification
-# without us shipping a per-host PEM in flash.
-CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
-CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
-# Route mbedTLS allocations to SPIRAM. Tried disabling for speed (DRAM
-# is 4-8× faster), but esp-x509-crt-bundle started returning
-# PK_TYPE_MISMATCH (-0x10) verifying proxy.neevs.io's ECDSA chain when
-# the bundle/cert lived in DRAM. PSRAM-allocated path was the working
-# config; libpeer's DTLS handshake was the slow part anyway, not the
-# bundle decode. Net: keep mbedTLS in PSRAM, eat the modest crypto
-# speed cost, regain working HTTPS.
-CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y
 
 # Camera framebuffer in PSRAM
 CONFIG_CAMERA_TASK_STACK_SIZE=4096
