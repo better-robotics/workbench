@@ -1,25 +1,20 @@
-// Constant-cheap perception loop — runs LFM2.5-VL-450M via Transformers.js
-// + WebGPU against a robot's camera feed, every ~2 seconds, and stashes
-// the scene description on the entry. Pip can read the latest observation
-// via the get_robot_scene tool (pip-tools.js), so she can reason about
-// what the robot sees without the user typing anything.
+// Constant-cheap perception loop. LFM2.5-VL-450M via Transformers.js +
+// WebGPU against a robot's camera feed, every ~2 seconds. Latest scene is
+// stashed on the entry; Pip reads it via the get_robot_scene tool.
 //
-// Pattern mirrors ~/Github/jonasneves/catwatcher/app.js — same model, same
-// AutoModelForImageTextToText / AutoProcessor sequence, same drawImage
-// → getImageData → RawImage capture. Prompt is tuned for indoor-robot
-// scenes instead of cats.
+// Pattern mirrors ~/Github/jonasneves/catwatcher/app.js: same model,
+// AutoModelForImageTextToText / AutoProcessor sequence, drawImage →
+// getImageData → RawImage capture. Prompt tuned for indoor-robot scenes.
 //
-// Known limits of this VLM (from duke-ai/validation experimentation):
-//   - Cannot precisely localize objects (~0% recall@0.3 for bbox detection).
-//     Usable for "I see X" semantics, NOT for "turn 12° left to track X".
+// Known VLM limits (from duke-ai/validation):
+//   - Cannot precisely localize. ~0% recall@0.3 for bbox. Usable for
+//     "I see X" semantics, NOT for "turn 12° left to track X".
 //   - Hallucinates colors. Don't trust "brown" on a gray thing.
-//   - Directive prompts > question prompts. "Describe …" not "Is there …".
+//   - Directive prompts > questions. "Describe …" not "Is there …".
 //
-// Cost envelope:
-//   ~770 MB first-time download (q4 quantization), ~1-2 GB VRAM at run,
-//   ~1-1.5 s per inference on a modern WebGPU desktop. Zero API spend.
-//   The loop only runs while the user explicitly toggles "Watch" on a
-//   robot — no idle GPU drain.
+// Cost: ~770 MB first-time download (q4), ~1-2 GB VRAM at run, ~1-1.5 s
+// per inference on a modern WebGPU desktop. Zero API spend. Loop runs only
+// while the user explicitly toggles "Watch" — no idle GPU drain.
 import { state } from "./state.js";
 import { escapeHtml } from "./dom.js";
 import { broadcastSceneToPhones } from "./phones.js";
@@ -64,11 +59,10 @@ async function ensureModel(onProgress) {
   catch (err) { _loadingPromise = null; throw err; }
 }
 
-// Find the primary camera element this entry is rendering. Either:
-//   <img class="robot-camera">     (ESP32 MJPEG — CORS set by firmware)
-//   <video data-*-id="${id}">      (Pi WebRTC — MediaStream, always readable)
-// The "primary" excludes [data-attached-camera-id] — that one is a phone
-// helper mounted on the robot, surfaced via listCameraSources() instead.
+// Primary camera for this entry: either <img class="robot-camera"> (ESP32
+// MJPEG with CORS from firmware) or <video data-*-id> (Pi WebRTC). Excludes
+// [data-attached-camera-id] (that's a phone-as-eye, surfaced via
+// listCameraSources).
 function findPrimaryCameraElement(entry) {
   const node = entry.node;
   if (!node) return null;
@@ -83,9 +77,9 @@ function findAttachedCameraElement(entry) {
   return node.querySelector(`video[data-attached-camera-id="${entry.id}"]`);
 }
 
-// Enumerate camera sources for an entry, labeled. The watch loop runs
-// only on "primary"; one-shot Pip tools enumerate all sources via this.
-// Order matters — primary first so single-camera consumers stay correct.
+// Labeled camera sources. Watch loop uses "primary" only; one-shot Pip
+// tools enumerate all. Order: primary first so single-camera consumers
+// stay correct.
 export function listCameraSources(entry) {
   const out = [];
   const primary = findPrimaryCameraElement(entry);
@@ -102,9 +96,9 @@ function captureFrame(entry, maxDim = 512) {
   catch { return null; }
 }
 
-// Separate path for "give me this frame as a data URL" — used by ask_human
-// to send the robot's view to a paired phone. Smaller default maxDim keeps
-// the JPEG under typical WebRTC data-channel message budgets (~60KB).
+// Frame as data URL — used by ask_human to send the robot's view to a
+// paired phone. Smaller default maxDim keeps JPEG under typical WebRTC
+// data-channel budgets (~60KB).
 export function captureFrameDataUrl(entry, maxDim = 320, quality = 0.75) {
   const canvas = drawFrameToCanvas(entry, maxDim);
   if (!canvas) return null;
@@ -156,10 +150,9 @@ async function runInference(entry, prompt, source = null) {
   return decoded[0]?.trim() || null;
 }
 
-// Bound any await that talks to the GPU — without this, a single slow
-// inference freezes every downstream tool call. We can't cancel the GPU
-// work from JS (transformers.js has no abort), but we can unblock the
-// caller so Pip's turn ends and it can decide what to do next.
+// Bound any GPU await — a single slow inference would freeze every
+// downstream tool call. transformers.js has no abort, but we can unblock
+// the caller so Pip's turn ends.
 const OBSERVE_TIMEOUT_MS = 20000;
 function withTimeout(promise, ms, label) {
   let timer;
@@ -169,10 +162,9 @@ function withTimeout(promise, ms, label) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-// On-demand one-shot inference with a caller-specified prompt. Used by Pip
-// (via pip-tools' ask_robot_scene) for cross-examination — asking the VLM
-// the same thing different ways to beat confirmation bias. Serializes
-// against the poll loop so they don't collide on the GPU.
+// One-shot inference with a caller-specified prompt. Pip uses this (via
+// ask_robot_scene) for cross-examination — same scene, different framings,
+// to beat confirmation bias. Serialized against the poll loop on the GPU.
 export async function observeOnce(entry, prompt) {
   if (!_model) throw new Error("perception model not loaded — user needs to enable Watch on this robot first");
   const loop = _loops.get(entry.id);
@@ -190,11 +182,8 @@ export async function observeOnce(entry, prompt) {
   }
 }
 
-// Multi-camera variant: inference each camera the entry currently has,
-// return a labeled array. GPU is serial so cameras run sequentially —
-// linear cost in number of cameras. Same lock as observeOnce against the
-// poll loop. Single-camera entries return a one-element array; callers
-// can collapse to a flat shape when length === 1 if they prefer.
+// Multi-camera variant: labeled array, one per camera. GPU is serial so
+// runs sequentially. Same lock as observeOnce against the poll loop.
 export async function observeAllCameras(entry, prompt) {
   if (!_model) throw new Error("perception model not loaded — user needs to enable Watch on this robot first");
   const sources = listCameraSources(entry);
@@ -297,21 +286,14 @@ export function stopWatching(id) {
   _loops.delete(id);
 }
 
-// ─── Shared "Live scene" UI ───────────────────────────────────────────────
-// Both camera capabilities (mjpeg-stream + webrtc-installable) wire the same
-// toggle under their camera element. Rendering + wiring live here so the
-// gate-and-hint logic isn't duplicated per cap.
+// Shared Live scene UI. Both camera caps (mjpeg-stream + webrtc-installable)
+// wire the same toggle so gate-and-hint logic isn't duplicated.
 
-// Emits the FULL perception skeleton — checkbox, scene slot, load section,
-// prompt editor — always in the same shape when perception is enabled and
-// the stream is running. Content updates happen via patchPerceptionState so
+// Emits the FULL skeleton (checkbox, scene slot, load section, prompt editor)
+// in the same shape every time. Content updates via patchPerceptionState so
 // a scene tick can't destroy the user's in-progress edit in the prompt
 // textarea.
 export function renderPerceptionRow(entry, { running, watching, watchingAction }) {
-  // Only surface when a stream is active — nothing meaningful to attach to
-  // otherwise. WebGPU absence is a real blocker (no inference possible), so
-  // we do show a hint there so users on Safari/Firefox understand why there's
-  // no Watch toggle.
   if (!running) return "";
   if (!isSupported()) {
     return `<div class="meta camera-watch-hint">Perception: this browser has no WebGPU (Chrome desktop required).</div>`;
@@ -331,10 +313,10 @@ export function renderPerceptionRow(entry, { running, watching, watchingAction }
   `;
 }
 
-// Surgical update for scene text + load progress. Does NOT touch the prompt
-// textarea or the checkbox state — ingests entry.vlmScene and entry.vlmLoadState
-// only. Called from onScene/onProgress so rapid perception ticks don't trigger
-// full-card re-renders that destroy the user's focus in the prompt editor.
+// Surgical update for scene text + load progress. Does NOT touch the
+// prompt textarea or checkbox state. Reads only entry.vlmScene +
+// entry.vlmLoadState. Used so perception ticks don't full-render the card
+// and destroy the user's focus in the prompt editor.
 export function patchPerceptionState(entry) {
   const root = entry.node?.querySelector(".camera-perception");
   if (!root) return;
@@ -362,10 +344,9 @@ export function patchPerceptionState(entry) {
   }
 }
 
-// Wires the checkbox change handler. The cap writes the watching state back
-// onto the entry under the field name it owns. onRender is the cap's own
-// renderEntry trigger (each cap holds a local reference via setRender).
-// entry.vlmPrompt overrides DEFAULT_PROMPT when set (user-editable prompt).
+// The cap writes watching state back to the entry under its own field
+// name. onRender is the cap's renderEntry trigger. entry.vlmPrompt overrides
+// DEFAULT_PROMPT when set.
 export function wirePerceptionToggle(entry, node, {
   watchingAction, watchingField, onRender,
 }) {
@@ -416,10 +397,9 @@ export function wirePerceptionToggle(entry, node, {
   });
 }
 
-// Editable-prompt UI. Lives on the same row as the Watch checkbox so the
-// user can steer what the VLM looks for (e.g. "Describe any obstacles in
-// front of the robot"). Persists on entry.vlmPrompt for the session;
-// changing it while a loop is active takes effect on the next inference.
+// Editable prompt next to the Watch checkbox. Lets the user steer what
+// the VLM focuses on (e.g. "Describe any obstacles in front of the robot").
+// Persists on entry.vlmPrompt; changes take effect on the next inference.
 export function renderPerceptionPromptField(entry, { editAction }) {
   if (!isSupported()) return "";
   const current = entry.vlmPrompt ?? "";

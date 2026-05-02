@@ -1,13 +1,11 @@
-// Expected schema shape:
-//   { name: "flash", char: "…da3", type: "level", range: [0, 100] }
-// 1-byte payload [0..100]; firmware applies via PWM duty. Used today for
-// the ESP32 white flash LED, but the runtime is generic enough to host any
-// "single-axis brightness" capability on either platform.
+// Schema: { name: "flash", char: "…da3", type: "level", range: [0, 100] }
+// 1-byte payload [0..100]; firmware applies as PWM duty. Today: ESP32
+// white flash LED; generic enough for any single-axis brightness cap.
 //
-// Drop-intermediate-values write pattern matches signed-pair: slider drag
-// fires faster than BLE writes complete, so we keep the latest pending and
-// flush it after each in-flight write resolves. Without that, dragging
-// stalls with "GATT operation already in progress" errors.
+// Drop-intermediate-values matches signed-pair: slider drag fires faster
+// than BLE writes complete, so we keep the latest pending and flush after
+// each in-flight write resolves. Without it, dragging stalls with
+// "GATT operation already in progress".
 
 import { UUIDS_BY_CAP } from "../../ble.js";
 import { logFor } from "../../log.js";
@@ -69,15 +67,14 @@ export function makeLevelCap(schema) {
         await ch.startNotifications();
         ch.addEventListener("characteristicvaluechanged", (e) => {
           entry[valueField] = e.target.value.getUint8(0);
-          // Surgical patch — slider state echoes back on every confirm.
-          // Don't full-render or the slider thumb jumps mid-drag.
+          // Surgical patch — slider echoes back on every confirm; full
+          // re-render would jump the thumb mid-drag.
           const sec = entry.node?.querySelector(`.cap-section[data-cap-name="${name}"]`);
           if (sec) {
             const stateEl = sec.querySelector(".cap-state");
             if (stateEl) stateEl.textContent = `${entry[valueField]}%`;
             const sl = sec.querySelector(`input[data-action="${action}"]`);
-            // Only update the slider position if the user isn't actively dragging
-            // — distinguished by document.activeElement.
+            // Only move the thumb when the user isn't dragging.
             if (sl && document.activeElement !== sl) sl.value = entry[valueField];
           } else {
             renderEntry(entry);

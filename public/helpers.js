@@ -3,28 +3,24 @@ import { listPhones, setPhonesChangeHandler, notifyRobotStreamChange } from "./p
 import { state } from "./state.js";
 
 // Helpers are non-mobile observers/operators (paired phones). Sibling
-// concept to robots — same card visual language, distinct backing data.
-// Robots are controllable mobile actors; helpers are extra eyes / extra
-// hands that the operator brings into the session.
+// to robots — same card visuals, different backing data. Robots are
+// controllable mobile actors; helpers are extra eyes / hands the operator
+// brings in.
 //
-// Phone cameras can also be MOUNTED on a specific robot (phone-as-eye —
-// strap the phone to the rover, get a second camera). When mounted, the
-// phone's stream routes to the robot's entry.attachedCameraStream and the
-// helper card shows the routing rather than the local preview. Attachment
-// is session-scoped (phones already are).
+// Phone cameras can also be MOUNTED on a robot (phone-as-eye: strap the
+// phone to the rover for a second camera). Mounted streams route to
+// robot.attachedCameraStream; the helper card shows the routing instead
+// of local preview. Session-scoped (phones already are).
 
 let _renderRobot = () => {};
 export function setHelpersRobotRenderer(fn) { _renderRobot = fn; }
 
-// Phone cameras the user has toggled on from phone.html. phones.js pushes
-// into this via setPhoneStream when peer.onTrack fires. keyed by phoneId
-// (the pairing roomId) → { stream, trackSettings, startedAt }.
+// phones.js pushes here via setPhoneStream when peer.onTrack fires.
+// phoneId (= pairing roomId) → { stream, trackSettings, startedAt }.
 const _phoneStreams = new Map();
 
 // Phone-camera → robot routing. phoneId → robotId. Populated by the
-// "Mount camera" picker on the phone helper card. Cleared on detach or
-// when the phone fully disconnects (setPhoneStream(id, null) with no
-// active attachment-keep).
+// "Mount camera" picker; cleared on detach or full disconnect.
 const _phoneAttachments = new Map();
 
 let _videoEls = new Map();  // helperId → <video> element (live video)
@@ -34,8 +30,8 @@ export function initHelpers() {
   render();
 }
 
-// app.js calls this after robot connect/disconnect so the mount picker
-// reflects the current robot list.
+// Called from app.js after robot connect/disconnect so the mount picker
+// reflects current robots.
 export function renderHelpers() { render(); }
 
 export function listHelpers() {
@@ -68,8 +64,8 @@ export function setPhoneStream(phoneId, stream) {
   } else {
     _phoneStreams.delete(phoneId);
     _videoEls.delete(`phone:${phoneId}`);
-    // Phone stopped sharing or disconnected — clear the routing too. If the
-    // phone re-shares while still paired, it lands back in the helper card;
+    // Phone stopped sharing or disconnected — clear routing too. If it
+    // re-shares while still paired, it lands back in the helper card;
     // re-mount is a fresh user choice.
     const attachedTo = _phoneAttachments.get(phoneId);
     if (attachedTo) {

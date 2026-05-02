@@ -1,13 +1,10 @@
 # Smoke checklist
 
-Manual verification before merging structural changes (UI redesign, render
-pattern shifts, capability refactors, BLE protocol tweaks). Not exhaustive
-unit testing — these are the architectural promises the project makes.
+Manual verification before merging structural changes (UI redesign, render-pattern shifts, capability refactors, BLE protocol tweaks). These are the architectural promises.
 
-If a row breaks, the project's user-visible value broke. Don't ship.
+If a row breaks, user-visible value broke. Don't ship.
 
-Pure-function tests live in `tests/`; run with `make smoke`. They cover the
-parts that don't need a robot. Everything below needs hardware.
+Pure-function tests live in `tests/`; run with `make smoke`. Below needs hardware.
 
 ## Robot lifecycle
 
@@ -30,11 +27,12 @@ parts that don't need a robot. Everything below needs hardware.
 
 - [ ] **LED** toggle from header without expanding → state updates without card flash.
 - [ ] **Motors — human joypad:** drag drives the robot; releasing → watchdog stops within 500 ms.
-- [ ] **Motors — pulse-bounded LLM path:** a Pip-issued motor command with `duration_ms` stops at the end of that window WITHOUT a separate stop call (firmware auto-stop). This is the control-loop invariant — regression means planner-layer code can leave the robot moving between decisions.
-- [ ] **Phone Stop button:** from a paired phone, tapping Stop relays through the desktop's BLE session and halts a moving robot. With no robot connected, the button surfaces "no robot connected" inline (no silent no-op — the safety primitive must be legible).
+- [ ] **Motors — pulse-bounded LLM path:** Pip-issued motor command with `duration_ms` stops at end of window without a separate stop call (firmware auto-stop). Control-loop invariant; regression means planner-layer code can leave the robot moving between decisions.
+- [ ] **Phone Stop button:** from a paired phone, tapping Stop relays through the desktop's BLE session and halts a moving robot. With no robot connected, button surfaces "no robot connected" inline. Safety primitive must be legible, no silent no-op.
 - [ ] **WiFi** Scan returns networks (or empty if none); Join succeeds → status shows "WiFi <ip>" in meta.
-- [ ] **Camera (ESP32, MJPEG)** renders when WiFi joined; profile dropdown changes profile + restarts robot.
-- [ ] **Snapshot** completes in <5 s on standard profile; stalls trigger watchdog with retry.
+- [ ] **Camera (ESP32)** renders when WiFi joined. Per-camera transport toggle (WebRTC ↔ HTTP MJPEG) switches the live view without page reload; both transports paint frames.
+- [ ] **Camera (Pi)** WebRTC stream comes up once `pi-robot-rtc.service` is healthy; ICE survives Pi reboot.
+- [ ] **Snapshot** completes in <5 s; stalls trigger watchdog with retry.
 - [ ] **OTA** progress smoothly reports per chunk; "100% receiving → committing → done" transitions visible.
 - [ ] **OTA orphan** state cleared on next connect (no stuck "1% receiving" forever).
 
@@ -46,7 +44,7 @@ parts that don't need a robot. Everything below needs hardware.
 - [ ] `ask_human` when no phone paired → renders option buttons in chat bubble; click resolves.
 - [ ] Notify ≠ chat: opening multiple dialogs in sequence shows latest tip in notify slot, not stacked turns.
 - [ ] Prior turns auto-collapse on new prompt; click summary re-expands with full trace.
-- [ ] Bubble caps at MAX_CHAT_TURNS (5) — older turns drop from DOM.
+- [ ] Conversation context sent to the LLM is bounded (HISTORY_LIMIT in `assistant.js`) — the planner doesn't see unbounded history.
 
 ## Recovery
 
@@ -67,8 +65,3 @@ parts that don't need a robot. Everything below needs hardware.
 - [ ] `pip.ask` template fires Claude call → returns text.
 - [ ] Stop button on a long-running script kills it (browser tab ↻ if needed).
 
----
-
-When this list passes end-to-end, the project's stated value is intact.
-When a row fails, that row IS the regression — fix and re-verify before
-merging.

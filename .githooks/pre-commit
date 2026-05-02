@@ -32,11 +32,8 @@ if git diff --cached --name-only \
     | grep -E '^public/' \
     | grep -vE '^public/firmware/|^public/sw\.js$' \
     | grep -q .; then
-    HASH=$(find public -type f \
-        \( -name '*.js' -o -name '*.css' -o -name '*.html' -o -name '*.svg' -o -name '*.json' \) \
-        -not -path 'public/firmware/*' \
-        -not -name 'sw.js' \
-        | sort | xargs cat | shasum -a 256 | cut -c1-8)
+    HASH=$(git ls-files -s -- 'public/*' ':!public/firmware/*' ':!public/sw.js' \
+        | shasum -a 256 | cut -c1-8)
     CUR=$(grep -E '^const VERSION = ' public/sw.js | sed 's/.*"\(.*\)".*/\1/')
     if [ "$HASH" != "$CUR" ]; then
         # Rewrite-and-mv form is portable; `sed -i` differs between

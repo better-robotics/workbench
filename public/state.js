@@ -1,15 +1,14 @@
 const STORAGE_KEY = "better-robotics:known";
 const ROBOTS_KEY  = "better-robotics:robots";
 
-// state.devices is the BLE-peer layer (one entry per paired BluetoothDevice,
-// holds its characteristics, current cap state, DOM node, etc.). state.robots
-// is the new logical-grouping layer added in Pass 1 of working.md item F:
-// each robot has members[] of device IDs, so an ESP32-eye + Pi-brain combo
-// renders as one card while still pairing as two BLE peers under the hood.
+// state.devices: BLE-peer layer, one entry per paired BluetoothDevice
+// (characteristics, cap state, DOM node). state.robots: logical-grouping
+// layer; each robot's members[] is device IDs, so an ESP32-eye + Pi-brain
+// combo renders as one card while still pairing as two BLE peers.
 //
-// Single-device robots (the existing universe) auto-migrate: each device
-// becomes a one-member robot whose id == deviceId. New robots get fresh
-// UUIDs once the user explicitly merges two paired devices.
+// Single-device robots auto-migrate: each device becomes a one-member
+// robot whose id == deviceId. Composite robots get fresh UUIDs when the
+// user explicitly merges two paired devices.
 export const state = {
   devices: new Map(),
   robots:  new Map(),  // robotId -> { id, name, members: [deviceId, ...] }
@@ -54,10 +53,9 @@ export function loadKnown() {
   catch { return []; }
 }
 
-// Hydrate state.robots from localStorage (or migrate). Idempotent — calling
-// twice is a no-op. Auto-migration: any paired device that isn't already a
-// member of some robot becomes a one-member robot named after itself.
-// Pre-F users see no UX change — every robot still has exactly one member.
+// Hydrate state.robots from localStorage (or migrate). Idempotent. Any
+// paired device not yet a member becomes a one-member robot named after
+// itself. Pre-migration users see no UX change.
 export function loadRobots() {
   let raw;
   try { raw = JSON.parse(localStorage.getItem(ROBOTS_KEY) || "[]"); }
@@ -71,9 +69,8 @@ export function loadRobots() {
     state.robots.set(r.id, { id: r.id, name: r.name || r.id, members, capSourcePrefs });
     for (const m of members) claimed.add(m);
   }
-  // Wrap any unclaimed paired devices as one-member robots. Uses the device
-  // id as the robot id so existing localStorage URLs / dashboards / replay
-  // records (anything keyed by id) keep resolving without a fixup pass.
+  // Wrap unclaimed paired devices as one-member robots, robotId = deviceId
+  // so existing localStorage / replay records keyed by id keep resolving.
   for (const d of loadKnown()) {
     if (claimed.has(d.id)) continue;
     state.robots.set(d.id, { id: d.id, name: d.name || d.id, members: [d.id], capSourcePrefs: {} });
@@ -81,9 +78,8 @@ export function loadRobots() {
   persistRobots();
 }
 
-// Set or clear the preferred member for a given cap on a robot. Used by
-// the cap-section's swap action when a composite robot has overlap caps
-// and the user picked a non-default source.
+// Used by cap-section's swap action when a composite robot has overlap
+// caps and the user picked a non-default source.
 export function setCapSourcePref(robotId, capName, deviceId) {
   const r = state.robots.get(robotId);
   if (!r) return null;
@@ -94,9 +90,8 @@ export function setCapSourcePref(robotId, capName, deviceId) {
   return r;
 }
 
-// Look up the robot a given device belongs to. Used by the renderer to
-// decide which card a per-device event (BLE notify, cap state change)
-// should attribute to.
+// Used by the renderer to decide which card a per-device event (BLE
+// notify, cap state change) attributes to.
 export function robotFor(deviceId) {
   for (const r of state.robots.values()) {
     if (r.members.includes(deviceId)) return r;

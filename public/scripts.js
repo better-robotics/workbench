@@ -28,9 +28,8 @@ const pip = {
 
 const STORE_KEY = "better-robotics:scripts:v1";
 
-// Templates are starting points, not a library. Each one demonstrates a slice
-// of the architecture (multi-robot, vision, phone-coupled, typed ops). Pick
-// one from the dropdown to load into the editor; the user can edit freely.
+// Templates are starting points, not a library. Each demonstrates a slice
+// of the architecture (multi-robot, vision, phone-coupled, typed ops).
 const TEMPLATES = [
   {
     id: "hello",
@@ -268,8 +267,8 @@ function syncDropdownToEditor() {
   sel.value = match ? match.id : "";
 }
 
-// Per-robot wrapper. Methods are thin pass-throughs to the existing capability
-// surface — same code path the dashboard UI uses, so safety/clamp behavior is
+// Per-robot wrapper. Pass-throughs to the existing capability surface;
+// same code path the dashboard UI uses, so safety/clamp behavior is
 // identical.
 function makeRobotApi(entry) {
   return {
@@ -351,8 +350,8 @@ async function runScript() {
     typeof a === "string" ? a : JSON.stringify(a)
   ).join(" "));
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-  // Web Speech is browser-native, no deps. Useful for ambient feedback in
-  // demos where staring at the laptop screen pulls focus from the robot.
+  // Browser-native Web Speech, no deps. Ambient feedback for demos where
+  // staring at the laptop pulls focus from the robot.
   const speak = (text) => {
     try { speechSynthesis.speak(new SpeechSynthesisUtterance(String(text))); }
     catch {}
@@ -387,11 +386,10 @@ export function init() {
   _wired = true;
   $("scripts-close").addEventListener("click", () => $("scripts-modal").close());
   $("scripts-run").addEventListener("click", runScript);
-  // Placeholder option for "no template loaded / editor diverged from any known
-  // template." innerHTML overwrites any placeholder in the markup, so we re-add
-  // it here. Dropdown reads as STATE (what's currently loaded) — change fires
-  // load + leaves the picked option visible. If the user has unsaved edits and
-  // cancels the confirm, snap the dropdown back to whatever the editor holds.
+  // Placeholder for "no template loaded / editor diverged." Dropdown reads
+  // as STATE (what's loaded). On change: load + leave picked option
+  // visible. If the user cancels confirm on unsaved edits, snap back to
+  // whatever the editor holds.
   const sel = $("scripts-template");
   sel.innerHTML = `<option value="">— (custom)</option>` +
     TEMPLATES.map(t => `<option value="${t.id}">${t.name}</option>`).join("");

@@ -109,17 +109,16 @@ if (typeof window !== "undefined") {
     return out;
   };
 }
-// dbg() retained as a no-op so the 27 in-module call sites compile;
-// per-step state visibility now lives in the Diagnostics dialog
-// (lastPairDiagnostic + getStats), not a URL-flagged in-page panel.
+// no-op kept for in-module call sites; per-step state lives in Diagnostics
+// dialog (lastPairDiagnostic + getStats).
 function dbg() {}
 
 function makePeerId(role) {
   return role + "-" + Math.random().toString(36).slice(2, 8);
 }
 
-// Exports for callers that build their own room flow on top of the same
-// signal.neevs.io infrastructure (e.g. webrtc-robot.js for shell channels).
+// Used by callers that build their own room flow on the same signal.neevs.io
+// (e.g. webrtc-robot.js).
 export { SIGNAL_WS_URL, fetchIceServers, makePeerId };
 
 // State snapshots can carry stale entries from prior sessions. Apply only
@@ -137,8 +136,8 @@ function extractFromState(peers, selfPeerId, otherRolePrefix) {
   return out;
 }
 
-// Peer — JSON-framed data channel wrapper with a multi-state status channel
-// so UI can show connecting / connected / reconnecting / failed accurately.
+// JSON-framed data channel wrapper with a multi-state status channel
+// (connecting / connected / reconnecting / failed) for UI.
 class Peer {
   constructor({ pc, channel, ws, myPeerId, otherRolePrefix, roomId }) {
     this._pc = pc;

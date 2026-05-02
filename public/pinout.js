@@ -5,9 +5,8 @@ import { onOpsResponse } from "./ops-response.js";
 import { uploadFile } from "./capabilities/ota.js";
 import { SERVICE_UUID, PIN_CONFIG_CHAR_UUID, encodeJson } from "./ble.js";
 
-// BCM GPIO numbers are what capability config and firmware use; the physical
-// pin number is what the header silkscreen shows. Users wire against physical
-// pins, so we lead with those.
+// BCM GPIO is what config + firmware use; physical pin is what the header
+// silkscreen shows. Users wire against physical, so lead with those.
 // [phys, label, kind] — kind ∈ {"3v3", "5v", "gnd", "gpio", "i2c-id"}
 const PINS = [
   [ 1, "3V3",   "3v3"], [ 2, "5V",    "5v"],
@@ -37,12 +36,10 @@ const GPIO_TO_PHYS = new Map(
       .map(([phys, lbl]) => [parseInt(lbl.slice(4), 10), phys]),
 );
 
-// ESP32-CAM (AI-Thinker-compatible, including OV3660 variants) header pins.
-// Two 8-pin edges; the chip has ~34 GPIOs total but everything not on these
-// headers is permanently wired to the OV camera, µSD slot, or PSRAM and not
-// reusable without desoldering. Status field is "free" | "sd-shared" |
-// "reserved" — reserved covers bootstrap pins, UART programming pins, and
-// the camera XCLK tap. Notes surface on hover via <title>.
+// ESP32-CAM (AI-Thinker, OV3660 variants) header pins. Two 8-pin edges;
+// the chip has ~34 GPIOs but everything off-header is permanently wired
+// to camera, µSD, or PSRAM. Status: "free" | "sd-shared" | "reserved"
+// (bootstrap, UART program, camera XCLK). Notes surface on hover.
 const ESP32_PINS_TOP = [
   { label: "IO4",  kind: "gpio", status: "sd-shared", note: "SD DATA1 + onboard flash LED on most AI-Thinker boards — free only if SD unmounted and LED unused" },
   { label: "IO2",  kind: "gpio", status: "sd-shared", note: "SD DATA0; also a bootstrap pin (must float high at boot)" },
@@ -53,10 +50,9 @@ const ESP32_PINS_TOP = [
   { label: "GND",  kind: "gnd" },
   { label: "5V",   kind: "5v" },
 ];
-// Order mirrors the top row's spatial layout: positions 1-8 of the two 8-pin
-// headers are physically across from each other on the PCB (5V ↔ 3V3, IO4 ↔
-// GND, etc.), so rendering the bottom row in reversed header-order puts
-// 3V3 directly under 5V, matching what the user sees on the physical board.
+// Order mirrors top row's spatial layout: header positions are across
+// from each other on the PCB (5V ↔ 3V3, IO4 ↔ GND); reversing the bottom
+// in header-order matches what the user sees on the board.
 const ESP32_PINS_BOT = [
   { label: "GND",  kind: "gnd" },
   { label: "U0T",  kind: "gpio", status: "reserved", note: "GPIO1 — UART0 TX, used for USB-serial programming. Usable as GPIO only if you give up serial." },

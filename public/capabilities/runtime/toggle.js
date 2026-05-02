@@ -1,7 +1,6 @@
-// Expected schema shape:
-//   { name: "led", char: "…d92", type: "toggle" }
-// State lives on `entry[<name>Char]` (BLE handle) and `entry[<name>On]` (bool);
-// anything reading `entry.ledOn` from the previous hand-written LED module keeps working.
+// Schema: { name: "led", char: "…d92", type: "toggle" }
+// State on entry[<name>Char] (BLE handle) + entry[<name>On] (bool); back-
+// compat with the prior hand-written LED module's entry.ledOn.
 import { UUIDS_BY_CAP } from "../../ble.js";
 import { logFor } from "../../log.js";
 import { capSection } from "./cap-section.js";
@@ -47,9 +46,8 @@ export function makeToggleCap(schema) {
         await ch.startNotifications();
         ch.addEventListener("characteristicvaluechanged", (e) => {
           entry[onField] = e.target.value.getUint8(0) !== 0;
-          // Surgical patch instead of renderEntry — toggles fire on every
-          // user click + on firmware confirm; full re-render flashes the
-          // card. Update only the button label in place.
+          // Surgical patch — toggles fire on click + firmware confirm;
+          // full re-render flashes the card. Update only the button label.
           const sec = entry.node?.querySelector(`.cap-section[data-cap-name="${name}"]`);
           if (sec) {
             const btn = sec.querySelector(`[data-action="${action}"]`);

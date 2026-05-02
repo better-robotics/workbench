@@ -10,10 +10,10 @@ import { freshUrl, escapeHtml, fetchWithTimeout } from "../dom.js";
 import { logFor, log } from "../log.js";
 import { state } from "../state.js";
 
-// Stream a single-file OTA bundle to the Pi. The dashboard constructs a
-// minimal bundle on the fly (no reboot; optional service restart) and reuses
-// the existing ota-data char. Dest path still goes through the firmware's
-// allowed-prefix whitelist — no new security surface.
+// Stream a single-file OTA bundle to the Pi. Constructs a minimal bundle
+// on the fly (no reboot, optional service restart) and reuses the
+// ota-data char. Dest path goes through the firmware's allowed-prefix
+// whitelist; no new security surface.
 export async function uploadFile(id, filename, destPath, contentBytes, { restart, mode = "644" } = {}) {
   const entry = state.devices.get(id);
   if (!entry?.otaDataChar) {
@@ -51,18 +51,17 @@ export function setRender(fn) { renderEntry = fn; }
 let _markExpectingReconnect = () => {};
 export function setExpectingReconnectHandler(fn) { _markExpectingReconnect = fn; }
 
-// Patch the existing OTA section's text/progress in place. Avoids rebuilding
-// the card's innerHTML on every progress tick (which would destroy hovered
-// elements and flicker). Falls back to a full re-render if the section isn't
-// in the DOM (collapsed card, or the section hasn't been created yet).
+// Patch existing OTA section in place; avoids full innerHTML rewrite on
+// every progress tick (which would destroy hovered elements and flicker).
+// Falls back to full re-render if the section isn't in the DOM yet.
 //
-// Two progress signals: entry.otaSent (browser, per-chunk, accurate) and
+// Two progress signals: entry.otaSent (per-chunk, accurate) and
 // entry.otaStatus.n (firmware notify, throttled every 32 KB / 250 ms).
-// Math.max picks whichever is higher — sent leads during active uploads,
-// firmware-reported wins on post-refresh reconnect when sent is back to 0.
-// Label upgrades to "committing" client-side once we've sent everything but
-// the firmware hasn't notified "done" yet — so the bar doesn't sit at "100%
-// receiving" while we wait the install round-trip.
+// Math.max — sent leads during active uploads; firmware wins on
+// post-refresh reconnect when sent is back to 0. Label upgrades to
+// "committing" client-side once we've sent everything but firmware hasn't
+// notified "done" yet, so the bar doesn't sit at "100% receiving" during
+// the install round-trip.
 function patchOtaSection(entry) {
   const section = entry.node?.querySelector(".ota-section");
   if (!section) { renderEntry(entry); return; }
@@ -76,10 +75,10 @@ function patchOtaSection(entry) {
   if (meta) meta.textContent = err ? `${st} — ${err}` : total ? `${label} · ${pct}%` : label;
   const progress = section.querySelector(".ota-progress");
   if (progress && total) { progress.value = display; progress.max = total; }
-  // Mirror progress into the active-ops chip on the identity row, so the
-  // top-level "OTA receiving N%" stays in sync with the inline section.
-  // Without this the chip stayed frozen at 0% (only renderEntry rebuilds
-  // the chips and the upload path patches the section, not the chip).
+  // Mirror into the active-ops chip on the identity row so the top-level
+  // "OTA receiving N%" stays in sync. Without this the chip stayed
+  // frozen at 0% (only renderEntry rebuilds chips; the upload path
+  // patches the section, not the chip).
   const chip = entry.node?.querySelector('.op-chip[data-op="ota"]');
   if (chip) chip.textContent = total ? `OTA ${label} ${pct}%` : `OTA ${label}`;
 }
@@ -110,18 +109,17 @@ function patchOtaSectionThrottled(entry) {
   });
 }
 
-// Stream the bundle to the robot's WebRTC peer over a DataChannel.
+// Stream bundle to the robot's WebRTC peer over a DataChannel.
 //
-// Pi flow: RTC daemon (low priv `robot` user) stages to /tmp/...json,
-// replies "staged"; we then BLE-trigger apply-staged-ota which the root
-// pi_robot.py service picks up and applies. Two-step because privilege
-// boundaries — bulk transfer at user privs, apply at root privs.
+// Pi: RTC daemon (low priv `robot`) stages to /tmp/...json, replies
+// "staged"; we BLE-trigger apply-staged-ota which root pi_robot.py picks
+// up. Two-step because of privilege boundaries — bulk at user privs,
+// apply at root.
 //
-// ESP32 flow: webrtc_peer.c routes the channel directly into the same
-// esp_ota_* state as BLE/HTTP OTA. On commit, the chip restarts itself
-// 500 ms after sending "staged". No apply-staged-ota call — the chip is
-// already rebooting; trying to BLE-write would fail and confuse the
-// dashboard. The "staged" reply doubles as "we're about to reboot."
+// ESP32: webrtc_peer.c routes the channel directly into the same
+// esp_ota_* state as BLE/HTTP. On commit, chip restarts itself 500 ms
+// after sending "staged". No apply-staged-ota call (chip is already
+// rebooting). "staged" reply doubles as "we're about to reboot."
 //
 // Throws on any failure — caller falls back to BLE-stream.
 async function streamOtaViaWebRTC(entry, bytes) {
@@ -162,9 +160,8 @@ async function streamOtaViaWebRTC(entry, bytes) {
     logFor(entry, `ota webrtc: channel state=${channel.readyState}, sending begin`);
     channel.send(JSON.stringify({ type: "begin", size: bytes.length }));
 
-    // Give the begin message a moment to land before flooding chunks —
-    // helps observability of any "begin lost" failure mode by separating
-    // it in time from the bulk data sends.
+    // Let begin land before flooding chunks; separates "begin lost" from
+    // "bulk send wedged" in observability.
     await new Promise((r) => setTimeout(r, 50));
     logFor(entry, `ota webrtc: post-begin state=${channel.readyState} buffered=${channel.bufferedAmount}`);
 
@@ -211,13 +208,11 @@ async function streamOtaViaWebRTC(entry, bytes) {
 
 async function streamOtaBytes(entry, bytes) {
   const ch = entry.otaDataChar;
-  // All chunks go WithResponse. WithoutResponse speedup was observed
-  // dropping chunks silently on both bless (Pi) and arduino-esp32, making
-  // Update.end fail at commit time — the firmware's otaReceived counter
-  // only advances on writes that actually arrived, so a small silent drop
-  // never trips the in-flight stall check but accumulates by commit. Until
-  // we have a proper drop-detect-and-resend protocol, WithResponse is the
-  // correct default: slower (ESP32 1.6 MB ≈ 3-5 min) but reliable.
+  // All chunks WithResponse. WithoutResponse silently dropped chunks on
+  // bless (Pi) and arduino-esp32 — the firmware's otaReceived counter
+  // only advances on writes that arrived, so small silent drops accumulate
+  // and Update.end fails at commit. Until we have drop-detect+resend,
+  // WithResponse is correct: slower (ESP32 1.6 MB ≈ 3-5 min) but reliable.
   entry.otaSent = 0;
   patchOtaSection(entry);
   try { await ch.writeValueWithResponse(new Uint8Array([0x00])); } catch {}
@@ -246,8 +241,8 @@ async function streamOtaBytes(entry, bytes) {
 async function buildBundle(entry, manifestUrl) {
   manifestUrl = manifestUrl || entry.fwInfo?.bundle_url;
   const manifest = await (await fetchWithTimeout(freshUrl(manifestUrl), { cache: "no-cache" })).json();
-  // Files are independent — fetch in parallel. Order in `files` object is
-  // preserved (Promise.all + map) so the firmware sees them in manifest order.
+  // Parallel file fetches; Promise.all preserves order so firmware sees
+  // them in manifest order.
   const entries = await Promise.all((manifest.files || []).map(async (spec) => {
     const src = spec.src;
     // 60s per file — bundle binaries can be a few MB on a slow connection.
@@ -287,10 +282,10 @@ export async function updateFirmware(id) {
       logFor(entry, `bundle build failed: ${err.message}`);
       return;
     }
-    // Skip if the published bundle matches what's already running — otherwise
-    // the robot reboots pointlessly and the user sees "OTA succeeded" while
-    // the commit stamp doesn't change. Most commonly happens when CI or GH
-    // Pages hasn't caught up to the latest push yet.
+    // Skip if published bundle matches running. Otherwise the robot
+    // reboots pointlessly and "OTA succeeded" runs while the commit stamp
+    // doesn't change. Common when CI/GH Pages hasn't caught up to the
+    // latest push.
     if (bundle.manifest.commit && entry.fwInfo?.version
         && bundle.manifest.commit === entry.fwInfo.version) {
       logFor(entry, `already at commit ${bundle.manifest.commit} — nothing to update (CI may still be building)`);
@@ -299,10 +294,9 @@ export async function updateFirmware(id) {
     await acquireWakeLock();
     try {
       logFor(entry, `OTA streaming bundle ${bytes.length} B…`);
-      // Prefer WebRTC for Pi bundles — minutes (BLE chunked) → seconds
-      // (WebRTC P2P) for 1.6 MB. Falls back to BLE-stream on any error
-      // (peer not running, network blocked, etc.) so existing OTA path
-      // is preserved as the safety net.
+      // Prefer WebRTC for Pi bundles: 1.6 MB minutes (BLE chunked) →
+      // seconds (WebRTC P2P). Falls back to BLE-stream on any error so
+      // the existing OTA path remains a safety net.
       let webrtcOk = false;
       try {
         await streamOtaViaWebRTC(entry, bytes);
@@ -347,15 +341,12 @@ export async function updateFirmware(id) {
   await acquireWakeLock();
   try {
     // Two transports for ESP32 OTA, fastest first:
-    //   1. WebRTC P2P (BLE-signaled or wss): seconds, no Mixed-Content
-    //      / PNA exposure. ESP32 firmware commits inline and restarts;
-    //      we get a "staged" reply, then the BLE link drops as the chip
-    //      reboots into the new firmware.
+    //   1. WebRTC P2P (BLE-signaled or wss): seconds, no Mixed-Content/PNA
+    //      exposure. Firmware commits inline and restarts; "staged" reply
+    //      then BLE link drops as chip reboots into new firmware.
     //   2. BLE-stream: slow (~30s for 1.6 MB) but works anywhere.
-    // PNA HTTP /ota retired with the chip's HTTP server (Phase 2.H);
-    // it was always brittle (Chrome's PNA prompt, mixed content from
-    // HTTPS dashboards) and the WebRTC + BLE-stream pair covers every
-    // case it ever solved.
+    // PNA HTTP /ota retired with the chip's HTTP server (Phase 2.H) —
+    // brittle (PNA prompt, mixed content) and superseded by the pair above.
     let webrtcOk = false;
     try {
       await streamOtaViaWebRTC(entry, bytes);

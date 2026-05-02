@@ -17,10 +17,9 @@ static uint8_t s_addr_type;
 static char s_name[32];
 static uint16_t s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
 
-// All currently-connected centrals. Used by the pair-mailbox to
-// broadcast ads to every subscriber. Single-peer flows (snapshot,
-// signal char) keep using ble_host_active_conn for convenience —
-// they target the most-recent peer, which is correct for those.
+// All connected centrals. Used by pair-mailbox to broadcast ads to every
+// subscriber. Single-peer flows (snapshot, signal char) target the most
+// recent peer via ble_host_active_conn.
 static uint16_t s_conns[BLE_HOST_MAX_CONNS];
 static size_t s_conns_count = 0;
 
@@ -54,9 +53,9 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
             if (event->connect.status == 0) {
                 s_conn_handle = event->connect.conn_handle;
                 conns_add(event->connect.conn_handle);
-                // Keep advertising even with active conns — phone-pair
-                // (Phase 2.F.2) needs the robot reachable to a SECOND
-                // central while desktop is already connected.
+                // Keep advertising with active conns — phone-pair needs
+                // the robot reachable to a SECOND central while desktop
+                // is already connected.
                 if (s_conns_count < BLE_HOST_MAX_CONNS) start_advertising();
             } else {
                 start_advertising();

@@ -62,23 +62,21 @@ void app_main(void) {
     flash_init(pins.flash);
     motors_init(&pins);
 
-    // fw-info reflects the cap surface — built once after caps are up;
-    // changes (camera profile, pin config) reboot, so a fresh boot
-    // rebuilds it. gatt_svr_init reads fw_info_json() lazily on first
-    // BLE read, but having it ready before BLE is up is cleaner.
+    // fw-info reflects the cap surface; built once after caps are up.
+    // Changes (camera profile, pin config) reboot, so a fresh boot
+    // rebuilds it.
     fw_info_init(&pins);
 
     ble_host_init(ble_name);
     ota_init();
     telemetry_init();
     wifi_sta_init(hostname);
-    // ICE servers (TURN creds + STUN/TURN URLs) come pre-resolved from
-    // the dashboard via BLE before each offer — chip no longer fetches
-    // proxy.neevs.io itself, freeing flash + dropping the multi-second
-    // mbedTLS-handshake-during-coex stall.
+    // ICE servers (TURN creds + STUN/TURN URLs) come pre-resolved from the
+    // dashboard via BLE — chip no longer fetches proxy.neevs.io itself,
+    // freeing flash + dropping the multi-second mbedTLS-during-coex stall.
     webrtc_peer_init(ble_name);
-    // Side-by-side HTTP MJPEG streamer for benchmarking against WebRTC.
-    // Always-on (idle cost is one listen socket); the dashboard's "Try
-    // HTTP" link opens http://<ip>:81/stream in a new tab.
+    // Side-by-side HTTP MJPEG for benchmarking against WebRTC. Always-on
+    // (one listen socket idle cost); dashboard "Try HTTP" opens
+    // http://<ip>:81/stream.
     http_stream_init();
 }

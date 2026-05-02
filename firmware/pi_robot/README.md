@@ -21,20 +21,21 @@ All characteristics live under one service UUID. Presence is config-driven (`/bo
 
 ## Companion services
 
-Two services run alongside `pi-robot.service`, each independently restartable:
+Three services run alongside `pi-robot.service`, each independently restartable:
 
 - **`pi-robot-heartbeat.service`** — minimal always-on BLE advertiser (`heartbeat.py`). Keeps the robot observable when `pi-robot.service` is down: dashboard shows a "firmware-down" banner with the LAN IP and a recovery button. The connection-first invariant — connectivity outlives capabilities.
 - **`pi-robot-health.service`** — stdlib HTTP server on `:81` exposing `GET /health` returning `{ok, type:"pi", robotId, ip, uptime_s, pi_robot_service}`. Pulled by the dashboard's mDNS + cached-IP probe (every 30 s per paired robot). Same recovery convention as heartbeat — its own unit, zero dependency on `pi_robot.py`. avahi-daemon publishes `<hostname>._http._tcp.local` so the probe can resolve `<name>.local` without an internet rendezvous (`/etc/avahi/services/betterrobot.service`).
+- **`pi-robot-rtc.service`** — WebRTC peer (`pi_robot_rtc.py`) signaled via `wss://signal.neevs.io/pi-rtc-<robotId>/ws`. Independent of the BLE-signaled camera path: the BLE path streams Pi Camera frames once paired in-LAN; this service exposes the recovery-tier shell channel reachable across networks. Either path can be used in isolation; they don't share state.
 
 ## SD-card first boot
 
-Flash Raspberry Pi OS to the card normally, then open the [dashboard](https://neevs.io/better-robotics/) and click **Customize card** in the Set up new hardware panel (or go direct with `?prepare` in the URL). Fill in hostname + sudo password, paste or pick your SSH public key, and pick the mounted boot partition (usually `/Volumes/bootfs` on macOS). The dialog stages aarch64 Python wheels (`bless`, `bleak`, `dbus-fast`, `dbus-next`, `typing-extensions`) into `/boot/firmware/wheels/`, the pi_robot source into `/boot/firmware/betterpi/`, renders `firstrun.sh`, and patches `cmdline.txt` + `config.txt`. Wheels for both Python 3.11 and 3.13 are bundled so either Pi OS Bookworm or Trixie works without a re-prep.
+Flash Raspberry Pi OS, then open the [dashboard](https://neevs.io/better-robotics/) and click **Customize card** in the Set up new hardware panel (or `?prepare` in the URL). Fill in hostname + sudo password, paste or pick an SSH public key, point at the mounted boot partition (usually `/Volumes/bootfs` on macOS). The dialog stages aarch64 Python wheels (`bless`, `bleak`, `dbus-fast`, `dbus-next`, `typing-extensions`) into `/boot/firmware/wheels/`, pi_robot source into `/boot/firmware/betterpi/`, renders `firstrun.sh`, and patches `cmdline.txt` + `config.txt`. Wheels for both Python 3.11 and 3.13 are bundled so Bookworm or Trixie works without re-prep.
 
-First boot runs entirely offline: no WiFi, no captive portal, no PyPI roundtrip. `firstrun.sh` copies the staged firmware into `/home/pi/better-robotics/firmware/pi_robot/`, creates a venv with `--system-site-packages` (so it picks up `python3-lgpio` from the base Pi OS image), installs with `pip install --no-index --find-links=/boot/firmware/wheels`, unblocks Bluetooth via rfkill, enables BlueZ's experimental advertising API, and starts `pi-robot.service` as root. Progress is appended to `/boot/firmware/firstrun.status` as an offline breadcrumb.
+First boot runs entirely offline: no WiFi, no captive portal, no PyPI roundtrip. `firstrun.sh` copies staged firmware into `/home/pi/better-robotics/firmware/pi_robot/`, creates a venv with `--system-site-packages` (picks up `python3-lgpio` from the base image), installs with `pip install --no-index --find-links=/boot/firmware/wheels`, unblocks Bluetooth via rfkill, enables BlueZ's experimental advertising API, and starts `pi-robot.service` as root. Progress appends to `/boot/firmware/firstrun.status` as an offline breadcrumb.
 
-After that, the Pi runs BLE-only. WiFi is onboarded from the dashboard via the `wifi-scan` + `wifi-join` characteristics whenever a network is wanted. The SD card holds no credentials.
+After that, Pi runs BLE-only. WiFi is onboarded from the dashboard via the `wifi-scan` + `wifi-join` characteristics whenever a network is wanted. SD card holds no credentials.
 
-Developers: the wheels + template the Customize-card dialog consumes live under `public/firmware/pi_robot/`. CI refreshes them automatically on any push touching `firmware/**` (see `.github/workflows/build-firmware.yml`). Run `make publish-pi-firmware` locally only if you want to test the artifacts before pushing.
+Developers: wheels + template that Customize-card consumes live under `public/firmware/pi_robot/`. CI refreshes them on any push touching `firmware/**` (see `.github/workflows/build-firmware.yml`). Run `make publish-pi-firmware` locally only to test artifacts before pushing.
 
 ## Manual run (development)
 
@@ -45,15 +46,15 @@ pip install -r requirements.txt
 python3 pi_robot.py
 ```
 
-Needs `bluetoothd` running and (usually) the user in the `bluetooth` group. The robot advertises as `BR-XXXX` (suffix derived from the Pi's chip serial). Scan for it from the dashboard at [neevs.io/better-robotics](https://neevs.io/better-robotics/).
+Needs `bluetoothd` running and (usually) the user in the `bluetooth` group. Robot advertises as `BR-XXXX` (suffix from Pi chip serial). Scan from the dashboard at [neevs.io/better-robotics](https://neevs.io/better-robotics/).
 
 ## LED wiring
 
-Default GPIO pin is `17` (BCM). To change, edit the `LED_PIN` constant at the top of `pi_robot.py`. For a quick test without an external LED, pick any pin and probe it with a multimeter — or swap to GPIO 47 (the green ACT LED on Pi 4) if you'd rather not wire anything.
+Default GPIO pin is `17` (BCM). To change, edit `LED_PIN` at the top of `pi_robot.py`. For a quick test without an external LED, pick any pin and probe with a multimeter, or swap to GPIO 47 (green ACT LED on Pi 4).
 
 ## Permissions
 
-Registering BLE advertisements via BlueZ on Pi OS reliably requires running as root — the non-root D-Bus policy path is brittle across BlueZ versions. The systemd unit (`pi-robot.service`) already sets `User=root`. For `python3 pi_robot.py` in development, prefix with `sudo`.
+Registering BLE advertisements via BlueZ on Pi OS reliably requires root; the non-root D-Bus policy path is brittle across BlueZ versions. `pi-robot.service` already sets `User=root`. For `python3 pi_robot.py` in development, prefix with `sudo`.
 
 ## Auto-start on boot
 
@@ -67,24 +68,24 @@ sudo systemctl enable --now pi-robot
 
 ## Adding capabilities
 
-Same pattern as the ESP32 variant: add new characteristics inside the existing service. Motors, sensors, and encoders become additional characteristics that the dashboard discovers on connect. The service UUID stays the same, so a Pi robot and an ESP32 robot look identical to users.
+Same pattern as ESP32: add new characteristics inside the existing service. Motors, sensors, encoders become characteristics the dashboard discovers on connect. Service UUID stays the same, so a Pi robot and an ESP32 robot look identical.
 
 ## Optional: Pi Camera (WebRTC)
 
-If a Pi Camera Module is attached and the optional deps are installed, the firmware advertises two extra characteristics (`camera-signal`, `camera-status`) and the dashboard shows a Camera section with a live video feed.
+With a Pi Camera Module attached and optional deps installed, firmware advertises `camera-signal` + `camera-status` and the dashboard shows a Camera section with a live video feed.
 
 ```bash
 sudo apt install -y python3-picamera2 ffmpeg
 pip install aiortc av
 ```
 
-The firmware auto-detects the stack: if any import fails, the camera characteristics simply aren't registered and the dashboard doesn't show a camera UI. No camera = no behavior change.
+Firmware auto-detects: if any import fails, camera characteristics aren't registered and the dashboard shows no camera UI.
 
-Signaling (SDP/ICE) flows over BLE using a chunked opcode protocol (begin, chunk, commit) symmetric to OTA. Once the WebRTC PeerConnection is established, video frames flow directly over the ICE-negotiated path (LAN direct when possible).
+Signaling (SDP/ICE) flows over BLE via a chunked opcode protocol (begin, chunk, commit) symmetric to OTA. Once the PeerConnection is established, video frames flow over the ICE-negotiated path (LAN direct when possible).
 
 ## Troubleshooting
 
-Hard-won gotchas from getting first boot to actually work on Pi OS Trixie. Check these first if something fails.
+Hard-won gotchas from getting first boot to work on Pi OS Trixie.
 
 - **Green LED blinks briefly then goes dark, nothing else happens.** Pi isn't completing boot. Most common cause is under-voltage — Pi 4 wants 5V/3A; phone chargers rated 2A often brown out. Less common: ext4 root corrupted from an earlier bad boot (re-flash Raspberry Pi OS). HDMI monitor is the fastest diagnostic.
 - **`firstrun.status` exists but `pi-robot.service` isn't advertising.** Check `pi-robot-journal.log`. If you see `dbus_next.errors.DBusError: Failed to register advertisement`, Bluetooth is rfkill-blocked. Pi OS Trixie ships with `hci0` soft-blocked by default. `firstrun.sh` handles this, but if you're running manually, `sudo rfkill unblock bluetooth` first.

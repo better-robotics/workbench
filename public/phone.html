@@ -4,13 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#1a1d20">
-  <title>Pip · BetterRobotics</title>
+  <title>BetterRobotics</title>
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/svg+xml" href="icon.svg">
   <link rel="apple-touch-icon" href="icon.svg">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="Pip">
+  <meta name="apple-mobile-web-app-title" content="BetterRobotics">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="stylesheet" href="styles.css">
   <!-- jsQR for the QR-scan-to-reconnect flow. BarcodeDetector isn't on iOS
@@ -69,7 +69,7 @@
       <li>Phone identity key (you'll need to re-pair to your Mac)</li>
       <li>Trust store (which Macs this phone has trusted)</li>
     </ul>
-    <p class="meta" style="margin: 0 0 16px;">If you installed Pip to your Home Screen, the install survives — only the data inside it is cleared.</p>
+    <p class="meta" style="margin: 0 0 16px;">If you installed BetterRobotics to your Home Screen, the install survives — only the data inside it is cleared.</p>
     <div class="modal-footer">
       <button class="secondary" id="hard-refresh-cancel">Cancel</button>
       <button class="danger" id="hard-refresh-confirm">Clear everything and reload</button>
@@ -80,12 +80,9 @@
     <strong>Install on iPhone / iPad</strong><br>
     Tap the <strong>Share</strong> button in Safari, then <strong>Add to Home Screen</strong>.
   </div>
-  <!-- Layout reorder (commit thread "phone surface, top-to-bottom"):
-       camera tile → drive controls → scene → Pip (collapsed accordion) →
-       reconnect (special case). Stop is sticky at the viewport bottom so
-       it's always thumb-reachable. The phone is a remote control first;
-       Pip-conversation is a secondary surface that earns its space only
-       when there's something to read or say. -->
+  <!-- Phone is a remote control first. Top-to-bottom: camera → drive →
+       scene → reconnect. Stop is sticky at the viewport bottom so it's
+       always thumb-reachable. -->
 
   <!-- Live camera stream from the desktop (laptop helper today; robot cam
        and other helpers plug into the same <video> sink). One source at a
@@ -101,9 +98,8 @@
     <div class="phone-cam-picker" id="phone-cam-picker" hidden></div>
   </section>
 
-  <!-- PRIMARY action: drive controls. Above-the-fold so pedals are
-       reachable without scrolling. Pip-led control loops still show
-       per-message in the accordion below; daily driving lives here. -->
+  <!-- Drive controls — above the fold so pedals are reachable without
+       scrolling. -->
   <section class="phone-drive" id="phone-drive" hidden>
     <div class="phone-drive-header">
       <div class="label">Drive</div>

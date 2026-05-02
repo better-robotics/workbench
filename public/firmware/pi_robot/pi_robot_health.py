@@ -1,17 +1,11 @@
 #!/usr/bin/env python3
-# Presence /health endpoint — minimal HTTP server bound to 0.0.0.0:81 so
-# the dashboard's mDNS + cached-IP probe (public/app.js) can confirm the
-# Pi is reachable on WiFi without a server-side rendezvous.
+# Presence /health endpoint on 0.0.0.0:81 — dashboard's mDNS + cached-IP
+# probe confirms WiFi reachability without a server-side rendezvous.
 #
-# Recovery-plane convention: zero dependency on pi_robot.py — runs as its
-# own systemd unit, so a pi-robot.service crash leaves /health responding
-# with pi_robot_service != "active" and the dashboard shows the right
-# state (online but degraded). stdlib-only for the same reason.
-#
-# Replaces wifi_discover.py: same JSON shape the old ad carried, but pulled
-# by the dashboard probe instead of pushed to signal.neevs.io. mbedTLS-
-# expensive on ESP32 → unified both tiers on this transport. See CLAUDE.md
-# transport-discipline.
+# Recovery-plane: zero dependency on pi_robot.py, runs as its own systemd
+# unit. A pi-robot.service crash leaves /health responding with
+# pi_robot_service != "active" and the dashboard shows the right state.
+# stdlib-only for the same reason.
 
 import json
 import socket

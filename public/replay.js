@@ -1,24 +1,21 @@
-// Replay log — every Pip tool call is stored as one record so later we can
-// re-evaluate a past session against a new model/prompt without hitting
-// hardware. Same pattern openpilot uses to sanity-check driving-model
-// upgrades offline against real-drive traces.
+// Replay log — every Pip tool call is one record, so a past session can
+// be re-evaluated against a new model/prompt without hitting hardware.
+// Openpilot's pattern for sanity-checking driving-model upgrades offline.
 //
-// Storage: IndexedDB under a single object-store 'calls', keyed by
-// auto-increment id. Timestamps are ms since epoch. Records include:
+// Storage: IndexedDB, store 'calls', auto-incrementing id, ms timestamps.
 //   { id, sessionId, name, input, output, startedAt, endedAt, durationMs, error }
-// imageDataUrl payloads on input/output are stored as-is — JPEG base64 runs
-// ~40KB per frame, so a full session lands in a few MB at most.
+// imageDataUrl payloads stored as-is (JPEG base64 ~40 KB/frame; full
+// session lands in a few MB).
 //
-// Surface: recordCall() wraps an executor; downloadReplay() / clearReplay()
-// expose the store for debugging. window.replayDownload is the dev entry
-// point — callable from the DevTools console or the in-page debug panel.
+// wrapExecutor() wraps an executor; downloadReplay() / clearReplay() expose
+// the store. window.replayDownload is the DevTools entry point.
 
 const DB_NAME = "better-robotics-replay";
 const DB_VERSION = 1;
 const STORE = "calls";
 
-// One sessionId per page-load so we can group records even when the IDB
-// blurs across sessions. crypto.randomUUID falls back for older browsers.
+// One sessionId per page-load to group records across the cross-session
+// IDB. randomUUID falls back for older browsers.
 const SESSION_ID = (typeof crypto !== "undefined" && crypto.randomUUID)
   ? crypto.randomUUID()
   : `sess-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -58,9 +55,8 @@ async function writeRecord(record) {
   }
 }
 
-// Wraps an executor so every call is persisted. Returns a new executor
-// with identical signature and behavior — the wrapper never intercepts or
-// alters results; it just observes them.
+// Persists every call. Returns an executor with identical signature and
+// behavior; observation only, no interception.
 export function wrapExecutor(executor) {
   return async function wrapped(name, input) {
     const startedAt = Date.now();
@@ -87,9 +83,9 @@ export function wrapExecutor(executor) {
   };
 }
 
-// Strip huge or non-serializable things. Image data URLs stay — they're
-// the whole point of replay ("what did Pip see?"). Functions, DOM nodes,
-// and BigInts get flattened to strings so structuredClone doesn't throw.
+// Strip huge / non-serializable. Image data URLs stay (the whole point
+// of replay). Functions, DOM nodes, BigInts → strings so structuredClone
+// doesn't throw.
 function safeClone(v) {
   try {
     return structuredClone(v);
@@ -109,19 +105,17 @@ export async function allRecords() {
   });
 }
 
-// Episodic memory for Pip: returns up to `n` (capped at 50) most-recent
-// records for the current session, newest-first, with heavy payloads
-// stripped so they don't re-enter the context window. Image data URLs and
-// any string field over ~500 chars are replaced with "[image]" / "[large]".
+// Episodic memory for Pip: up to `n` (≤50) most-recent records for the
+// current session, newest-first, heavy payloads stripped so they don't
+// re-enter the context. Image data URLs and strings >500 chars become
+// "[image]" / "[large]".
 export async function getRecentActions(sessionId, n = 10) {
   if (!sessionId) return [];
   const limit = Math.min(Math.max(Number(n) || 10, 1), 50);
   const db = await openDb();
-  // Cursor the sessionId index in "prev" direction so the iterator yields
-  // newest-first (records are inserted in chronological order, and "prev"
-  // within an equal-key range orders by descending primary key). Break at
-  // limit instead of getAll → sort → slice — long sessions with image-
-  // bearing records would otherwise serialize many MB just to drop them.
+  // Cursor sessionId index in "prev" so iterator yields newest-first.
+  // Break at limit instead of getAll → sort → slice — long sessions with
+  // image records would otherwise serialize many MB just to drop them.
   const records = await new Promise((resolve, reject) => {
     const tx = db.transaction(STORE, "readonly");
     const idx = tx.objectStore(STORE).index("sessionId");
@@ -190,9 +184,8 @@ export async function clearReplay() {
   });
 }
 
-// Dev handles: callable from DevTools console.
-// No UI wiring — a full settings panel would be overkill until someone
-// actually needs replay as a workflow, not an occasional debug dump.
+// Dev handles, callable from DevTools. No UI; would be premature until
+// replay is a real workflow rather than an occasional debug dump.
 if (typeof window !== "undefined") {
   window.replayDownload = downloadReplay;
   window.replayClear = clearReplay;

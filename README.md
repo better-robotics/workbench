@@ -6,11 +6,11 @@ A BLE-first robotics kit for ESP32 and Raspberry Pi. Turn on a robot, open a Chr
 
 ## Why BLE-first
 
-Classroom and demo environments rarely give you a joinable WiFi network. The ones that do usually block multicast (so mDNS fails), require captive-portal logins (so ESP32s can't join), or have client isolation (so peers can't see each other). Every WiFi-first onboarding story collapses in a real classroom.
+Classroom and demo WiFi rarely cooperates: blocked multicast (mDNS fails), captive portals (ESP32s can't join), client isolation (peers can't see each other). Every WiFi-first onboarding story collapses in a real classroom.
 
-BLE avoids the problem entirely:
+BLE avoids the problem:
 
-- Robot advertises the moment it boots — no network to join.
+- Robot advertises on boot. No network to join.
 - Laptop scans and sees every robot in the room.
 - Multi-robot discovery is just multi-scan.
 - Laptop's own WiFi stays connected (for internet, AI APIs).
@@ -18,11 +18,11 @@ BLE avoids the problem entirely:
 
 ## Architecture
 
-Three planes, each independent, each doing what it's best at:
+Three independent planes:
 
-- **Control plane — BLE.** Always on. Commands, telemetry, state changes, ops (install deps, restart service, inspect logs). Low bandwidth (~1–3 Mbps) but reliable and network-free. The browser's pairing UI is the gatekeeper; no credentials cross the air.
-- **Data plane — WiFi, optional.** Onboarded via BLE when a robot needs it. Large OTA payloads, video streams, cloud ML. Robots work fully without it.
-- **Recovery plane — USB, last-resort.** The Pi exposes a composite USB gadget (ECM ethernet + ACM serial) over its USB-C port. Works when both BLE and WiFi are dead or the firmware is crashing, because the gadget runs under its own systemd unit independent of the robot firmware. The dashboard exposes a real xterm.js terminal over this channel (no SSH client needed).
+- **Control plane — BLE.** Always on. Commands, telemetry, state changes, ops (install deps, restart service, inspect logs). ~1–3 Mbps, reliable, network-free. The browser's pairing UI is the gatekeeper; no credentials cross the air.
+- **Data plane — WiFi, optional.** Onboarded via BLE when needed. Large OTA, video, cloud ML. Robots work fully without it.
+- **Recovery plane — USB, last-resort.** Pi exposes a composite USB gadget (ECM ethernet + ACM serial) over USB-C. Works when both BLE and WiFi are dead or firmware is crashing — the gadget runs under its own systemd unit, independent of robot firmware. Dashboard exposes an xterm.js terminal over this (no SSH client needed).
 
 ```
 ┌──────────────────┐         BLE GATT (always on)          ┌──────────────────┐
@@ -37,23 +37,23 @@ Three planes, each independent, each doing what it's best at:
                     ECM ethernet · ACM serial console
 ```
 
-Each robot advertises a single BLE GATT service. Capabilities (LED, motors, WiFi, OTA, camera, admin) are characteristics inside it. Adding a capability means adding a characteristic — not a new protocol. A `fw-info` characteristic reports the robot's type and where to fetch updates, so the dashboard routes firmware through BLE or WiFi per-robot automatically. Capability presence is configurable per-robot via `/boot/firmware/pi-robot.conf` on Pi — unwired LEDs don't show up as dashboard controls.
+Each robot advertises a single BLE GATT service. Capabilities (LED, motors, WiFi, OTA, camera, admin) are characteristics inside it. New capability = new characteristic, not a new protocol. A `fw-info` characteristic reports robot type and update source, so the dashboard routes firmware through BLE or WiFi per-robot. Capability presence is per-robot configurable via `/boot/firmware/pi-robot.conf` on Pi — unwired LEDs don't show up as dashboard controls.
 
-**Safety on disconnect.** Actuator characteristics (motor, servo, pump, relay — anything mechanical) ship with a watchdog built into the firmware. Every write resets a timer; if no write lands within the window, the firmware reverts to a safe default on its own. The architecture's answer to "what if the operator walks away?" — silence itself is the trigger for the safe state, not a redundant radio.
+**Safety on disconnect.** Actuator characteristics (motor, servo, pump, relay) ship with a firmware watchdog. Every write resets a timer; if no write lands in the window, firmware reverts to a safe default. Silence itself is the trigger, not a redundant radio.
 
-**No server, no broker, no cloud in the critical path.** The browser pairs directly with the robot over BLE. WiFi, when present, is used only for content fetched from the same GitHub Pages deploy that serves the dashboard itself.
+**No server, no broker, no cloud in the critical path.** Browser pairs directly with the robot over BLE. WiFi, when present, fetches only content from the same GitHub Pages deploy that serves the dashboard.
 
-**The brain lives in the browser.** The robot exposes typed primitives (move, sense, observe); the dashboard orchestrates them. This is true for the LLM-driven path (Pip — Claude as tool-using planner, with an in-browser SmolVLM for scene captions and OWLv2 for spatial bounding boxes) and equally true for user-authored code — the Scripts panel is a JS editor with a `robot` API that maps to BLE capabilities. No "upload code to the Pi" step. The same control-loop invariants apply: user scripts and Pip are both planners, and the firmware's safety floor (motor watchdog, pulse caps) bounds them identically. See [USER-CODE.md](USER-CODE.md).
+**The brain lives in the browser.** Robot exposes typed primitives (move, sense, observe); the dashboard orchestrates. Both paths use this: the LLM-driven path (Pip — Claude as tool-using planner with in-browser SmolVLM for scene captions and OWLv2 for spatial bboxes) and user-authored code (Scripts panel — JS editor with a `robot` API mapping to BLE capabilities). No "upload code to the Pi" step. Same control-loop invariants for both: user scripts and Pip are planners, firmware's safety floor (motor watchdog, pulse caps) bounds them identically. See [USER-CODE.md](USER-CODE.md).
 
 ## What it isn't
 
-Loud scope walls — match new ideas against these before extending:
+Scope walls. Match new ideas against these:
 
-- **Not autonomous.** The human is always one `ask_human` away by design. Confidence-based handoff is core policy, not an escape hatch.
-- **Not real-time.** Decision loop is seconds, not milliseconds. Reactive control is impossible at this latency; pulse-bounded motion is how we live with that — every LLM motor command carries a `duration_ms` and the firmware auto-stops at the end.
-- **Not spatially aware.** Monocular camera + VLM text + bbox detector — no depth, no SLAM, no metric maps. Navigation is semantic, not geometric.
-- **Not a code-deploy target.** User code runs in the browser, not on the Pi. No CI push, no sync server, no `scp`. See [USER-CODE.md](USER-CODE.md).
-- **Not a remote-shell host over BLE/WiFi.** The dashboard's USB-C recovery xterm is the only shell surface, bounded by physical access. BLE/WiFi debug goes through typed ops verbs (`get-log`, `get-config`, `restart-service`, …).
+- **Not autonomous.** Human is one `ask_human` away by design. Confidence-based handoff is core policy.
+- **Not real-time.** Decision loop is seconds. Reactive control is impossible at this latency; pulse-bounded motion is the response — every LLM motor command carries a `duration_ms` and firmware auto-stops at the end.
+- **Not spatially aware.** Monocular camera + VLM text + bbox detector. No depth, no SLAM, no metric maps. Navigation is semantic, not geometric.
+- **Not a code-deploy target.** User code runs in the browser. No CI push, no sync server, no `scp`. See [USER-CODE.md](USER-CODE.md).
+- **Not a remote-shell host over BLE/WiFi.** USB-C recovery xterm is the only shell surface, bounded by physical access. BLE/WiFi debug is typed ops verbs (`get-log`, `get-config`, `restart-service`, …).
 - **Not a fleet manager.** One operator, one robot at a time. Multi-robot lists render for completeness; workflow assumes single-target focus.
 - **Not a primary-online product.** Works on cafe wifi, after API outages, with no network at all (offline shell + local LFM fallback once installed). Cloud is augmentation.
 
@@ -75,7 +75,7 @@ make flash          # compile local source, upload over USB — fast iteration
 make preview        # serve the dashboard locally while you iterate
 ```
 
-Commit + push when ready. CI rebuilds firmware artifacts on every change under `firmware/**` and commits them back; devices pick up the new version via OTA. No need to run `make publish-*` locally unless you want to preview before pushing.
+Commit + push when ready. CI rebuilds firmware artifacts on every `firmware/**` change and commits them back; devices pick up the new version via OTA. Run `make publish-*` locally only to preview before pushing.
 
 ## Repo layout
 
@@ -105,7 +105,7 @@ The dashboard is flat by convention; naming prefixes carry the subsystem boundar
 
 ## Browser support
 
-Web Bluetooth works in Chrome, Edge, and Opera on desktop and Android. Not Safari. Firefox only behind a flag. Deliberate constraint — the laptop is the central brain.
+Web Bluetooth: Chrome, Edge, Opera on desktop and Android. Not Safari. Firefox only behind a flag. Deliberate constraint: the laptop is the brain.
 
 ## License
 

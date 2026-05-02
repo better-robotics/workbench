@@ -1,13 +1,11 @@
-// Expected schema shape:
-//   { name: "motors", char: "…d99", type: "signed-pair",
-//     range: [-100, 100], unit?: "pct", labels?: {left: "L", right: "R"} }
-// For name === "motors" the UI is a 2D joypad (throttle + turn, differential
-// mixing done client-side) plus a global WASD/arrow-keys listener. Anything
-// else falls back to two independent sliders so the raw signed-pair contract
-// still serves future non-driving uses (e.g. pan/tilt).
+// Schema: { name: "motors", char: "…d99", type: "signed-pair",
+//           range: [-100, 100], labels?: {left: "L", right: "R"} }
+// For motors: 2D joypad (throttle + turn, client-side differential mix) +
+// global WASD/arrows. Anything else gets two sliders so the raw signed-pair
+// contract still serves future non-driving uses (pan/tilt).
 //
-// Write path is drop-intermediate-values (latest-intent-wins) because pointer
-// moves and keyboard ticks fire faster than BLE writes can complete.
+// Drop-intermediate-values write path: pointer moves and keyboard ticks
+// fire faster than BLE writes can complete.
 import { UUIDS_BY_CAP } from "../../ble.js";
 import { escapeHtml } from "../../dom.js";
 import { log, logFor } from "../../log.js";
@@ -17,7 +15,7 @@ import { capSection } from "./cap-section.js";
 
 import { renderEntry } from "./render-bus.js";
 
-// Clamp-on-write so callers don't have to check the declared range.
+// Clamp-on-write — callers don't have to check declared range.
 export async function setPairValue(entry, capName, left, right) {
   const ch = entry[`${capName}Char`];
   if (!ch) return;
@@ -78,15 +76,14 @@ export function makeSignedPairCap(schema) {
           const l = e.target.value.getInt8(0);
           const r = e.target.value.getInt8(1);
           if (l !== entry[leftField] || r !== entry[rightField]) {
-            // Log the watchdog-cut transition — safety behavior operators want visible.
+            // Log watchdog-cut transition — safety behavior operators want visible.
             if (l === 0 && r === 0 && (entry[leftField] || entry[rightField])) {
               log(`${name} stopped (watchdog)`, entry.name);
             }
             entry[leftField] = l;
             entry[rightField] = r;
-            // Surgical patch — joypad updates fire 5x/s during drag; full
-            // renderEntry would flash the whole card and rebuild the joypad
-            // mid-drag. Update only the .cap-state text in place.
+            // Surgical patch — joypad fires 5x/s during drag; full re-render
+            // would flash the card and rebuild the joypad mid-drag.
             const sec = entry.node?.querySelector(`.cap-section[data-cap-name="${name}"]`);
             const stateEl = sec?.querySelector(".cap-state");
             if (stateEl) {
@@ -130,9 +127,9 @@ export function makeSignedPairCap(schema) {
       }
       const stop = node.querySelector(`[data-action="${actionStop}"]`);
       if (stop) stop.addEventListener("click", () => {
-        // Cancel any in-flight drag first — otherwise the joypad's 200ms
-        // heartbeat would re-send the last non-zero values right after this
-        // (0, 0) write and Stop would appear broken.
+        // Cancel any in-flight drag — otherwise the joypad's 200ms
+        // heartbeat re-sends last non-zero values right after this (0, 0)
+        // and Stop appears broken.
         resetJoypad?.();
         node.querySelectorAll("input[type='range']").forEach(el => { el.value = 0; });
         setPairValue(entry, name, 0, 0);
@@ -149,9 +146,8 @@ export function makeSignedPairCap(schema) {
   };
 }
 
-// Thin wrapper around the shared joypad module: feeds motor writes for the
-// entry. External reset (exposed to the Stop button) ends any in-flight drag
-// without emitting its own (0, 0) — Stop button writes that itself.
+// External reset (exposed to Stop button) ends any in-flight drag without
+// emitting (0, 0) — Stop button writes that itself.
 function wireJoypad(entry, pad, knob) {
   const { reset } = attachJoypad(pad, knob, {
     onDrive: (l, r) => setPairValue(entry, "motors", l, r),
@@ -160,17 +156,17 @@ function wireJoypad(entry, pad, knob) {
   return reset;
 }
 
-// Matches the old sendMotors(id, l, r) shape that gamepad.js calls.
+// Matches the sendMotors(id, l, r) shape gamepad.js calls.
 export async function sendPairById(id, capName, left, right) {
   const entry = state.devices.get(id);
   if (entry) await setPairValue(entry, capName, left, right);
 }
 
-// LLM pulse-motor write — 4-byte payload [l, r, dur_hi, dur_lo]. Firmware
-// parses the wider length as a time-bounded pulse and auto-stops at
-// duration. Dashboard-side clamps are defense-in-depth; the firmware
-// enforces the actual LLM caps (magnitude 40, duration 2000ms) regardless.
-// See .claude/CLAUDE.md → Control-loop invariants.
+// LLM pulse — 4-byte [l, r, dur_hi, dur_lo]. Firmware parses the wider
+// length as a time-bounded pulse and auto-stops at duration. Dashboard
+// clamps are defense-in-depth; firmware enforces the actual caps
+// (magnitude 40, duration 2000ms). See .claude/CLAUDE.md → Control-loop
+// invariants.
 export async function pulseMotors(id, left, right, durationMs) {
   const entry = state.devices.get(id);
   if (!entry?.motorsChar) return { ok: false, error: "no motors characteristic on this robot" };
@@ -190,10 +186,8 @@ export async function pulseMotors(id, left, right, durationMs) {
   }
 }
 
-// ─── Keyboard (WASD / arrows) ────────────────────────────────────────────
-// Global listener. Sends motor commands to the first connected robot that
-// exposes the motors cap. Ignores keydown while a text input / textarea /
-// select has focus so dialog text fields still work normally.
+// Global WASD/arrows. Sends to the first connected robot with motors.
+// Skips keydown when a text input/textarea/select has focus.
 const KEY_MAP = {
   "w": "throttle+", "arrowup":    "throttle+",
   "s": "throttle-", "arrowdown":  "throttle-",
@@ -205,19 +199,16 @@ let _keyHoldTimer = null;
 let _keyboardWired = false;
 
 export function pickMotorsTarget() {
-  // Composite-robot routing: when multiple members of the same robot
-  // expose motors, honor the user's per-cap source pref. Falls through
-  // to first-connected-with-motors (the prior behavior) when nothing
-  // explicit applies — single-robot or no-pref cases.
+  // Composite-robot routing: honor capSourcePrefs.motors when set; fall
+  // through to first-connected-with-motors otherwise.
   for (const r of state.robots?.values?.() || []) {
     const pref = r.capSourcePrefs?.motors;
     if (pref) {
       const e = state.devices.get(pref);
       if (e && e.motorsChar && e.status === "connected") return e;
     }
-    // No pref: first member that has motors wins (matches the cap-fan-out
-    // dedup in renderEntry, so the phone joypad hits whatever the dashboard
-    // is currently showing).
+    // First member with motors wins; matches cap-fan-out dedup in
+    // renderEntry so the phone joypad hits whatever's on screen.
     for (const mid of r.members || []) {
       const e = state.devices.get(mid);
       if (e && e.motorsChar && e.status === "connected") return e;
@@ -275,7 +266,7 @@ export function initMotorsKeyboard() {
     }
   });
 
-  // Lost window focus: treat all keys as released so the robot doesn't keep
+  // Lost window focus → release all keys. Otherwise the robot keeps
   // driving into a wall while the user alt-tabs.
   window.addEventListener("blur", () => {
     if (_heldKeys.size === 0) return;

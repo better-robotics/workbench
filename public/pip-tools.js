@@ -20,15 +20,15 @@ import {
   stopWatching,
 } from "./perception.js";
 
-// Injected from assistant.js so dispatch can render an in-bubble question with
-// option buttons (or a free-text input). Without injection we fall back to the
-// phone path; ask_human surfaces an error if neither transport is available.
+// Injected from assistant.js so dispatch can render an in-bubble question
+// with options or free-text. Falls back to the phone path; ask_human
+// surfaces an error if neither transport is available.
 let _askInChat = null;
 
-// Per-robot timestamps of recent ask_robot_scene calls. Surface count in the
-// executor return so Pip sees "you've asked N times in the last 60s" and
-// escalates to ask_human when still uncertain — anti-loop signal without
-// trying to detect semantic contradiction (noisy heuristic).
+// Per-robot timestamps of recent ask_robot_scene calls. Surfacing count
+// in the executor return lets Pip see "you've asked N times in the last
+// 60s" and escalate to ask_human — anti-loop signal without semantic
+// contradiction detection.
 const _recentSceneAsks = new Map();
 const SCENE_ASK_WINDOW_MS = 60_000;
 function trackSceneAsk(robotId) {
@@ -39,12 +39,11 @@ function trackSceneAsk(robotId) {
   return arr.length;
 }
 
-// Per-robot run of consecutive move_motor calls without an intervening scene
-// observation. The "3 pulses without a clear scene change" rule was prose in
-// PIP_SYSTEM and the move_motor description; making it executor-enforced
-// turns guidance into mechanism — the model can't violate what it can't
-// reach. Reset by any get_robot_scene / ask_robot_scene / get_robot_detections
-// / view_robot_frame call (any of those is a legitimate "look between moves").
+// Consecutive move_motor calls without an intervening scene observation.
+// The "3 pulses without a clear scene change" rule used to live in
+// PIP_SYSTEM prose; executor-enforcement turns guidance into mechanism.
+// Reset by any get_robot_scene / ask_robot_scene / get_robot_detections /
+// view_robot_frame call.
 const _pulseRun = new Map();
 const PULSE_RUN_LIMIT = 3;
 function bumpPulseRun(robotId) {

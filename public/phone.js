@@ -124,9 +124,8 @@ function showAsk(msg) {
   if (free.hidden === false) setTimeout(() => freeInput.focus(), 50);
 }
 
-// Mount an incoming media stream into the phone's <video> sink. The pairing
-// layer fires onTrack for each track; both video tracks of one stream share
-// the same MediaStream object, so we can blindly assign streams[0].
+// Pairing layer fires onTrack per track; both video tracks of one stream
+// share the same MediaStream so streams[0] is safe.
 function onPeerTrack(e) {
   const v = $("phone-cam");
   const section = $("phone-cam-section");
@@ -147,13 +146,13 @@ function onPeerTrack(e) {
   }
 }
 
-// Sources the desktop has available to forward, indexed by robotId. The
-// camera tile's tap handler renders a picker over this. Updated whenever
-// the desktop notifies — track changes, attached camera mount/unmount.
-const _availableSources = new Map();  // robotId -> { sources, active }
+// robotId -> { sources, active }. Camera tile's tap handler renders a
+// picker over this; updated when desktop notifies (track changes, attached
+// camera mount/unmount).
+const _availableSources = new Map();
 
-// Update the "Tap to switch source" affordance — visible iff there's more
-// than one source for any robot (or the picker would lie about its job).
+// "Tap to switch source" only when there's more than one source for any
+// robot (else the picker would lie about its job).
 function updateCameraPickerHint() {
   const overlay = $("phone-cam-overlay");
   if (!overlay) return;
@@ -164,9 +163,8 @@ function updateCameraPickerHint() {
 function renderCameraPicker() {
   const wrap = $("phone-cam-picker");
   if (!wrap) return;
-  // Aggregate across robots — each row is "<robot> · <source-label>" with
-  // a check on the active one. Tapping sends subscribe-source for that
-  // robotId with the chosen sourceId.
+  // Each row is "<robot> · <source-label>" with a check on the active.
+  // Tap sends subscribe-source for that robotId + sourceId.
   const rows = [];
   for (const [robotId, info] of _availableSources) {
     for (const s of info.sources || []) {
@@ -216,8 +214,7 @@ function onPeerMessage(msg) {
     return;
   }
   if (msg.type === "scene") {
-    // Raw VLM observation push from desktop — like catwatcher, we just show
-    // what the camera is seeing without Pip commentary on top.
+    // Raw VLM observation pushed from desktop, no Pip commentary.
     const section = $("phone-scene");
     const text = (msg.text || "").trim();
     if (text) {
@@ -244,9 +241,7 @@ function onPeerMessage(msg) {
     }
     return;
   } else if (msg.type === "target-info") {
-    // Desktop tells us which robot the joypad will drive. If null, hide
-    // both the drive surface AND the panic stop button — neither makes
-    // sense when there's nothing to control / stop.
+    // Hide drive surface + panic stop when there's no robot to control.
     const driveSection = $("phone-drive");
     const cmdSection = $("phone-command");
     const targetEl = $("phone-drive-target");

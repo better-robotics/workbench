@@ -1,9 +1,8 @@
-// Smoke tests for pure formatters. Run via `make smoke` (uses node --test).
-// Anything that needs the DOM, fetch, BLE, or other browser APIs doesn't
-// belong here — those go in the manual SMOKE.md checklist.
+// Smoke tests for pure formatters. `make smoke` (node --test). Anything
+// that needs DOM, fetch, BLE, or browser APIs lives in SMOKE.md.
 //
-// New formatters in public/format.js earn a test row here. Coverage isn't
-// the goal; catching architectural promises drifting is.
+// New formatters in public/format.js earn a test row. Catching
+// architectural drift, not coverage.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {

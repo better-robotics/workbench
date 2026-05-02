@@ -8,13 +8,9 @@ Client modules for signal.neevs.io — generic, project-agnostic.
 
 ## Why this lives here today
 
-Long-term, the source-of-truth is `signal.neevs.io` itself. Browsers
-import directly from `https://signal.neevs.io/sdk/v1/<module>.js`, the
-service owns versioning, and consumers don't fork the protocol client.
+Long-term source-of-truth is `signal.neevs.io` itself. Browsers import directly from `https://signal.neevs.io/sdk/v1/<module>.js`, the service owns versioning, consumers don't fork the protocol client.
 
-The intermediate state: this directory ships the same files as
-`signal.neevs.io` does. Both copies are kept in sync by hand. Imports
-inside this repo go to the local path (`./signal-sdk/v1/...`).
+Intermediate state: this directory ships the same files as `signal.neevs.io`. Both copies are kept in sync by hand. Imports inside this repo go to the local path (`./signal-sdk/v1/...`).
 
 ## Migration steps
 
@@ -31,20 +27,11 @@ inside this repo go to the local path (`./signal-sdk/v1/...`).
 
 ## Versioning
 
-`v1/` exists so signal.neevs.io can ship a `v2/` with breaking changes
-without forcing a coordinated cutover. Existing consumers keep
-referencing `v1/` URLs; new consumers opt into `v2/`.
+`v1/` exists so signal.neevs.io can ship a `v2/` with breaking changes without a coordinated cutover. Existing consumers keep `v1/` URLs; new consumers opt into `v2/`.
 
-When making changes:
-
-- **Backward-compatible** (new exports, internal refactors) — bump the
-  patch version mentally; no URL change needed. Both this repo and
-  signal.neevs.io update together.
-- **Breaking** — publish a `v2/` directory; old consumers still hit
-  `v1/` URLs and keep working until they choose to migrate.
+- **Backward-compatible** (new exports, internal refactors): no URL change. Both this repo and signal.neevs.io update together.
+- **Breaking**: publish a `v2/` directory; old consumers still hit `v1/` URLs.
 
 ## Sync discipline
 
-Until step 4 of the migration completes, **edits here must also be
-applied to signal.neevs.io's copy** (and vice versa). The header on
-each file points at this README so anyone editing knows.
+Until step 4 of the migration completes, **edits here must also be applied to signal.neevs.io's copy** (and vice versa). The header on each file points at this README.

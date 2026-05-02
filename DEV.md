@@ -1,6 +1,6 @@
 # Developer reference
 
-One-page cheat sheet for diagnostic flags, console handles, and debug paths. If it's not here and it's user-facing, it belongs in `README.md`; if it's instructional for Claude/agents, it belongs in `.claude/CLAUDE.md`.
+Cheat sheet for diagnostic flags, console handles, debug paths. User-facing → `README.md`. Agent-facing → `.claude/CLAUDE.md`.
 
 ## URL flags
 
@@ -40,14 +40,14 @@ Why signaling via signal.neevs.io and not a per-Pi HTTP endpoint: browser Mixed 
 
 ## Chrome internal pages
 
-Chrome ships several diagnostic dashboards behind `chrome://` URLs that surface state the page can't see. Most useful for this project:
+`chrome://` dashboards that surface state the page can't see:
 
-- `chrome://webrtc-internals/` — every active RTCPeerConnection, ICE candidate pair tried, which got disqualified and why, DTLS/SCTP state, getStats output. **Reach for this first** when WebRTC video or pair signaling fails — the symptom is at the application layer, the cause is usually two layers down. Auto-records on connection start; the timing of "candidate-pair selected" vs "channel open" is what you usually want.
-- `chrome://bluetooth-internals/` — Web Bluetooth devices Chrome currently knows about, services discovered, last scan results. Useful when a robot doesn't appear in the chooser or when GATT operations stall. The "Adapter" section also surfaces OS-level Bluetooth state (powered, discoverable, paired).
-- `chrome://device-log/` — Chrome's per-event log for BLE, USB, and serial. Captures errors that the page never sees (e.g. "GATT operation already in progress" comes through here with extra context).
-- `chrome://inspect/#devices` — remote DevTools for Chrome on a USB-connected Android phone. The phone surface is hard to debug otherwise; this gives full console + Sources + Network on the phone's tab from the laptop.
+- `chrome://webrtc-internals/` — every active RTCPeerConnection, ICE candidate pair tried, which got disqualified and why, DTLS/SCTP state, getStats output. **First stop** when WebRTC video or pair signaling fails. Auto-records on connection start; "candidate-pair selected" vs "channel open" timing is usually what you want.
+- `chrome://bluetooth-internals/` — Web Bluetooth devices Chrome knows, services discovered, last scan results. Useful when a robot doesn't appear in the chooser or GATT operations stall. "Adapter" section surfaces OS-level state (powered, discoverable, paired).
+- `chrome://device-log/` — per-event log for BLE, USB, serial. Captures errors the page never sees (e.g. "GATT operation already in progress").
+- `chrome://inspect/#devices` — remote DevTools for Chrome on USB-connected Android. Full console + Sources + Network on the phone's tab.
 - `chrome://serial-internals/` — Web Serial state. Useful when the recovery-console terminal stalls.
-- `chrome://net-export/` — full network capture. Heavyweight; reach for it when you need to share a `.json` log with someone or correlate cross-protocol failures.
+- `chrome://net-export/` — full network capture. Heavyweight; for sharing a `.json` log or correlating cross-protocol failures.
 
 ## When to reach for what
 
@@ -60,5 +60,5 @@ Chrome ships several diagnostic dashboards behind `chrome://` URLs that surface 
 ## House rules
 
 - **Dev flags → URL.** Per-session diagnostics that shouldn't persist.
-- **User preferences → Settings.** Once there are enough of them to justify an *Advanced* section (roughly 3+ real persistent preferences), that's when to build the panel.
-- Keep this doc in sync when adding a new URL flag, a new `window.*` handle, or a new IndexedDB store.
+- **User preferences → Settings.** Build the panel once there are 3+ real persistent preferences.
+- Keep this doc in sync when adding a URL flag, `window.*` handle, or IndexedDB store.

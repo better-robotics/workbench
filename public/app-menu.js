@@ -1,12 +1,7 @@
-// Shared chrome wiring for the BetterRobotics app menu. Both index.html
-// (dashboard) and phone.html host the same dropdown — Install / Check for
-// updates / Hard refresh — and each had grown its own near-identical copy
-// of the destructive flow + SW update latch + PWA install handlers. This
-// module is the single owner.
-//
-// Per-page differences (positioning, surface-specific items) stay in
-// each page's own wiring; shared destructive / update / install logic
-// lives here.
+// Shared app-menu chrome for index.html + phone.html. Owns Install /
+// Check for updates / Hard refresh + the SW update latch + PWA install
+// handlers. Per-page positioning + surface-specific items stay in each
+// page's own wiring.
 
 // ── PWA install ────────────────────────────────────────────────────────
 
@@ -20,8 +15,8 @@ export function isIOS() {
   return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
 }
 
-// Module-top listeners: beforeinstallprompt fires once, very early
-// (before DOMContentLoaded in Chrome). Lost if not caught here.
+// Module-top listener: beforeinstallprompt fires once, before
+// DOMContentLoaded in Chrome. Lost if not caught here.
 window.addEventListener("beforeinstallprompt", (e) => {
   e.preventDefault();
   _deferredInstallPrompt = e;
@@ -41,9 +36,8 @@ function _refreshInstallVisibility() {
   btn.hidden = !(_deferredInstallPrompt || isIOS());
 }
 
-// Wire the "Install on this device" menu item. Caller specifies the
-// button id and (optionally) the iOS popover id to show when iOS Safari
-// users tap it (Chrome/Android use the deferred prompt).
+// Caller passes button id + optional iOS popover id (shown when iOS
+// Safari users tap; Chrome/Android use the deferred prompt).
 export function wireInstallMenuItem({ btnId, iosPopoverId, onClick }) {
   _installBtnId = btnId;
   const btn = document.getElementById(btnId);
@@ -108,8 +102,8 @@ export function setupServiceWorker({ swPath = "sw.js", onUnsolicitedUpdate } = {
   });
 }
 
-// Wire the Check-for-updates menu item. Auto-applies any update found via
-// the explicit-click path; falls through to "Up to date" if nothing's new.
+// Auto-applies any update found via the explicit-click path; falls
+// through to "Up to date" if nothing's new.
 export function wireCheckUpdatesMenuItem({ btnId }) {
   const btn = document.getElementById(btnId);
   if (!btn) return;
@@ -145,10 +139,9 @@ export function wireCheckUpdatesMenuItem({ btnId }) {
 
 // ── Hard refresh ───────────────────────────────────────────────────────
 
-// Wire the hard-refresh dialog + confirm flow. Both surfaces had
-// byte-for-byte the same destructive sequence; this is the single owner.
-// The body of the dialog (which items get cleared) stays per-page in HTML
-// since the phone storage profile differs from the dashboard's.
+// Single owner of the destructive sequence (was duplicated across
+// surfaces). Dialog body (which items get cleared) stays per-page in HTML
+// since phone + dashboard storage profiles differ.
 export function wireHardRefresh({
   openBtnId, dialogId, closeBtnId, cancelBtnId, confirmBtnId,
   onBeforeOpen,
@@ -247,10 +240,8 @@ export function wireHardRefresh({
 
 // ── Report-issue diagnostic body ───────────────────────────────────────
 
-// Build a GitHub issue URL with the running version + UA + URL prefilled.
-// Both surfaces benefit (the phone arguably more, since the user can't
-// easily type their UA by hand). Caller passes the version (read from
-// sw.js) and the anchor element to update.
+// Build a GitHub issue URL prefilled with version + UA + URL. Caller
+// passes version (from sw.js) and the anchor to update.
 export function setReportIssueLink(anchor, version) {
   if (!anchor) return;
   const body = [
@@ -269,10 +260,10 @@ export function setReportIssueLink(anchor, version) {
   anchor.href = `https://github.com/jonasneves/better-robotics/issues/new?body=${encodeURIComponent(body)}`;
 }
 
-// Wire the Diagnostics dialog. One capture combines a STUN probe, the
-// last pair attempt's snapshot (lastPairDiagnostic + getStats), and any
-// connected-robot telemetry into a single object. Refresh re-runs;
-// Copy puts the JSON on the clipboard. Same shape on desktop and phone.
+// One capture combines a STUN probe, the last pair attempt's snapshot
+// (lastPairDiagnostic + getStats), and connected-robot telemetry into one
+// object. Refresh re-runs; Copy puts JSON on clipboard. Same shape on
+// desktop and phone.
 export function wireDiagnosticsMenuItem({
   openBtnId, dialogId, closeBtnId,
   refreshBtnId, copyBtnId,

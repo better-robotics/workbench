@@ -13,9 +13,8 @@ let _fit = null;
 let _resizeObs = null;
 let _xtermModule = null;
 
-// state: "" (idle/disconnected) | "connected" | "error" — drives the dot color.
-// text is shown alongside only when it carries info beyond the dot
-// (e.g. error detail). Default/connected states render dot-only.
+// state: "" (idle) | "connected" | "error" — drives dot color. text shown
+// only when it carries info beyond the dot (e.g. error detail).
 function setStatus(state, text = "") {
   $("recovery-status-dot").className = `dot${state ? ` ${state}` : ""}`;
   $("recovery-status").textContent = text;
@@ -38,9 +37,8 @@ async function ensureXtermLoaded() {
   return _xtermModule;
 }
 
-// Last-used port hint persisted as VID:PID — same purpose and shape as
-// esp-serial.js (kept inlined rather than shared to avoid a new module
-// for ~15 lines that don't otherwise leak between the two consoles).
+// Last-used port persisted as VID:PID. Same shape as esp-serial.js;
+// inlined rather than shared (~15 lines that don't leak between the two).
 const LAST_PORT_KEY = "recovery-last-port";
 function rememberPort(port) {
   try {
@@ -71,9 +69,8 @@ async function connect() {
     setStatus("error", "unsupported browser");
     return;
   }
-  // Skip the picker when permission is already granted for at least one
-  // port (Chrome persists across page reloads). Pick the last-used VID:PID
-  // when multiple are granted, falling back to the first.
+  // Skip picker when permission is already granted (Chrome persists
+  // across reloads). Pick last-used VID:PID when multiple, else first.
   let known = [];
   try { known = await navigator.serial.getPorts(); } catch {}
   try {

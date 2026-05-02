@@ -7,8 +7,6 @@
 // in pip-tools.js call listPhones()/sendToPhone() to let the agent see and
 // notify paired phones.
 import { $ } from "./dom.js";
-// helpers.js owns the visible card render now; phones.js notifies via
-// setPhonesChangeHandler so this module stays unaware of the dashboard layout.
 import { log } from "./log.js";
 import { hostPairingRoom } from "./pairing.js";
 import { sendPairById, pickMotorsTarget } from "./capabilities/runtime/signed-pair.js";
@@ -47,13 +45,10 @@ function deviceLabel() {
 }
 
 const _phones = new Map();  // roomId → { id, label, peer, connectedAt, status, statusDetail }
-// askId → { resolve, timeout, phoneId } — outstanding ask_human requests.
-// Keyed by askId, not phoneId, so simultaneous asks to different phones
-// (or the same one, though Pip shouldn't) don't collide.
+// askId → { resolve, timeout, phoneId }. Keyed by askId so simultaneous
+// asks to different phones don't collide.
 const _pendingAsks = new Map();
 let _pendingSession = null;
-// helpers.js subscribes to phone-state changes so it can re-render the
-// "Your helpers" section. Kept as a single handler — only one consumer.
 let _changeHandler = null;
 
 export function setPhonesChangeHandler(fn) { _changeHandler = fn; }
@@ -139,31 +134,23 @@ export async function initPhones() {
   _initPairListener();
 }
 
-// Robot camera → phone bridge. Keyed per
-// robot id since a dashboard may have multiple robots streaming at once.
-// pairing.js's negotiationneeded handler re-offers after addTrack, so the
-// track lands on the phone automatically.
+// Robot camera → phone bridge. Keyed per robot id; pairing.js's
+// negotiationneeded handler re-offers after addTrack so the track lands
+// on the phone automatically.
 //
-// Stream sources (in priority order — only the highest-priority live one
-// is forwarded; phones see one robot view, not two):
-//   1. attachedCameraStream — phone-as-eye mounted on the robot. THE
-//      view the robot is currently using when set.
+// Stream sources, in priority order (one stream forwarded at a time):
+//   1. attachedCameraStream — phone-as-eye mounted on the robot.
 //   2. cameraStream — robot's native camera. ESP32's MJPEG goes through
-//      mjpeg-restream's canvas captureStream to become a MediaStream;
-//      Pi WebRTC cams produce one directly.
+//      mjpeg-restream's canvas captureStream; Pi WebRTC cams produce one
+//      directly.
 //
-// When forwarding the attached stream, skip the source phone — phone-1
-// seeing its own camera echoed back is wasteful at best, feedback at
-// worst. attachedFromPhoneId === phone.id is the marker.
-// Sources the dashboard could forward to a phone for this robot. Single
-// stream per robot still ships at any moment; this list lets the phone
-// pick which one. Same data shape powers the dashboard's cap-source swap
-// UX — different surfaces, same standardized "what's available" model.
+// When forwarding the attached stream, skip the source phone (would echo
+// its own camera back). attachedFromPhoneId === phone.id is the marker.
 function availableSourcesFor(entry) {
   const sources = [];
   if (entry.cameraStream) {
     sources.push({
-      id: "native",  // stable per-robot id, not a stream-instance handle
+      id: "native",
       kind: "native",
       label: "Robot camera",
       fwType: entry.fwType || null,
@@ -180,10 +167,8 @@ function availableSourcesFor(entry) {
   return sources;
 }
 
-// Resolve the actual MediaStream for a phone's chosen source on this
-// robot. Defaults to "attached preferred over native" — same priority
-// the original syncRobotMedia used. The phone overrides via subscribe-
-// source messages, recorded in phone.robotSourcePrefs.
+// Default: attached preferred over native. Phone overrides via
+// subscribe-source messages, recorded in phone.robotSourcePrefs.
 function resolveStreamForPhone(phone, entry) {
   const pref = phone.robotSourcePrefs?.get(entry.id);
   if (pref === "native" && entry.cameraStream) return entry.cameraStream;
@@ -225,8 +210,6 @@ function syncRobotMedia(phone, entry) {
   if (senders.length) phone.robotSenders.set(entry.id, senders);
 }
 
-// Called from webrtc-installable.js when a robot's cameraStream starts or
-// stops. Fans out to every paired phone so they pick up / drop the track.
 export function notifyRobotStreamChange(entry) {
   for (const p of _phones.values()) syncRobotMedia(p, entry);
 }
@@ -241,9 +224,8 @@ function closePairing() {
   $("pair-dialog").close();
 }
 
-// Passive presence — just a count badge in the helpers heading so the
-// user knows discovery is healthy. The pair flow itself is now driven
-// by phones sending requests, not by us deciding ahead of time.
+// Passive presence: count badge in the helpers heading. Pair flow
+// is driven by phones sending requests, not by us deciding ahead.
 function renderPhonePresence(ads) {
   const phones = (ads || []).filter(a => a.data && a.data.app === "better-robotics-phone");
   const btn = $("pair-phone-btn");

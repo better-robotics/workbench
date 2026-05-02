@@ -1,17 +1,20 @@
 # Wedge
 
-This project is the **LLM-native consumer-robotics platform** — Pip is the robot's pilot, not its admin tool. Hold that frame.
+This project is the **browser-native robotics dev environment** — vibe-code robots in a tab, run them on real hardware over BLE, fork the repo to deploy your own. Pip (any tool-using LLM, with replay and ask-human) is the AI-assist surface inside it. One of multiple authorable surfaces, not the headline.
 
-**Adjacent platforms.** Viam (B2B industrial fleet, gRPC + WebRTC, server-resident SaaS) and Freedom Robotics (B2B teleop, WebRTC + TURN, server-resident SaaS) ship the same transport stack you do — they aren't hiding a better protocol. Treat them as inspirations for what becomes table-stakes, not competitors. Different audience: enterprise vs. consumer/education/hobbyist.
+**Adjacent platforms.** Viam ("build robots like you build software" — modular components, multi-language SDKs, fleet management) is the closest framing rhyme. Both Viam and Freedom Robotics are server-resident B2B cloud SaaS — same transport stack you ship, different audience and distribution shape. Industrial cloud vs. consumer/education/hobbyist fork-and-run. Treat as inspiration for table-stakes, not competition.
 
-**What's defensible here that they don't have.** LLM as operator (Pip plans, calls tools, asks human, replays). Layered safety (firmware-bounded motors; planner can't bypass; ask-human is the terminal cascade rung — openpilot-panda pattern). Browser-resident model serving (VLM, ArUco, YOLO all in-browser, no GPU server). No-cloud, GitHub-Pages-deployable, fork-and-run.
+**What's defensible here that they don't have.** Browser is the dev surface — write JS in a tab, no install, no SDK download. Browser-resident model serving — perception, detection, fiducial pose all run client-side, no GPU server, no inference bill. Layered safety — firmware-bounded motors that the IDE-level planner (user code or Pip) can't bypass; ask-human is the terminal cascade rung (openpilot-panda pattern). Fork-and-run — GitHub-Pages deployable, no backend, no accounts, no data leaving the browser.
 
 **Directions worth pursuing** (when there's a session to dedicate to each):
-- **Capability schema** — JSON manifest + chip handler + auto-rendered card, so a user (or Pip itself) can ship a new hardware capability without code changes. Platform play.
-- **Opt-in replay → dataset → improvement loop.** Replay is local-only today. Aggregating opted-in Pip sessions builds the only consumer-robot LLM dataset that exists.
-- **Multi-robot Pip.** One robot is teleop. Two robots in the same room with Pip planning across them is a research demo nobody else can show.
+- **Capability schema** — JSON manifest + chip handler + auto-rendered card. The IDE's plugin system; lets a user or Pip ship a new hardware capability without touching dashboard code.
+- **Opt-in replay → dataset → improvement loop.** Replay is local-only today. Aggregating opted-in sessions builds the only consumer-robot interaction dataset that exists.
+- **Multi-robot orchestration.** Two robots in the same room, scripts or Pip planning across them, no central server. A research demo nobody else can show.
 
-Don't drift toward "yet another teleop dashboard". The wedge is **planner-as-pilot**, not better screens for human pilots.
+**Anti-drift guards.** Three failure modes to refuse:
+- *"Yet another teleop dashboard"* — joystick-shaped UI for human pilots. The wedge is planning-shaped.
+- *"Yet another fleet manager"* — server-resident cloud for N robots. Viam's space; ours is one operator forking their own platform.
+- *"The LLM does everything autonomously"* — Pip is one surface inside the IDE. User code is co-equal; both are bounded by the same firmware safety floor.
 
 # Developer reference
 
@@ -25,8 +28,8 @@ Don't drift toward "yet another teleop dashboard". The wedge is **planner-as-pil
 # Subsystem map
 
 - **Pair layer** — `pairing.js`, `phones.js`, `phone.js`, `phone.html`. Desktop ↔ phone WebRTC.
-- **Perception** — `perception.js`. In-browser VLM, camera-frame capture, scene prompt.
-- **Pip / assistant** — `assistant.js`, `claude.js`, `pip-tools.js`, `replay.js`. Claude integration, tool schemas, executor, replay logging.
+- **Perception + detection** — `perception.js` (VLM), `grounding.js` (open-vocab detector), `aruco.js` (fiducial pose). Camera-frame capture, scene prompts, structured outputs.
+- **Pip / assistant** — `assistant.js`, `claude.js`, `local-llm.js`, `pip-tools.js`, `replay.js`. Tool-using LLM integration (Claude or local fallback), tool schemas, executor, replay logging.
 - **Robot ops** — `ble.js`, `ops-response.js`, `capabilities/`. BLE protocol, ops channel, per-cap cards + runtime.
 - **Robot lifecycle** — `prepare.js`, `recovery.js`, `pinout.js`. SD prep, USB recovery, pinout editor.
 - **User code** — `scripts.js`. Browser-resident IDE for user-authored robot code. Mirrors the BLE capability surface; persisted in localStorage. See `USER-CODE.md`.
@@ -67,12 +70,23 @@ The "openpilot panda" pattern: safety enforced *below* the intelligent layer, no
 
 Different model shapes are good at different jobs — distinct primitives, not interchangeable "AI". Past planner-layer attempts to paper over capability gaps with prompt-engineering have bitten us.
 
+**Detectors and perception (present-tense backends):**
+
 - **ArUco fiducial pose** (`aruco.js`): sub-pixel pose of *tagged* objects. ~10–20 ms in JS, deterministic. Doesn't see anything untagged.
-- **YOLO26n closed-vocab detector** (`yolo.js`, in flight): fast bboxes for COCO + custom labels. ~10–30 ms on WebGPU. Reactive-tier; only sees trained classes.
-- **VLM** (LFM2.5-VL-450M via `perception.js`): semantic + open-vocab spatial. Caption + structured-JSON bbox prompting. ~1.5 s — planner-tier, not reactive. Single-pulse motion based on VLM text is fine for a toy; chaining without a deterministic primitive re-asserting between pulses drifts.
-- **OWLv2 open-vocab detector** (`grounding.js`): being retired in favor of YOLO26n + LFM-VL bbox-prompting.
-- **Claude (planner)**: seconds-latency, multi-turn, tool-calling. Strong at goal decomposition, weak at closed-loop visual servo (2–5 s round-trip). Belongs at the planning layer.
-- **Local LFM2.5** (`local-llm.js`): offline / API-outage fallback. 512-token output ceiling, retries needed.
+- **Open-vocab detector** (`grounding.js`, Grounding DINO tiny): "find the red cup" works on a text prompt, no retraining. ~150–300 ms on CPU. Default detector today.
+- **VLM** (`perception.js`, LFM2.5-VL-450M): semantic + open-vocab spatial. Caption + structured-JSON bbox prompting. ~1.5 s — planner-tier, not reactive. Single-pulse motion based on VLM text is fine for a toy; chaining without a deterministic primitive re-asserting between pulses drifts.
+
+**Detector eval — direction worth pursuing (not built yet):**
+
+- **Common interface**: `detect(imageData, opts) → [{label, bbox, score}]`. Each backend a separately-loadable module so the bundle stays small and lazy-load is the default.
+- **Closed-vocab detector** (`yolo.js`, YOLO26n) lands as the first eval-mode sibling to Grounding DINO. Faster (~10–30 ms WebGPU, NMS-free in browser), but only sees trained classes — COCO out of the box, custom requires fine-tuning, which is a regression from "type what you want." Justified only if a real reactive-tier use case (visual servo, gamepad-overlay tracking) emerges.
+- **Eval mode** runs all loaded detectors on the same frame, renders bboxes side-by-side with backend-tagged colors + latency badges, captures both outputs to replay. Generalizes the comma.ai replay-your-drive pattern from "swap LLM" to "swap detector."
+- If eval converges on a single winner per use case within a few weeks of real use, drop the loser. Two-detector parity is a transitional state, not an architecture.
+
+**Planners — the IDE's AI-assist surface (Pip):**
+
+- **Tool-using LLM via API** (`claude.js`): seconds-latency, multi-turn, tool-calling. Strong at goal decomposition, weak at closed-loop visual servo (2–5 s round-trip). Currently Claude; any tool-using LLM with the same tool surface fits here.
+- **Local LFM2.5** (`local-llm.js`): offline / API-outage fallback. 512-token output ceiling, retries needed. Pip falls through silently when the primary backend returns null AND `settings.pipLocalInstalled` is true.
 
 # Transport channels
 

@@ -11,11 +11,10 @@
 //
 // Update flow:
 // - VERSION is auto-stamped by the pre-commit hook on dashboard-asset
-//   changes (.githooks/pre-commit computes the content hash of all
-//   public/*.{js,css,html,svg,json} files except firmware + sw.js
-//   itself). Hash-based, not raw commit SHA — no-op commits (artifact
-//   pushes, doc edits) don't trigger the banner. Install with `make
-//   install-hooks`.
+//   changes (.githooks/pre-commit hashes `git ls-files -s` for public/*
+//   except firmware + sw.js itself). Hash-based, not raw commit SHA —
+//   no-op commits (artifact pushes, doc edits) don't trigger the banner.
+//   Install with `make install-hooks`.
 // - Browser sees new SW → installs → waits.
 // - App detects the waiting worker → shows the update banner.
 // - User clicks "Reload" → SW skipWaiting + controllerchange + reload →
@@ -24,7 +23,7 @@
 //   commit. For an intentional bump unrelated to assets (e.g. server-side
 //   change in an API contract), edit any cached asset (a comment will do)
 //   and the hook will pick up a new hash.
-const VERSION = "bf9a24b7";
+const VERSION = "95c7fa69";
 const CACHE = `dashboard-${VERSION}`;
 
 // Cached at install time so the dashboard can cold-boot offline AND

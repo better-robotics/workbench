@@ -3,21 +3,19 @@ import { getTools, executor, setAskInChatHandler } from "./pip-tools.js";
 import { shorten, labelTool, summarizeTool } from "./format.js";
 import { createPip, renderMd } from "https://cdn.jsdelivr.net/gh/jonasneves/pip@v1.2.0/pip-core.esm.js";
 
-// Auto-dismiss timings match Buddy: 10s total show, fade begins at 7s (last 3s).
+// Match Buddy: 10s total show, fade at 7s (last 3s).
 const SHOW_MS = 10000;
 const FADE_MS = 7000;
 const MIN_GAP_MS = 15000;
 const HISTORY_LIMIT = 12;
-// After a conversation turn, wait this long with no activity before auto-dismiss
-// resumes. Long enough to read a reply, short enough an abandoned chat doesn't
-// stick forever.
+// Inactivity after a turn before auto-dismiss resumes. Long enough to
+// read a reply, short enough that an abandoned chat doesn't stick.
 const IDLE_RESUME_MS = 20000;
 
-// Trimmed: rules the executor mechanically enforces (3-pulse stop floor,
-// pulse duration cap, signed-pair clamp) live in pip-tools.js and are
-// invariants Pip cannot violate — restating them in the prompt is token
-// rent. The system prompt now carries voice + reasoning policy ONLY:
-// what choices the model has to make where the executor can't.
+// Rules the executor mechanically enforces (3-pulse stop, pulse duration
+// cap, signed-pair clamp) live in pip-tools.js — Pip can't violate them,
+// so restating in the prompt is token rent. System prompt carries voice +
+// reasoning policy ONLY: choices the model makes where the executor can't.
 const PIP_SYSTEM = [
   "You are Pip, a small assistant in a robotics dashboard for ESP32 and Raspberry Pi robots.",
   "",
@@ -51,8 +49,8 @@ const PIP_SYSTEM = [
   "'ask me something useful', 'not my thing').",
 ].join("\n");
 
-// Single source of truth for "Hi, I'm Pip" — used by the dashboard panel
-// AND the phone Pip accordion so voice doesn't drift across surfaces.
+// Single source of truth for "Hi, I'm Pip" — used by dashboard panel +
+// phone Pip accordion so voice doesn't drift across surfaces.
 export const PIP_INTRO = "Hi — I'm Pip. Ask me anything, or I'll pipe up when there's something worth knowing.";
 
 let _pip = null;
@@ -74,9 +72,9 @@ function scheduleAutoDismiss() {
   _closeTimer = setTimeout(() => _pip.close(), SHOW_MS);
 }
 
-// Trace row — one per tool_use call. .pending in flight, .error on tool error.
-// pendingMs/result/error filled in by finishTraceLine once the call returns.
-// Kept terse; deeper inspection lives in replay.js (IndexedDB) — see CLAUDE.md → Replay.
+// Trace row, one per tool_use. .pending in flight, .error on tool error.
+// finishTraceLine fills pendingMs/result/error. Deeper inspection in
+// replay.js (IndexedDB).
 function appendTraceLine(turnEl, name) {
   let ul = turnEl.querySelector(".pip-trace");
   if (!ul) {

@@ -4,7 +4,7 @@ External systems that compete for the same user decision as Better Robotics — 
 
 ## schematik.io — not in this lane
 
-[schematik.io](https://schematik.io) bills itself as "Cursor for Hardware" — an AI code-generation tool that emits firmware / schematic-adjacent code from natural language for Arduino, ESP32, Raspberry Pi (~$4.6M pre-seed as of scan). It is not a pairing UI, not a control plane, not a dashboard you drive a running robot from. The name similarity is the whole story. It's a *potential input* for authoring firmware like ours, not a competitor to the runtime-control story. No overlap with any of the seven architectural bets below.
+[schematik.io](https://schematik.io) bills itself as "Cursor for Hardware": AI code-generation that emits firmware / schematic-adjacent code from natural language for Arduino, ESP32, Raspberry Pi (~$4.6M pre-seed). Not a pairing UI, not a control plane, not a dashboard. The name similarity is the whole story. A *potential input* for authoring firmware like ours, not a competitor to the runtime-control story. No overlap with the seven architectural bets below.
 
 ## The real candidates
 

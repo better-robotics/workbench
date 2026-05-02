@@ -135,9 +135,8 @@ static int pin_config_access(uint16_t conn, uint16_t attr,
     return BLE_ATT_ERR_UNLIKELY;
 }
 
-// Read kicks off a fresh scan (matches the .ino's WifiScanCallbacks::onRead)
-// AND returns the last cached result. The dashboard subscribes to NOTIFY,
-// so it picks up the new list when scan_done fires.
+// Read kicks off a fresh scan AND returns the last cached result. The
+// dashboard subscribes NOTIFY for the new list when scan_done fires.
 static int wifi_scan_access(uint16_t conn, uint16_t attr,
                             struct ble_gatt_access_ctxt *ctxt, void *arg) {
     if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
@@ -206,9 +205,8 @@ static int snapshot_request_access(uint16_t conn, uint16_t attr,
     return BLE_ATT_ERR_UNLIKELY;
 }
 
-// Snapshot-data is notify-only — the dashboard subscribes via CCCD and
-// receives the chunk stream. A read shouldn't happen, but return empty
-// rather than asserting.
+// Notify-only; dashboard subscribes CCCD and receives chunks. Reads
+// shouldn't happen, but return empty rather than assert.
 static int snapshot_data_access(uint16_t conn, uint16_t attr,
                                 struct ble_gatt_access_ctxt *ctxt, void *arg) {
     return 0;
@@ -234,10 +232,9 @@ static int fw_info_access(uint16_t conn, uint16_t attr,
     return BLE_ATT_ERR_UNLIKELY;
 }
 
-// SIGNAL char carries chunked SDP offer (write) and chunked SDP answer
-// (notify, via gatt_svr_signal_send). Buffer sized for one complete chunk
-// of the wire format — chunks are bounded at ~100 + 1 op byte by
-// webrtc_peer.c's BLE_SIG_CHUNK constant.
+// SIGNAL: chunked SDP offer (write) and chunked SDP answer (notify via
+// gatt_svr_signal_send). Buffer holds one chunk; chunks bounded at ~100 +
+// 1 op byte by webrtc_peer.c's BLE_SIG_CHUNK.
 static int signal_access(uint16_t conn, uint16_t attr,
                          struct ble_gatt_access_ctxt *ctxt, void *arg) {
     if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
@@ -246,9 +243,8 @@ static int signal_access(uint16_t conn, uint16_t attr,
         ble_hs_mbuf_to_flat(ctxt->om, buf, sizeof(buf), &copied);
         // Pass the writer's conn handle so the answer routes back to the
         // same central. Without this, gatt_svr_signal_send falls through
-        // to ble_host_active_conn() which is "most-recent connect" — wrong
-        // when a second browser window is BLE-connected concurrently
-        // (Phase 2.F.2 raised MAX_CONNECTIONS to 4).
+        // to ble_host_active_conn() ("most-recent connect"), wrong when a
+        // second browser is BLE-connected concurrently.
         if (copied > 0) webrtc_peer_handle_ble_signal_write(conn, buf, copied);
         return 0;
     }

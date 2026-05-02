@@ -82,8 +82,6 @@ async function anthropicDirectRequest(body) {
   }
 }
 
-// Single dispatch point for Anthropic-protocol calls (bridge OR direct API).
-// callOpenai (below) is the parallel for OpenAI's chat-completions protocol.
 async function callAnthropic(body) {
   if (settings.pipBackend === "anthropic") return anthropicDirectRequest(body);
   return bridgeRequest({ type: "proxy", provider: "claude", path: "/v1/messages", method: "POST", body });
@@ -100,9 +98,8 @@ function _activeOpenAiCompatModel() {
   return settings.pipBackend === "github" ? GITHUB_MODEL : OPENAI_MODEL;
 }
 async function callOpenai(body) {
-  // Two endpoints share this function. Override body.model when calling
-  // GitHub Models so the OpenAI default ("gpt-4o-mini") gets the
-  // vendor-prefixed form GitHub Models expects ("openai/gpt-4o-mini").
+  // GitHub Models requires the vendor-prefixed model id, so override body.model
+  // when calling them.
   const isGithub = settings.pipBackend === "github";
   let url, token;
   if (isGithub) {
@@ -167,17 +164,12 @@ function logBackendError(label, res) {
   else                console.warn(`[claude/${which}] ${label}: HTTP ${res.status}`, res.body?.slice?.(0, 500) ?? res.body);
 }
 
-// Public API — protocol dispatch happens here. Both backends ultimately
-// return text or null; the caller never sees protocol details.
-//
-// Silent local-fallback: if the user's chosen backend returns null (transport
-// failure, bridge missing, API key rejected, etc.) and the local model has
-// been installed (weights are in IndexedDB), retry via localAsk. Keeps Pip
-// answering on cafe wifi / extension-less tabs / API outages, but only once
-// the user has opted in by installing local at least once.
+// Silent local-fallback: if the chosen backend returns null (transport
+// failure, bridge missing, API key rejected) and the local model is installed
+// (weights in IndexedDB), retry via localAsk. Keeps Pip answering on cafe
+// wifi, extension-less tabs, API outages — but only once the user has opted
+// in by installing local at least once.
 export async function ask(userText, opts = {}) {
-  // GitHub Models reuses the OpenAI request shape — _openaiAsk handles both;
-  // the URL/auth swap happens inside callOpenai based on pipBackend.
   if (settings.pipBackend === "openai" || settings.pipBackend === "github")
     return _withLocalFallback(() => _openaiAsk(userText, opts), () => localAsk(userText, opts));
   if (settings.pipBackend === "local")  return localAsk(userText, opts);
@@ -210,8 +202,6 @@ async function _anthropicAsk(userText, { system, maxTokens = 200 } = {}) {
   }
 }
 
-// OpenAI's chat/completions: system goes inside the messages array as
-// {role:"system"}, content is just a string.
 async function _openaiAsk(userText, { system, maxTokens = 200 } = {}) {
   const messages = [];
   if (system) messages.push({ role: "system", content: system });
@@ -335,24 +325,16 @@ async function _anthropicAskWithTools(messages, { system, tools, executor, maxIt
   return "(reached iteration limit)";
 }
 
-// OpenAI tool-use loop. Same shape as Anthropic's, different protocol:
-// - system goes inside messages as {role:"system"}
+// OpenAI tool-use loop. Different protocol from Anthropic:
+// - system inside messages as {role:"system"}
 // - tools wrapped as {type:"function", function:{...}}
 // - finish_reason === "tool_calls" instead of stop_reason === "tool_use"
-// - tool calls live on assistant.message.tool_calls (array of {id, function:{name, arguments}})
-//   where arguments is a JSON STRING that needs parsing
+// - tool calls live on assistant.message.tool_calls; arguments is a JSON STRING
 // - tool results sent back as {role:"tool", tool_call_id, content}
 //
-// Anthropic-side input was already JSON; OpenAI's arguments-as-string
-// requires JSON.parse before passing to the executor. We catch parse
-// failures the same way as upstream errors — surfaces a tool_result that
-// represents the failure rather than crashing the loop.
+// arguments-as-string requires JSON.parse. Parse failures surface as a
+// tool_result instead of crashing the loop.
 async function _openaiAskWithTools(messages, { system, tools, executor, maxIterations = 10, maxTokens = 1024, onToolStart, onToolEnd, shouldAbort, onMaxIterations } = {}) {
-  // Translate Anthropic-style messages (where the "system" prompt is a
-  // separate field, and tool messages have content arrays) into OpenAI's
-  // flat messages-with-system-as-first-message shape. The caller's
-  // initial messages are already plain text user/assistant turns from
-  // assistant.js's _history, so this normalization is mostly cheap.
   const convo = [];
   if (system) convo.push({ role: "system", content: system });
   for (const m of messages) convo.push({ role: m.role, content: m.content });
