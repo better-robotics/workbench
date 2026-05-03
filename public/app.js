@@ -1454,7 +1454,72 @@ async function _setConsoleMode(mode) {
   }
 }
 
+// Recovery menu (BetterRobotics dropdown) — wired FIRST in DOMContentLoaded
+// inside try/catch so a failure later in init can never strand the user
+// without Hard Refresh. Uses optional chaining on every $() lookup so a
+// single missing element doesn't abort the rest of the wiring. Same panda
+// principle the firmware applies: the recovery layer enforced *below* the
+// failure-prone intelligent layer.
+function wireRecoveryMenu() {
+  const appMenuBtn = $("app-menu-btn");
+  const appMenu = $("app-menu");
+  if (!appMenuBtn || !appMenu) return;
+  appMenuBtn.addEventListener("click", (e) => {
+    if (appMenu.matches(":popover-open")) { appMenu.hidePopover(); return; }
+    const rect = e.currentTarget.getBoundingClientRect();
+    appMenu.style.top = `${rect.bottom + 6}px`;
+    appMenu.style.left = `${Math.max(8, rect.left)}px`;
+    appMenu.style.right = "auto";
+    if (appMenu.showPopover) appMenu.showPopover();
+  });
+  document.addEventListener("click", (e) => {
+    if (!appMenu.matches(":popover-open")) return;
+    if (e.target.closest("#app-menu")) return;
+    if (e.target.closest("#app-menu-btn")) return;
+    appMenu.hidePopover();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && appMenu.matches(":popover-open")) appMenu.hidePopover();
+  });
+  $("menu-phone-view")?.addEventListener("click", () => appMenu.hidePopover());
+  $("menu-report-issue")?.addEventListener("click", () => appMenu.hidePopover());
+  // Version + report-issue link. Read VERSION from sw.js (CI stamps it
+  // on every dashboard-asset change). Both the menu display and the
+  // report-issue body get the running commit + UA + URL prefilled.
+  readSwVersion().then(version => {
+    const v = $("app-menu-version"); if (v) v.textContent = version;
+    const r = $("menu-report-issue"); if (r) setReportIssueLink(r, version);
+  }).catch(() => {});
+  wireInstallMenuItem({
+    btnId: "menu-install",
+    iosPopoverId: "install-ios-popover",
+    onClick: () => appMenu.hidePopover(),
+  });
+  wireCheckUpdatesMenuItem({ btnId: "menu-check-updates" });
+  wireDiagnosticsMenuItem({
+    openBtnId: "menu-diagnostics",
+    dialogId: "diagnostics-dialog",
+    closeBtnId: "diagnostics-close",
+    refreshBtnId: "diagnostics-refresh",
+    copyBtnId: "diagnostics-copy",
+    outputId: "diagnostics-output",
+    getTelemetrySources: () => Array.from(state.devices.values()),
+    onBeforeOpen: () => appMenu.hidePopover(),
+  });
+  wireHardRefresh({
+    openBtnId: "menu-hard-refresh",
+    dialogId: "hard-refresh-dialog",
+    closeBtnId: "hard-refresh-close",
+    cancelBtnId: "hard-refresh-cancel",
+    confirmBtnId: "hard-refresh-confirm",
+    onBeforeOpen: () => appMenu.hidePopover(),
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
+  // Wire the recovery menu FIRST and in isolation. Anything throwing in
+  // the rest of init can no longer strand the user without Hard Refresh.
+  try { wireRecoveryMenu(); } catch (err) { console.error("[recovery-menu]", err); }
   // Browsers without Web Bluetooth (iOS Safari is the common case — a phone
   // user who navigated phone → "Open dashboard view") still need the chrome
   // to work: they should be able to open the BetterRobotics menu, install
@@ -1692,60 +1757,8 @@ document.addEventListener("DOMContentLoaded", () => {
     mod.init();
     mod.openScriptsDialog();
   });
-  $("app-menu-btn").addEventListener("click", (e) => {
-    const menu = $("app-menu");
-    if (menu.matches(":popover-open")) { menu.hidePopover(); return; }
-    const rect = e.currentTarget.getBoundingClientRect();
-    menu.style.top = `${rect.bottom + 6}px`;
-    menu.style.left = `${Math.max(8, rect.left)}px`;
-    menu.style.right = "auto";
-    if (menu.showPopover) menu.showPopover();
-  });
-  document.addEventListener("click", (e) => {
-    const menu = $("app-menu");
-    if (!menu.matches(":popover-open")) return;
-    if (e.target.closest("#app-menu")) return;
-    if (e.target.closest("#app-menu-btn")) return;
-    menu.hidePopover();
-  });
-  document.addEventListener("keydown", (e) => {
-    const menu = $("app-menu");
-    if (e.key === "Escape" && menu.matches(":popover-open")) menu.hidePopover();
-  });
-  $("menu-phone-view").addEventListener("click", () => $("app-menu").hidePopover());
-  $("menu-report-issue").addEventListener("click", () => $("app-menu").hidePopover());
-  // Version + report-issue link. Read VERSION from sw.js (CI stamps it
-  // on every dashboard-asset change). Both the menu display and the
-  // report-issue body get the running commit + UA + URL prefilled —
-  // arriving reports skip a triage round.
-  readSwVersion().then(version => {
-    $("app-menu-version").textContent = version;
-    setReportIssueLink($("menu-report-issue"), version);
-  });
-  wireInstallMenuItem({
-    btnId: "menu-install",
-    iosPopoverId: "install-ios-popover",
-    onClick: () => $("app-menu").hidePopover(),
-  });
-  wireCheckUpdatesMenuItem({ btnId: "menu-check-updates" });
-  wireDiagnosticsMenuItem({
-    openBtnId: "menu-diagnostics",
-    dialogId: "diagnostics-dialog",
-    closeBtnId: "diagnostics-close",
-    refreshBtnId: "diagnostics-refresh",
-    copyBtnId: "diagnostics-copy",
-    outputId: "diagnostics-output",
-    getTelemetrySources: () => Array.from(state.devices.values()),
-    onBeforeOpen: () => $("app-menu").hidePopover(),
-  });
-  wireHardRefresh({
-    openBtnId: "menu-hard-refresh",
-    dialogId: "hard-refresh-dialog",
-    closeBtnId: "hard-refresh-close",
-    cancelBtnId: "hard-refresh-cancel",
-    confirmBtnId: "hard-refresh-confirm",
-    onBeforeOpen: () => $("app-menu").hidePopover(),
-  });
+  // (BetterRobotics dropdown wiring moved to wireRecoveryMenu(), called
+  // first in this DOMContentLoaded inside try/catch — see top of file.)
 
   $("label-close").addEventListener("click", () => $("label-modal").close());
   const labelUrlEl = $("label-url");
