@@ -1,7 +1,8 @@
 import { ask, askWithTools } from "./claude.js";
 import { getTools, executor, setAskInChatHandler } from "./pip-tools.js";
 import { shorten, labelTool, summarizeTool } from "./format.js";
-import { createPip, renderMd } from "https://cdn.jsdelivr.net/gh/jonasneves/pip@v1.2.0/pip-core.esm.js";
+import { registerSlash, slashSource, dispatchSlash } from "./slash.js";
+import { createPip, renderMd } from "https://cdn.jsdelivr.net/npm/@jonasneves/pip@1.6.0/pip-core.esm.js";
 
 // Match Buddy: 10s total show, fade at 7s (last 3s).
 const SHOW_MS = 10000;
@@ -228,6 +229,21 @@ function rehoistPip() {
   }
 }
 
+// First slash commands wired through the registry. /help is auto-generated
+// from the registered list. Add more here (or have other modules call
+// registerSlash directly) as the surface grows.
+function registerInitialSlashCommands() {
+  registerSlash({
+    name: "clear",
+    description: "clear pip's chat history",
+    handler: () => {
+      _pip.history.length = 0;
+      _pip.turns.innerHTML = "";
+      return { clearedUI: true };
+    },
+  });
+}
+
 function watchDialogs() {
   for (const dlg of document.querySelectorAll("dialog")) {
     let wasOpen = dlg.hasAttribute("open");
@@ -250,6 +266,8 @@ export function initAssistant() {
     container: document.body,
     ask,
     onSubmit,
+    onSlash: dispatchSlash,
+    slashSource,
     systemPrompt: PIP_SYSTEM,
     historyLimit: HISTORY_LIMIT,
     introText: showIntro ? PIP_INTRO : "",
@@ -258,6 +276,7 @@ export function initAssistant() {
     maxLength: 4000,
     onOpen: cancelAutoDismiss,
   });
+  registerInitialSlashCommands();
   if (showIntro) { try { localStorage.setItem(seenKey, "1"); } catch {} }
   // Typing cancels auto-dismiss so Pip doesn't vanish mid-thought.
   _pip.input.addEventListener("input", () => { if (_pip.input.value) cancelAutoDismiss(); });
