@@ -1,9 +1,8 @@
 import { ask, askWithTools } from "./claude.js";
 import { getTools, executor, setAskInChatHandler } from "./pip-tools.js";
 import { shorten, labelTool, summarizeTool } from "./format.js";
-import { registerSlash, slashSource, dispatchSlash } from "./slash.js";
 import { settings, saveSettings } from "./settings.js";
-import { createPip, renderMd } from "https://cdn.jsdelivr.net/npm/@jonasneves/pip@1.6.2/pip-core.esm.js";
+import { createPip, renderMd } from "https://cdn.jsdelivr.net/npm/@jonasneves/pip@1.7.0/pip-core.esm.js";
 
 // Match Buddy: 10s total show, fade at 7s (last 3s).
 const SHOW_MS = 10000;
@@ -230,23 +229,12 @@ function rehoistPip() {
   }
 }
 
-// First slash commands wired through the registry. /help is auto-generated
-// from the registered list. Add more here (or have other modules call
-// registerSlash directly) as the surface grows.
+// Slash commands registered on the pip handle. /clear and /help ship as
+// pip-core built-ins (v1.7.0+); these are the dashboard-specific ones.
 const PIP_BACKENDS = ["github", "bridge", "anthropic", "openai", "local"];
 
 function registerInitialSlashCommands() {
-  registerSlash({
-    name: "clear",
-    description: "clear pip's chat history",
-    handler: () => {
-      _pip.history.length = 0;
-      _pip.turns.innerHTML = "";
-      return { clearedUI: true };
-    },
-  });
-
-  registerSlash({
+  _pip.registerSlash({
     name: "connect",
     description: "open the BLE chooser to pair a robot",
     // Synthetic click on the scan button — keeps requestDevice's user-
@@ -260,7 +248,7 @@ function registerInitialSlashCommands() {
     },
   });
 
-  registerSlash({
+  _pip.registerSlash({
     name: "model",
     description: "switch Pip's backend (github/bridge/anthropic/openai/local)",
     complete: (partial) => PIP_BACKENDS.filter(b => b.startsWith(partial.toLowerCase())),
@@ -270,10 +258,6 @@ function registerInitialSlashCommands() {
       if (!PIP_BACKENDS.includes(arg)) {
         return { reply: `Unknown backend \`${arg}\`. One of: ${PIP_BACKENDS.map(b => `\`${b}\``).join(", ")}` };
       }
-      // Belt-and-suspenders: write settings + persist directly so the
-      // change is durable even if the Settings dropdown isn't in the DOM
-      // (or its change handler isn't bound). Then sync the dropdown's
-      // visible state so reopening Settings shows the new value.
       const before = settings.pipBackend;
       settings.pipBackend = arg;
       saveSettings();
@@ -315,8 +299,6 @@ export function initAssistant() {
     container: document.body,
     ask,
     onSubmit,
-    onSlash: dispatchSlash,
-    slashSource,
     systemPrompt: PIP_SYSTEM,
     historyLimit: HISTORY_LIMIT,
     introText: showIntro ? PIP_INTRO : "",
