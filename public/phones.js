@@ -387,6 +387,18 @@ async function _respondAndHostPair(accepted, senderPubkey, senderLabel, req, aut
 // request/accept flow (_respondAndHostPair). Adds the phone to _phones,
 // wires data channel handlers, sends our pair-keys greeting.
 function _registerPairedPhone(id, peer, defaultLabel) {
+  // If a QR session was waiting in the background and *this* pair came in
+  // through a different room (i.e. the wifi-tap path), retire the QR
+  // session and close its dialog — the user got what they wanted via the
+  // other route, the QR has no purpose now. (QR-flow callers null
+  // _pendingSession after this call, so the id-mismatch guard skips them.)
+  if (_pendingSession && _pendingSession.roomId !== id) {
+    try { getLobby().remove("better-robotics-pair:" + _pendingSession.roomId); } catch {}
+    _pendingSession.cancel();
+    _pendingSession = null;
+    const dialog = $("pair-dialog");
+    if (dialog?.open) dialog.close();
+  }
   _phones.set(id, { id, label: defaultLabel || "Phone", peer, connectedAt: Date.now(), status: "connected", statusDetail: "" });
   log("phone paired", "phone");
   try { peer.send({ type: "pair-keys", pubkey: _myPubkey, label: deviceLabel() }); } catch {}
