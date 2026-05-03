@@ -3,7 +3,7 @@ import { getTools, executor, setAskInChatHandler } from "./pip-tools.js";
 import { shorten, labelTool, summarizeTool } from "./format.js";
 import { registerSlash, slashSource, dispatchSlash } from "./slash.js";
 import { settings, saveSettings } from "./settings.js";
-import { createPip, renderMd } from "https://cdn.jsdelivr.net/npm/@jonasneves/pip@1.6.1/pip-core.esm.js";
+import { createPip, renderMd } from "https://cdn.jsdelivr.net/npm/@jonasneves/pip@1.6.2/pip-core.esm.js";
 
 // Match Buddy: 10s total show, fade at 7s (last 3s).
 const SHOW_MS = 10000;
