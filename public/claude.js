@@ -18,6 +18,18 @@ import { settings } from "./settings.js";
 import { localAsk, localAskWithTools } from "./local-llm.js";
 
 const MODEL = "claude-sonnet-4-6";
+
+// User-facing model identifier per backend. Single source of truth for
+// what name shows up in the Pip placeholder ("Ask Pip… · gpt-4o-mini")
+// and in any future model picker. Keeps display logic out of assistant.js
+// — model knowledge lives next to the actual API calls.
+export function activeModelForBackend(backend) {
+  if (backend === "bridge" || backend === "anthropic") return MODEL;
+  if (backend === "openai") return "gpt-4o-mini";
+  if (backend === "github") return "gpt-4o-mini";  // strip vendor prefix for display
+  if (backend === "local") return "lfm2";
+  return backend;
+}
 // Per-Claude-call ceiling. Tool-using conversations make several bridgeRequests
 // in series (one per tool round); 8s was fine for the no-tools notify path but
 // tight for tool loops and cold-start proxy latency. 20s covers typical

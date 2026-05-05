@@ -1,4 +1,4 @@
-import { ask, askWithTools } from "./claude.js";
+import { ask, askWithTools, activeModelForBackend } from "./claude.js";
 import { getTools, executor, setAskInChatHandler } from "./pip-tools.js";
 import { shorten, labelTool, summarizeTool } from "./format.js";
 import { settings, saveSettings } from "./settings.js";
@@ -454,7 +454,7 @@ function registerInitialSlashCommands() {
         } catch {}
       }
 
-      _pip.setModelLabel?.(arg);
+      _pip.setModelLabel?.(activeModelForBackend(arg));
 
       // Local LFM2 still needs a separate install step (large download).
       const extra = arg === "local" && !settings.pipLocalInstalled
@@ -517,7 +517,7 @@ export function initAssistant() {
     // pip 1.8.0+: meta row at the top of the panel. Model badge surfaces
     // the active backend; slash-key cap is a discoverable affordance for
     // the slash command surface.
-    modelLabel: settings.pipBackend,
+    modelLabel: activeModelForBackend(settings.pipBackend),
     showClose: false,
     onOpen: cancelAutoDismiss,
   });
