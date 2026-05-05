@@ -1906,7 +1906,11 @@ dialog[open]::backdrop { opacity: 1; }
    keep the input visually tight. */
 .pip-input { font-size: 13px; padding: 6px 40px 6px 10px; background: var(--bg); }
 .pip-input:focus { background: var(--surface); }
-/* Send/stop button styling lives in pip-core 2.1.0+. */
+/* Send/stop button styling lives in pip-core 2.1.0+. Our tighter input
+   (font-size 13px + padding 6+6) gives ~31px total height vs pip-core's
+   ~36px default, so vertical gap with the 24px button is ~3.5px instead
+   of ~5.5px. Match horizontally so the inset stays symmetric. */
+.pip-form { --pip-btn-right: 4px; }
 /* Tool-trace row — one per tool_use call, appended as Pip dispatches them.
    .pending = in-flight (italic + dim), .error = tool returned/threw. */
 .pip-trace {
