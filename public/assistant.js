@@ -2,7 +2,7 @@ import { ask, askWithTools, activeModelForBackend } from "./claude.js";
 import { getTools, executor, setAskInChatHandler } from "./pip-tools.js";
 import { shorten, labelTool, summarizeTool } from "./format.js";
 import { settings, saveSettings } from "./settings.js";
-import { createPip, renderMd } from "https://cdn.jsdelivr.net/npm/@jonasneves/pip@1.10.1/pip-core.esm.js";
+import { createPip, renderMd } from "https://cdn.jsdelivr.net/npm/@jonasneves/pip@1.11.0/pip-core.esm.js";
 
 // Match Buddy: 10s total show, fade at 7s (last 3s).
 const SHOW_MS = 10000;
@@ -241,18 +241,6 @@ async function _loadConnectGitHub() {
   return _connectGitHubFn;
 }
 
-// Prompt the user for an API key inline by repurposing Pip's main input.
-// The placeholder becomes the format hint; type="password" masks the
-// paste. Returns the trimmed key, or null if cancelled (slash typed,
-// or empty submission).
-async function collectApiKey(label, format) {
-  const value = await _pip.collectInputValue({
-    placeholder: `Paste your ${label} API key (${format})`,
-    type: "password",
-  });
-  return value && value.trim() ? value.trim() : null;
-}
-
 // Bridge / local failure copy. github / anthropic / openai use the
 // inline-button + main-input recovery path in actOnFailure, so they
 // don't need text hints anymore.
@@ -304,7 +292,7 @@ async function actOnFailure(backend, turnEl) {
       options: [has ? "Re-enter key" : "Enter key", "Switch backend"],
     }, turnEl);
     if (choice === "Enter key" || choice === "Re-enter key") {
-      const key = await collectApiKey(label, format);
+      const key = await _pip.collectSecret({ label: `${label} API key`, format });
       if (!key) return "Cancelled.";
       if (isAnthropic) settings.pipApiKey = key;
       else settings.pipOpenaiKey = key;
@@ -393,7 +381,7 @@ function registerInitialSlashCommands() {
   // /model handles both *switching* the backend and *setting it up* if the
   // chosen one needs auth or a key. One slash, one mental model: pick a
   // backend, the rest happens inline. Key entry repurposes Pip's main
-  // input via collectApiKey — same input the user's already looking at.
+  // input via _pip.collectSecret — same input the user's already looking at.
   _pip.registerSlash({
     name: "model",
     description: "switch Pip's backend (github/bridge/anthropic/openai/local)",
@@ -427,12 +415,12 @@ function registerInitialSlashCommands() {
         }
       }
       if (arg === "anthropic" && (!settings.pipApiKey || isReSetup)) {
-        const key = await collectApiKey("Anthropic", "sk-ant-…");
+        const key = await _pip.collectSecret({ label: "Anthropic API key", format: "sk-ant-…" });
         if (!key) return { reply: "Cancelled — Anthropic needs an API key. Run `/model anthropic` to try again." };
         settings.pipApiKey = key;
       }
       if (arg === "openai" && (!settings.pipOpenaiKey || isReSetup)) {
-        const key = await collectApiKey("OpenAI", "sk-…");
+        const key = await _pip.collectSecret({ label: "OpenAI API key", format: "sk-…" });
         if (!key) return { reply: "Cancelled — OpenAI needs an API key. Run `/model openai` to try again." };
         settings.pipOpenaiKey = key;
       }
