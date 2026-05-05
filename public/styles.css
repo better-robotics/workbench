@@ -1920,7 +1920,10 @@ dialog[open]::backdrop { opacity: 1; }
 .pip-stop-btn,
 .pip-send-btn {
   position: absolute;
-  right: 8px;
+  /* right offset matches the vertical centering gap so the button looks
+     evenly inset on all four sides. Input is ~30px tall, button is 24px,
+     so the visual gap top/bottom is ~3px — right matches. */
+  right: 3px;
   top: 50%;
   transform: translateY(-50%);
   width: 24px;
