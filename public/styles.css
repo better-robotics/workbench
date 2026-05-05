@@ -1914,7 +1914,8 @@ dialog[open]::backdrop { opacity: 1; }
    send/stop share the input affordance. aspect-ratio + min-width pin the
    shape against any inherited button rules. Padding-right on .pip-input
    above keeps text from sliding under the button. */
-.pip-stop-btn {
+.pip-stop-btn,
+.pip-send-btn {
   position: absolute;
   right: 8px;
   top: 50%;
@@ -1937,8 +1938,10 @@ dialog[open]::backdrop { opacity: 1; }
   align-items: center;
   justify-content: center;
 }
-.pip-stop-btn:hover { filter: brightness(1.1); }
-.pip-stop-btn:disabled { opacity: 0.5; cursor: progress; }
+.pip-stop-btn:hover,
+.pip-send-btn:hover { filter: brightness(1.1); }
+.pip-stop-btn:disabled,
+.pip-send-btn:disabled { opacity: 0.5; cursor: progress; }
 /* Tool-trace row — one per tool_use call, appended as Pip dispatches them.
    .pending = in-flight (italic + dim), .error = tool returned/threw. */
 .pip-trace {

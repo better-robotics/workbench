@@ -135,9 +135,42 @@ function ensurePipStopButton() {
 function showPipStopButton() {
   const btn = ensurePipStopButton();
   if (btn) { btn.hidden = false; btn.disabled = false; }
+  _syncPipSendVisibility();
 }
 function hidePipStopButton() {
   if (_stopBtn) _stopBtn.hidden = true;
+  _syncPipSendVisibility();
+}
+
+// Singleton send button — same shape + slot as the stop button (one CSS
+// rule covers both). Visible when the input has text and Pip isn't
+// responding; hidden when the input is empty so the slot stays quiet at
+// rest. Click submits via type="submit"; pip-core's existing form-submit
+// handler runs the same path Enter triggers.
+let _sendBtn = null;
+function ensurePipSendButton() {
+  if (_sendBtn) return _sendBtn;
+  const input = _pip?.input;
+  const form = input?.parentElement;
+  if (!input || !form) return null;
+  form.style.position = "relative";
+  const btn = document.createElement("button");
+  btn.type = "submit";
+  btn.className = "pip-send-btn";
+  btn.setAttribute("aria-label", "Send");
+  btn.innerHTML = '<svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M6 10 L6 2 M2.5 5.5 L6 2 L9.5 5.5" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  btn.hidden = true;
+  form.appendChild(btn);
+  input.addEventListener("input", _syncPipSendVisibility);
+  _sendBtn = btn;
+  return btn;
+}
+function _syncPipSendVisibility() {
+  if (!_sendBtn) return;
+  const input = _pip?.input;
+  const responding = !!_stopBtn && !_stopBtn.hidden;
+  const hasText = input && input.value.trim().length > 0;
+  _sendBtn.hidden = responding || !hasText;
 }
 
 // Writes the ambient notify slot. Distinct from chat turns — notify is
@@ -340,6 +373,9 @@ export function initAssistant() {
   if (showIntro) { try { localStorage.setItem(seenKey, "1"); } catch {} }
   // Typing cancels auto-dismiss so Pip doesn't vanish mid-thought.
   _pip.input.addEventListener("input", () => { if (_pip.input.value) cancelAutoDismiss(); });
+  // Mount the send button now so its input listener wires up before
+  // the user types — first keystroke should already toggle visibility.
+  ensurePipSendButton();
   // Inject in-chat ask handler so pip-tools' ask_human can render option
   // buttons / free-text input inline in the active turn.
   setAskInChatHandler(({ question, options }) =>
