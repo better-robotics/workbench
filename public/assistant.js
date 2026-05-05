@@ -2,7 +2,7 @@ import { ask, askWithTools, activeModelForBackend } from "./claude.js";
 import { getTools, executor, setAskInChatHandler } from "./pip-tools.js";
 import { shorten, labelTool, summarizeTool } from "./format.js";
 import { settings, saveSettings } from "./settings.js";
-import { createPip, renderMd } from "https://cdn.jsdelivr.net/npm/@jonasneves/pip@1.13.0/pip-core.esm.js";
+import { createPip, renderMd } from "https://cdn.jsdelivr.net/npm/@jonasneves/pip@2.1.1/pip-core.esm.js";
 
 // Match Buddy: 10s total show, fade at 7s (last 3s).
 const SHOW_MS = 10000;
@@ -107,71 +107,8 @@ function scrollPanelToBottom() {
 // Stop button while askWithTools iterates. Click sets abort flag the loop
 // polls between iterations; current in-flight tool call still completes
 // (firmware safety floor caps blast radius — .claude/CLAUDE.md → Control-loop invariants).
-// Singleton stop button that lives in pip's input form (right edge),
-// not inside the chat message. Matches the universal AI-chat convention
-// (ChatGPT, Claude.ai, Cursor — stop control sits where the send button
-// would). Mounted lazily on first show; persists thereafter, hidden when
-// not responding.
-let _stopBtn = null;
-function ensurePipStopButton() {
-  if (_stopBtn) return _stopBtn;
-  const form = _pip?.panel?.querySelector?.(".pip-form");
-  if (!form) return null;
-  form.style.position = "relative";
-  const btn = document.createElement("button");
-  btn.type = "button";
-  btn.className = "pip-stop-btn";
-  btn.setAttribute("aria-label", "Stop");
-  btn.innerHTML = '<svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><rect width="12" height="12" rx="2" fill="currentColor"/></svg>';
-  btn.addEventListener("click", () => {
-    _abort = true;
-    btn.disabled = true;
-  });
-  btn.hidden = true;
-  form.appendChild(btn);
-  _stopBtn = btn;
-  return btn;
-}
-function showPipStopButton() {
-  const btn = ensurePipStopButton();
-  if (btn) { btn.hidden = false; btn.disabled = false; }
-  _syncPipSendVisibility();
-}
-function hidePipStopButton() {
-  if (_stopBtn) _stopBtn.hidden = true;
-  _syncPipSendVisibility();
-}
-
-// Singleton send button — same shape + slot as the stop button (one CSS
-// rule covers both). Visible when the input has text and Pip isn't
-// responding; hidden when the input is empty so the slot stays quiet at
-// rest. Click submits via type="submit"; pip-core's existing form-submit
-// handler runs the same path Enter triggers.
-let _sendBtn = null;
-function ensurePipSendButton() {
-  if (_sendBtn) return _sendBtn;
-  const input = _pip?.input;
-  const form = input?.parentElement;
-  if (!input || !form) return null;
-  form.style.position = "relative";
-  const btn = document.createElement("button");
-  btn.type = "submit";
-  btn.className = "pip-send-btn";
-  btn.setAttribute("aria-label", "Send");
-  btn.innerHTML = '<svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M6 10 L6 2 M2.5 5.5 L6 2 L9.5 5.5" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-  btn.hidden = true;
-  form.appendChild(btn);
-  input.addEventListener("input", _syncPipSendVisibility);
-  _sendBtn = btn;
-  return btn;
-}
-function _syncPipSendVisibility() {
-  if (!_sendBtn) return;
-  const input = _pip?.input;
-  const responding = !!_stopBtn && !_stopBtn.hidden;
-  const hasText = input && input.value.trim().length > 0;
-  _sendBtn.hidden = responding || !hasText;
-}
+// Send + stop buttons live in pip-core 2.1.0+; we just toggle responding
+// state and provide an onAbort callback below.
 
 // Writes the ambient notify slot. Distinct from chat turns — notify is
 // "hey, I noticed X" and doesn't accumulate as history.
@@ -309,7 +246,8 @@ async function onSubmit(text, { turnEl }) {
   _activeTurnEl = turnEl;
   _abort = false;
   cancelAutoDismiss();
-  showPipStopButton();
+  // pip-core auto-toggles responding state around onSubmit, which morphs
+  // the right-edge slot (send → stop). Just clear the abort flag here.
 
   let pendingTraceLi = null;
   const messages = _pip.history.slice(-HISTORY_LIMIT)
@@ -333,7 +271,6 @@ async function onSubmit(text, { turnEl }) {
       return choice === "Continue" ? 5 : 0;
     },
   });
-  hidePipStopButton();
   _activeTurnEl = null;
   _resumeTimer = setTimeout(scheduleAutoDismiss, IDLE_RESUME_MS);
   // Backend returned nothing usable → surface an actionable recovery
@@ -502,20 +439,17 @@ export function initAssistant() {
     introDismissMs: 7000,
     placeholder: "Ask Pip…",
     maxLength: 4000,
-    // pip 1.8.0+: meta row at the top of the panel. Model badge surfaces
-    // the active backend; slash-key cap is a discoverable affordance for
-    // the slash command surface.
+    // Model identifier surfaces in the input placeholder ("Ask Pip… ·
+    // gpt-4o-mini") so the user always knows which backend is live.
     modelLabel: activeModelForBackend(settings.pipBackend),
-    showClose: false,
     onOpen: cancelAutoDismiss,
+    // Stop button click — flag the askWithTools loop to abort between iterations.
+    onAbort: () => { _abort = true; },
   });
   registerInitialSlashCommands();
   if (showIntro) { try { localStorage.setItem(seenKey, "1"); } catch {} }
   // Typing cancels auto-dismiss so Pip doesn't vanish mid-thought.
   _pip.input.addEventListener("input", () => { if (_pip.input.value) cancelAutoDismiss(); });
-  // Mount the send button now so its input listener wires up before
-  // the user types — first keystroke should already toggle visibility.
-  ensurePipSendButton();
   // Inject in-chat ask handler so pip-tools' ask_human can render option
   // buttons / free-text input inline in the active turn.
   setAskInChatHandler(({ question, options }) =>

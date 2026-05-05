@@ -1902,51 +1902,11 @@ dialog[open]::backdrop { opacity: 1; }
    This block only carries the site-specific layer: tool-trace rows, stop button,
    non-destructive turn collapse, and desktop-tight input sizing. */
 
-/* ESC and click-outside already dismiss; the × is redundant. */
-.pip-close { display: none; }
-
 /* Dashboard is desktop-dominant; override core's 16px (iOS zoom-prevention) to
    keep the input visually tight. */
 .pip-input { font-size: 13px; padding: 6px 40px 6px 10px; background: var(--bg); }
 .pip-input:focus { background: var(--surface); }
-/* Send/stop control mounted into pip's .pip-form. Single slot at the
-   right edge of the input morphs between actions. Uses --pip-accent so
-   the button reads as part of Pip's identity (matches the bubble icon
-   and the focus ring), not an isolated dashboard accent. Rounded-square
-   shape (Hatch / Claude.ai composer pattern) — a square reads as
-   "send a message", a circle reads as a generic action chip. min-height: 0
-   overrides the project-wide `button { min-height: 44px }` rule that
-   would otherwise stretch the square vertical. */
-.pip-stop-btn,
-.pip-send-btn {
-  position: absolute;
-  /* Right offset matches the vertical centering gap. Input is ~31px tall
-     (6px padding + ~17px line-box for 13px text + 6px padding + 1px border
-     each side), button is 24px → vertical gap (31-24)/2 ≈ 4px. Match
-     horizontally for even visual inset on all four sides. */
-  right: 4px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 24px;
-  height: 24px;
-  min-width: 24px;
-  min-height: 0;
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-  border: none;
-  border-radius: 6px;
-  background: var(--pip-accent, var(--accent));
-  color: #fff;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.pip-stop-btn:hover,
-.pip-send-btn:hover { filter: brightness(1.1); }
-.pip-stop-btn:disabled,
-.pip-send-btn:disabled { opacity: 0.5; cursor: progress; }
+/* Send/stop button styling lives in pip-core 2.1.0+. */
 /* Tool-trace row — one per tool_use call, appended as Pip dispatches them.
    .pending = in-flight (italic + dim), .error = tool returned/threw. */
 .pip-trace {
