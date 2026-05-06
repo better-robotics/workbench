@@ -664,16 +664,20 @@ async def _apply_bundle(bundle: dict) -> None:
         except Exception as e:
             _set_ota_status("failed", err=f"bad b64 for {src}: {e}"[:120])
             return
-        # __HOME__ / __USER__ in text files (pi-robot.service, getty drop-in,
+        # __HOME__ / __USER__ in templates (pi-robot.service, getty drop-in,
         # …). Same substitution firstrun does, so shipped units work for any
         # service-user name without a repo-side template step.
-        content = content.replace(b"__HOME__", _OTA_HOME.encode())
-        content = content.replace(b"__USER__", _OTA_USER.encode())
-        # Defensive check: never deploy a text file with leftover placeholders.
-        # If we got here with `__HOME__` still in the content, _OTA_HOME is
-        # empty (would have replaced with nothing) or the placeholder format
-        # changed. Fail loudly instead of writing a broken systemd unit.
-        if not src.endswith((".whl", ".bin", ".img")):
+        #
+        # Skip .py: pi_robot.py contains those tokens as Python string
+        # literals — its own substitution targets and check sentinels.
+        # Byte-replacing them here corrupts the deployed file's substitution
+        # logic (the loop tuple becomes (b"/home/<user>", b"<user>"), which
+        # then fires "unsubst <user>" on every subsequent OTA because every
+        # bundle file mentions the user). Python uses _OTA_HOME / _OTA_USER
+        # at runtime, never as deploy-time tokens.
+        if not src.endswith((".py", ".whl", ".bin", ".img", ".json")):
+            content = content.replace(b"__HOME__", _OTA_HOME.encode())
+            content = content.replace(b"__USER__", _OTA_USER.encode())
             for placeholder in (b"__HOME__", b"__USER__"):
                 if placeholder in content:
                     _set_ota_status(
