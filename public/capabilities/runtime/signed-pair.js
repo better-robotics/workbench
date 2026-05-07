@@ -199,6 +199,10 @@ let _keyHoldTimer = null;
 let _keyboardWired = false;
 
 export function pickMotorsTarget() {
+  // Map.values() insertion order on ties — first-paired wins. Fine with
+  // one robot; a footgun with multiple (phone joypad + WASD silently
+  // drive whichever was paired first). When multi-robot lands, surface
+  // an explicit "active robot" picker or require a target argument.
   for (const e of state.devices.values()) {
     if (e.motorsChar && e.status === "connected") return e;
   }

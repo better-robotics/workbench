@@ -5,7 +5,7 @@ IDF_DIR     := firmware/esp32_robot_idf
 IDF_BUILD   := $(IDF_DIR)/build
 PUBLISH_DIR := public/firmware/bins
 
-.PHONY: help setup compile flash monitor monitor-noreset flash-monitor install-pi-os preview publish publish-firmware publish-pi-firmware smoke gen-uuids install-hooks
+.PHONY: help setup compile flash monitor monitor-noreset flash-monitor install-pi-os preview publish publish-firmware publish-pi-firmware smoke gen-uuids install-hooks push
 
 help:
 	@echo ""
@@ -31,6 +31,7 @@ help:
 	@echo "  \033[36mpublish-firmware\033[0m    Stage ESP32 bins in public/firmware/bins/ for web flashing + ESP32 OTA"
 	@echo "  \033[36mpublish-pi-firmware\033[0m Stage Pi firmware + wheels in public/firmware/pi_robot/ for SD-prep + Pi OTA"
 	@echo "  \033[36mpublish\033[0m             Both publish targets — run before pushing to deploy"
+	@echo "  \033[36mpush\033[0m                Pull-rebase then push — closes the local-vs-deployed gap (CI commits firmware bins back, so plain push tends to reject)"
 	@echo ""
 
 setup:
@@ -137,3 +138,11 @@ smoke:
 install-hooks:
 	@git config core.hooksPath .githooks
 	@echo "core.hooksPath = .githooks (pre-commit: gen-uuids drift + smoke)"
+
+# CI auto-commits firmware bins back to main on every firmware/** push, so
+# a local main almost always trails origin by one CI commit. Plain `git push`
+# rejects; pull --rebase first puts local commits on top of CI's, then push.
+# Conflicts from rebase fail loudly — fix and re-run.
+push:
+	git pull --rebase origin main
+	git push origin main
