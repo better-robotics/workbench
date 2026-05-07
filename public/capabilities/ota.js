@@ -208,54 +208,42 @@ async function streamOtaViaWebRTC(entry, bytes) {
 
 async function streamOtaBytes(entry, bytes) {
   const ch = entry.otaDataChar;
+  // All chunks WithResponse. The earlier WithoutResponse attempt looked
+  // like a clean speedup on paper (windowed flow control against an
+  // 8 KB chip-side notify cadence) but first contact with hardware
+  // showed two failures: (1) windowing requires the chip to *already*
+  // run new firmware with finer notify cadence — every fielded chip is
+  // on the OLD cadence, so the bootstrap OTA breaks, (2) Chrome's macOS
+  // BLE stack throws "GATT operation failed for unknown reason" under
+  // WithoutResponse blast, suggesting queue overrun or link drop.
+  // WithResponse is correct: each chunk's ATT_WRITE_RSP flows behind
+  // the chip's onWrite callback returning, so back-pressure is implicit
+  // and every chunk is acknowledged.
+  //
+  // CHUNK 244 lands within the negotiated ATT MTU
+  // (CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU=256 → max payload 253; frame is
+  // chunk + 1-byte opcode). Bumped from the old conservative 180 —
+  // fewer round-trips at ~50 ms each = ~1.36× faster on the same wire.
   entry.otaSent = 0;
   patchOtaSection(entry);
-  // Begin / abort / commit stay WithResponse — control frames need
-  // ATT_WRITE_RSP so we can act on errors and serialize behind the chip's
-  // flash erase.
   try { await ch.writeValueWithResponse(new Uint8Array([0x00])); } catch {}
   const begin = new Uint8Array(5);
   begin[0] = 0x01;
   new DataView(begin.buffer).setUint32(1, bytes.length, false);
   await ch.writeValueWithResponse(begin);
-  const CHUNK = 180;  // safe under negotiated ATT MTU on macOS/Chrome.
-  // ESP32: pipeline chunks WithoutResponse with windowed flow control. The
-  // earlier attempt at WithoutResponse silently dropped chunks because
-  // the dashboard had no back-pressure; bounding bytesSent − confirmed_n
-  // by BUFFER_HIGH gives the chip's RX queue + esp_ota_write call time
-  // to drain. ESP32's ota.c notifies every 8 KB during receive so the
-  // window pulls. Brings 1.6 MB from 3-10 min (per-chunk WithResponse
-  // round-trips) to ~30 s.
-  // Pi: stay WithResponse — BLE-stream is the fallback path; WebRTC is
-  // primary for Pi bundles, so the slower-but-uniformly-reliable path
-  // doesn't earn the test surface a new flow-control branch demands.
-  const pipelined = entry.fwType === "esp32";
-  const BUFFER_HIGH = 32 * 1024;
+  const CHUNK = 244;
   for (let i = 0; i < bytes.length; i += CHUNK) {
     const slice = bytes.subarray(i, Math.min(i + CHUNK, bytes.length));
     const frame = new Uint8Array(slice.length + 1);
     frame[0] = 0x02;
     frame.set(slice, 1);
-    if (pipelined) {
-      await ch.writeValueWithoutResponse(frame);
-      entry.otaSent = i + slice.length;
-      // Pause when in-flight bytes (sent but not yet confirmed by the
-      // chip's ota-status notify) exceed the buffer. The chip publishes
-      // every 8 KB so the wait is bounded.
-      while (entry.otaSent - (entry.otaStatus?.n || 0) > BUFFER_HIGH) {
-        await new Promise(r => setTimeout(r, 5));
-      }
-    } else {
-      await ch.writeValueWithResponse(frame);
-      entry.otaSent = i + slice.length;
-    }
-    // Per-chunk increment + RAF-coalesced patch — cheap (one paint per
-    // frame, not 9000 paints over the stream).
+    await ch.writeValueWithResponse(frame);
+    entry.otaSent = i + slice.length;
     patchOtaSectionThrottled(entry);
   }
   await ch.writeValueWithResponse(new Uint8Array([0x03]));
   entry.otaSent = bytes.length;
-  patchOtaSection(entry);  // final state — render synchronously, not throttled.
+  patchOtaSection(entry);
 }
 
 async function buildBundle(entry, manifestUrl) {
