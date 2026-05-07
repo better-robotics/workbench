@@ -65,14 +65,17 @@ export function setExpectingReconnectHandler(fn) { _markExpectingReconnect = fn;
 function patchOtaSection(entry) {
   const section = entry.node?.querySelector(".ota-section");
   if (!section) { renderEntry(entry); return; }
-  const { st, n: confirmed = 0, total = 0, err } = entry.otaStatus || {};
+  const { st, n: confirmed = 0, total = 0, err, heap } = entry.otaStatus || {};
   const sent = entry.otaSent || 0;
   const display = Math.max(sent, confirmed);
   const pct = total ? Math.round(100 * display / total) : 0;
   const looksDone = total && sent >= total;
   const label = looksDone && (st === "receiving" || !st) ? "committing" : (st || "idle");
+  // heap surfaces ESP32 free-heap during OTA — diagnostic for the
+  // 98%-commit-failed pattern (heap pressure during sustained BLE RX).
+  const heapStr = heap != null ? ` · ${Math.round(heap / 1024)} KB heap` : "";
   const meta = section.querySelector(".meta");
-  if (meta) meta.textContent = err ? `${st} — ${err}` : total ? `${label} · ${pct}%` : label;
+  if (meta) meta.textContent = err ? `${st} — ${err}${heapStr}` : total ? `${label} · ${pct}%${heapStr}` : `${label}${heapStr}`;
   const progress = section.querySelector(".ota-progress");
   if (progress && total) { progress.value = display; progress.max = total; }
   // Mirror into the active-ops chip on the identity row so the top-level
@@ -470,12 +473,13 @@ export const ota = {
   renderSection(entry) {
     const s = entry?.otaStatus;
     if (!s || s.st === "idle") return "";
-    const { st, n = 0, total = 0, err } = s;
+    const { st, n = 0, total = 0, err, heap } = s;
     const pct = total ? Math.round(100 * n / total) : 0;
+    const heapStr = heap != null ? ` · ${Math.round(heap / 1024)} KB heap` : "";
     const stateLine = err
-      ? `${escapeHtml(st)} — ${escapeHtml(err)}`
-      : total ? `${escapeHtml(st)} · ${pct}%`
-      : escapeHtml(st);
+      ? `${escapeHtml(st)} — ${escapeHtml(err)}${heapStr}`
+      : total ? `${escapeHtml(st)} · ${pct}%${heapStr}`
+      : `${escapeHtml(st)}${heapStr}`;
     // `.ota-section` marker lets the progress handler patch this in place
     // instead of rebuilding the whole card's innerHTML on every OTA notify.
     return `

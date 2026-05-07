@@ -6,6 +6,7 @@
 #include "esp_log.h"
 #include "esp_ota_ops.h"
 #include "esp_partition.h"
+#include "esp_system.h"
 #include "esp_timer.h"
 
 #include "gatt_svr.h"
@@ -31,7 +32,13 @@ static int64_t  s_chunk_last_progress_us = 0;
 const char *ota_status_json(void) { return s_status_json; }
 
 static void publish_status(const char *st, size_t n, size_t total, const char *err) {
-    int o = snprintf(s_status_json, STATUS_BUF_SIZE, "{\"st\":\"%s\",\"n\":%u", st, (unsigned)n);
+    // heap is diagnostic — the 98%-commit-failed pattern points at heap
+    // pressure during sustained BLE RX (NimBLE may ack ATT writes but
+    // fail to deliver to the GATT app callback when allocation fails).
+    // Surfacing free heap per notify lets the dashboard correlate
+    // failure point ↔ heap drop.
+    int o = snprintf(s_status_json, STATUS_BUF_SIZE, "{\"st\":\"%s\",\"n\":%u,\"heap\":%u",
+                     st, (unsigned)n, (unsigned)esp_get_free_heap_size());
     if (total) o += snprintf(s_status_json + o, STATUS_BUF_SIZE - o, ",\"total\":%u", (unsigned)total);
     if (err)   o += snprintf(s_status_json + o, STATUS_BUF_SIZE - o, ",\"err\":\"%s\"", err);
     snprintf(s_status_json + o, STATUS_BUF_SIZE - o, "}");
