@@ -1,4 +1,5 @@
 import { settings, saveSettings } from "./settings.js";
+import { showLoading, hideLoading } from "https://cdn.jsdelivr.net/npm/@jonasneves/pip@2.6.0/pip-core.esm.js";
 
 // LFM2.5-1.2B-Thinking-ONNX in-browser backend for Pip. Loaded lazily — the
 // dashboard does not pay the ~1.2 GB Q4 download until the user clicks
@@ -36,60 +37,6 @@ let _loadingPromise = null;
 const _state = { status: "idle", progress: 0, file: "", error: undefined };
 const _listeners = new Set();
 
-// Loading progress UI (vendored from pip's providers/transformers.esm.js).
-// Renders into a turnEl when one is passed to loadModel/localAsk*. Visual
-// treatment matches pip-core; class names are .br-llm-* so this stays
-// self-contained and doesn't clash with anything pip ships.
-let _stylesInjected = false;
-function injectProgressStyles() {
-  if (_stylesInjected || typeof document === "undefined") return;
-  _stylesInjected = true;
-  const css = document.createElement("style");
-  css.textContent = `
-.br-llm-progress {
-  margin: 6px 0 0;
-  font-size: 12px;
-  color: var(--pip-ink-muted, #8a8a8a);
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-}
-.br-llm-progress-bar {
-  width: 100%;
-  height: 3px;
-  background: var(--pip-border, color-mix(in srgb, currentColor 18%, transparent));
-  border-radius: 2px;
-  overflow: hidden;
-  margin-top: 4px;
-}
-.br-llm-progress-fill {
-  height: 100%;
-  width: 0%;
-  background: var(--pip-accent, #2b6cb0);
-  transition: width 0.3s ease;
-}
-@media (prefers-reduced-motion: reduce) {
-  .br-llm-progress-fill { transition: none; }
-}
-`.trim();
-  document.head.appendChild(css);
-}
-function showProgress(turnEl, label, pct) {
-  if (!turnEl) return;
-  let el = turnEl.querySelector(".br-llm-progress");
-  if (!el) {
-    el = document.createElement("div");
-    el.className = "br-llm-progress";
-    el.innerHTML = '<span class="br-llm-progress-text"></span><div class="br-llm-progress-bar"><div class="br-llm-progress-fill"></div></div>';
-    const reply = turnEl.querySelector(".pip-reply");
-    turnEl.insertBefore(el, reply || null);
-  }
-  el.querySelector(".br-llm-progress-text").textContent = label;
-  el.querySelector(".br-llm-progress-fill").style.width = `${Math.max(0, Math.min(100, pct))}%`;
-}
-function hideProgress(turnEl) {
-  const el = turnEl?.querySelector?.(".br-llm-progress");
-  if (el) el.remove();
-}
-
 function setState(patch) {
   Object.assign(_state, patch);
   for (const cb of _listeners) {
@@ -109,10 +56,7 @@ export async function loadModel(turnEl) {
   if (_model) return;
   if (_loadingPromise) return _loadingPromise;
   setState({ status: "loading", progress: 0, file: "", error: undefined });
-  if (turnEl) {
-    injectProgressStyles();
-    showProgress(turnEl, "loading runtime\u2026", 0);
-  }
+  if (turnEl) showLoading(turnEl, "loading runtime\u2026", 0);
   _loadingPromise = (async () => {
     _tf = await import(/* @vite-ignore */ TRANSFORMERS_URL);
     const onProgress = (p) => {
@@ -120,7 +64,7 @@ export async function loadModel(turnEl) {
         const file = (p.file || "").split("/").pop() || "";
         const pct = Math.round(p.progress || 0);
         setState({ status: "loading", file, progress: pct });
-        if (turnEl) showProgress(turnEl, `${file} ${pct}%`, pct);
+        if (turnEl) showLoading(turnEl, `${file} ${pct}%`, pct);
       }
     };
     _tokenizer = await _tf.AutoTokenizer.from_pretrained(MODEL_ID, { progress_callback: onProgress });
@@ -130,7 +74,7 @@ export async function loadModel(turnEl) {
       progress_callback: onProgress,
     });
     setState({ status: "ready", progress: 100, file: "" });
-    if (turnEl) hideProgress(turnEl);
+    if (turnEl) hideLoading(turnEl);
     // Persist that weights are in IndexedDB now — enables silent fallback
     // from other backends on transport failure (claude.js ask/askWithTools).
     if (!settings.pipLocalInstalled) {
@@ -142,7 +86,7 @@ export async function loadModel(turnEl) {
     _model = null;
     _tokenizer = null;
     setState({ status: "error", error: err?.message || String(err) });
-    if (turnEl) hideProgress(turnEl);
+    if (turnEl) hideLoading(turnEl);
     throw err;
   });
   return _loadingPromise;
