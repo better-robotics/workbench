@@ -111,26 +111,16 @@ systemctl enable serial-getty@ttyGS0.service
 # auth boundary (same as holding the SD card); skipping the password prompt
 # lets Recovery drop straight into a shell.
 install -d -m 755 /etc/systemd/system/serial-getty@ttyGS0.service.d
+# Single drop-in. A second drop-in with `-o '-p -- \u'` used to live next
+# to this one, but its `--` ended option parsing for login(1) BEFORE the
+# `-f` that agetty appends — so login fell back to interactive auth even
+# though autologin "fired". One file is enough; matches the OTA-pushed
+# serial-getty-autologin.conf so behavior stays stable across updates.
 cat > /etc/systemd/system/serial-getty@ttyGS0.service.d/autologin.conf <<AUTOLOGIN_EOF
 [Service]
 ExecStart=
-ExecStart=-/sbin/agetty --autologin $USER_NAME --noclear %I \$TERM
+ExecStart=-/sbin/agetty --autologin $USER_NAME --keep-baud 115200,57600,38400,9600 %I \$TERM
 AUTOLOGIN_EOF
-
-# Auto-login on the USB serial console as $USER_NAME — physical USB access
-# is already a full-trust boundary (same person could reseat the SD card),
-# and with password-optional provisioning the classic login prompt often
-# has no password to accept. Matches Raspberry Pi OS's own pattern for
-# serial consoles on older images.
-mkdir -p /etc/systemd/system/serial-getty@ttyGS0.service.d
-# Unquoted heredoc so $USER_NAME expands to the created user, but $TERM
-# stays literal for systemd to expand later. \u (agetty's username escape)
-# is left bare — bash only processes \\, \$, \` in unquoted heredocs.
-cat > /etc/systemd/system/serial-getty@ttyGS0.service.d/override.conf <<SGEOF
-[Service]
-ExecStart=
-ExecStart=-/sbin/agetty -a $USER_NAME -o '-p -- \u' --keep-baud 115200,38400,9600 %I \$TERM
-SGEOF
 systemctl daemon-reload
 
 install -d -m 700 /etc/NetworkManager/system-connections

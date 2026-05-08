@@ -81,9 +81,10 @@
     "systemctl enable avahi-daemon.service",
     "systemctl restart avahi-daemon.service",
     "rm -f /etc/systemd/system/pi-robot-wifi-discover.service $HOME/better-robotics/firmware/pi_robot/wifi_discover.py",
+    "rm -f /etc/systemd/system/serial-getty@ttyGS0.service.d/override.conf",
     "sed -i s/modules-load=dwc2,g_ether/modules-load=dwc2,libcomposite/ /boot/firmware/cmdline.txt",
     "/usr/local/bin/ensure-autologin-password.sh __USER__"
   ],
   "reboot": true,
-  "commit": "65419aa"
+  "commit": "30947c5"
 }
