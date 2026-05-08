@@ -1,11 +1,3 @@
-// Constant-cheap perception loop. LFM2.5-VL-450M via Transformers.js +
-// WebGPU against a robot's camera feed, every ~2 seconds. Latest scene is
-// stashed on the entry; Pip reads it via the get_robot_scene tool.
-//
-// Pattern mirrors ~/Github/jonasneves/catwatcher/app.js: same model,
-// AutoModelForImageTextToText / AutoProcessor sequence, drawImage →
-// getImageData → RawImage capture. Prompt tuned for indoor-robot scenes.
-//
 // Known VLM limits (from duke-ai/validation):
 //   - Cannot precisely localize. ~0% recall@0.3 for bbox. Usable for
 //     "I see X" semantics, NOT for "turn 12° left to track X".
@@ -13,8 +5,8 @@
 //   - Directive prompts > questions. "Describe …" not "Is there …".
 //
 // Cost: ~770 MB first-time download (q4), ~1-2 GB VRAM at run, ~1-1.5 s
-// per inference on a modern WebGPU desktop. Zero API spend. Loop runs only
-// while the user explicitly toggles "Watch" — no idle GPU drain.
+// per inference on a modern WebGPU desktop. Loop runs only while the user
+// toggles "Watch" — no idle GPU drain.
 import { state } from "./state.js";
 import { escapeHtml } from "./dom.js";
 import { broadcastSceneToPhones } from "./phones.js";

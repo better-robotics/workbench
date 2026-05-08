@@ -21,13 +21,10 @@ function setStatus(state, text) {
   $("phone-status-text").textContent = text;
 }
 
-// Phone → desktop → BLE → robot relay. Correlation id round-trips so the
-// phone can resolve the right pending promise when multiple commands race
-// (e.g. a double-tap of Stop while the first is in flight).
-//
-// PROTOCOL PARITY — must match phones.js onPhoneMessage / dispatchRobotCommand:
-//   phone → desktop  { type:"robot-command",        id, capability, args }
-//   desktop → phone  { type:"robot-command-result", id, ok, data? | error? }
+// Wire (must match onPhoneMessage in phones.js):
+//   phone→desktop  { type:"robot-command",        id, capability, args }
+//   desktop→phone  { type:"robot-command-result", id, ok, data?|error? }
+// Correlation id round-trips so racing commands resolve the right promise.
 const _pendingCommands = new Map();  // id → { resolve, timeout }
 function sendRobotCommand(capability, args = {}, timeoutMs = 5000) {
   if (!_peer) return Promise.resolve({ ok: false, error: "not paired" });
@@ -67,18 +64,9 @@ function wireStopButton() {
 }
 
 
-// Pip asked a question — show the modal, wait for the user to tap an option
-// (or Skip / timeout at the other end). Only one ask at a time on screen;
-// if a second arrives while the first is open, the new one replaces it and
-// the prior ask resolves as skipped server-side when its timer fires.
-//
-// PROTOCOL PARITY — must match phones.js askHuman():
-//   desktop → phone  { type:"ask",       askId, question, options, imageDataUrl }  (received here)
-//   phone → desktop  { type:"ask-reply", askId, answer }                           (sent from respond())
-// Desktop-side the reply is matched against the pending ask by askId; mismatched
-// or late replies are dropped silently. Keep both halves in sync — renaming a
-// field on one side without the other leaves the user tapping answers into the
-// void.
+// Wire: see askHuman() in phones.js. One ask on screen at a time; a second
+// replaces the first, prior resolves as skipped when its server-side timer
+// fires.
 function showAsk(msg) {
   const dialog = $("phone-ask-dialog");
   const img = $("phone-ask-image");
@@ -790,23 +778,8 @@ function wireAppMenu() {
     onClick: () => menu.hidePopover(),
   });
   wireCheckUpdatesMenuItem({ btnId: "menu-check-updates" });
-  wireDiagnosticsMenuItem({
-    openBtnId: "menu-diagnostics",
-    dialogId: "diagnostics-dialog",
-    closeBtnId: "diagnostics-close",
-    refreshBtnId: "diagnostics-refresh",
-    copyBtnId: "diagnostics-copy",
-    outputId: "diagnostics-output",
-    onBeforeOpen: () => menu.hidePopover(),
-  });
-  wireHardRefresh({
-    openBtnId: "menu-hard-refresh",
-    dialogId: "hard-refresh-dialog",
-    closeBtnId: "hard-refresh-close",
-    cancelBtnId: "hard-refresh-cancel",
-    confirmBtnId: "hard-refresh-confirm",
-    onBeforeOpen: () => menu.hidePopover(),
-  });
+  wireDiagnosticsMenuItem({ onBeforeOpen: () => menu.hidePopover() });
+  wireHardRefresh({ onBeforeOpen: () => menu.hidePopover() });
   $("menu-dashboard")?.addEventListener("click", () => menu.hidePopover());
 }
 

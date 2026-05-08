@@ -1320,23 +1320,10 @@ function wireRecoveryMenu() {
   });
   wireCheckUpdatesMenuItem({ btnId: "menu-check-updates" });
   wireDiagnosticsMenuItem({
-    openBtnId: "menu-diagnostics",
-    dialogId: "diagnostics-dialog",
-    closeBtnId: "diagnostics-close",
-    refreshBtnId: "diagnostics-refresh",
-    copyBtnId: "diagnostics-copy",
-    outputId: "diagnostics-output",
     getTelemetrySources: () => Array.from(state.devices.values()),
     onBeforeOpen: () => appMenu.hidePopover(),
   });
-  wireHardRefresh({
-    openBtnId: "menu-hard-refresh",
-    dialogId: "hard-refresh-dialog",
-    closeBtnId: "hard-refresh-close",
-    cancelBtnId: "hard-refresh-cancel",
-    confirmBtnId: "hard-refresh-confirm",
-    onBeforeOpen: () => appMenu.hidePopover(),
-  });
+  wireHardRefresh({ onBeforeOpen: () => appMenu.hidePopover() });
 }
 
 document.addEventListener("DOMContentLoaded", () => {

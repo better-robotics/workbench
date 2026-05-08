@@ -1,18 +1,6 @@
-// Browser ↔ robot WebRTC peer manager.
-//
-// Two signaling transports, chosen by robot type:
-//
-//  - ESP32: BLE-signaling, single path. Chunked SDP write to
-//    SIGNAL_CHAR_UUID; chunked answer back via notify on the same char.
-//    ICE then runs P2P — no internet rendezvous needed for signaling.
-//    BLE pair is the precondition for using the dashboard at all, so
-//    "BLE works" is always true when we get here. The chip-side wss
-//    client was removed (~165 KB flash, ~4 KB DRAM saved); fallback
-//    has no peer on the other side.
-//
-//  - Pi: wss://signal.neevs.io. The Pi has the resources to run a
-//    persistent wss client cleanly, and the eventual remote-control
-//    flow needs cross-network signaling. No BLE signal char exposed.
+// ESP32 has no fallback signaling path — BLE pair is the precondition for
+// using the dashboard at all, and the chip-side wss client was removed
+// (~165 KB flash, ~4 KB DRAM saved).
 //
 // Wire format on the SIGNAL char (both directions, mirrors OTA/snapshot):
 //   0x01 [u16 BE total]   begin

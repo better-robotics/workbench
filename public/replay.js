@@ -1,14 +1,7 @@
-// Replay log — every Pip tool call is one record, so a past session can
-// be re-evaluated against a new model/prompt without hitting hardware.
-// Openpilot's pattern for sanity-checking driving-model upgrades offline.
-//
-// Storage: IndexedDB, store 'calls', auto-incrementing id, ms timestamps.
+// IndexedDB store 'calls', auto-incrementing id, ms timestamps. Schema:
 //   { id, sessionId, name, input, output, startedAt, endedAt, durationMs, error }
-// imageDataUrl payloads stored as-is (JPEG base64 ~40 KB/frame; full
+// imageDataUrl payloads stored as-is (JPEG base64 ~40 KB/frame; a full
 // session lands in a few MB).
-//
-// wrapExecutor() wraps an executor; downloadReplay() / clearReplay() expose
-// the store. window.replayDownload is the DevTools entry point.
 
 const DB_NAME = "better-robotics-replay";
 const DB_VERSION = 1;

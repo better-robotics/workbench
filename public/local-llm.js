@@ -1,24 +1,20 @@
 import { settings, saveSettings } from "./settings.js";
 import { showLoading, hideLoading } from "https://cdn.jsdelivr.net/npm/@jonasneves/pip@2.6.0/pip-core.esm.js";
 
-// LFM2.5-1.2B-Thinking-ONNX in-browser backend for Pip. Loaded lazily — the
-// dashboard does not pay the ~1.2 GB Q4 download until the user clicks
-// Install in Settings → Pip backend → Local.
+// Loaded lazily — does not pay the ~1.2 GB Q4 download until the user
+// clicks Install in Settings → Pip backend → Local.
 //
-// Tool calling: per https://docs.liquid.ai/lfm/key-concepts/tool-use we use
-// the JSON mode (cleaner to parse than the Pythonic shape). Tool schemas are
-// injected into the system prompt; the model emits calls between
-// <|tool_call_start|> and <|tool_call_end|> as a JSON array. Reasoning is
-// emitted between <think> ... </think> blocks and stripped from the visible
-// reply.
+// Tool calling: JSON mode (per https://docs.liquid.ai/lfm/key-concepts/tool-use).
+// Tool schemas inject into the system prompt; calls emit between
+// <|tool_call_start|> and <|tool_call_end|> as a JSON array. Reasoning
+// between <think> ... </think> is stripped from the visible reply.
 //
-// Output ceiling: the ONNX export caps generation at 512 new tokens — long
-// replies WILL truncate. We do not chunk; surface as a known limit. Any
-// downstream prompt that needs more must split the request itself.
+// Output ceiling: ONNX export caps generation at 512 new tokens — long
+// replies WILL truncate. No chunking; downstream prompts that need more
+// must split the request themselves.
 
-// Same CDN + transformers.js version as perception.js / grounding.js — keep
-// in sync if perception.js bumps the URL (avoids loading two copies of the
-// runtime when both backends are active in the same session).
+// Keep in sync if perception.js bumps the URL — avoids loading two copies
+// of the transformers runtime when both backends are active.
 const TRANSFORMERS_URL = "https://cdn.jsdelivr.net/npm/@huggingface/transformers";
 const MODEL_ID = "LiquidAI/LFM2.5-1.2B-Thinking-ONNX";
 const DTYPE = "q4";

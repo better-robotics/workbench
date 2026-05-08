@@ -2,13 +2,8 @@ import { $, escapeHtml } from "./dom.js";
 import { listPhones, setPhonesChangeHandler, notifyRobotStreamChange } from "./phones.js";
 import { state } from "./state.js";
 
-// Helpers are non-mobile observers/operators (paired phones). Sibling
-// to robots — same card visuals, different backing data. Robots are
-// controllable mobile actors; helpers are extra eyes / hands the operator
-// brings in.
-//
-// Phone cameras can also be MOUNTED on a robot (phone-as-eye: strap the
-// phone to the rover for a second camera). Mounted streams route to
+// Phone cameras can be MOUNTED on a robot (phone-as-eye: strap the phone
+// to the rover for a second camera). Mounted streams route to
 // robot.attachedCameraStream; the helper card shows the routing instead
 // of local preview. Session-scoped (phones already are).
 

@@ -1,9 +1,6 @@
-// Two-browser WebRTC pairing against signal.neevs.io with catwatcher-style
-// resilience — the signaling WebSocket stays open for the life of the
-// session, carries ICE trickles both ways, and survives transient drops
-// via ICE restart instead of a fresh pair flow. Only a hard failure
-// (channel closed and ICE restart didn't recover within the grace window)
-// counts as "disconnected, rescan QR".
+// Transient drops recover via ICE restart, not a fresh pair flow. Only a
+// hard failure (channel closed and ICE restart didn't recover within the
+// grace window) counts as "disconnected, rescan QR".
 //
 // Signal protocol (~/Github/jonasneves/signal/src/server/room.js):
 //   connect wss://signal.neevs.io/{room}/ws
@@ -11,12 +8,11 @@
 //   recv   { type: "state",  peers: { peerId: lastSignal } }  // once, on connect
 //          { type: "signal", peer: theirPeerId, data: {...} }
 //
-// Protocol roles: phone is OFFERER (joins second, has something to offer),
-// desktop is ANSWERER. peerId = role + "-" + nonce so re-scanning the QR
-// or leaving a stale tab open doesn't collide with a fresh session under a
-// fixed role key. The server's `state` snapshot is how late-joiners recover
-// a signal sent before they arrived; we apply it only when we're not
-// already on a healthy connection.
+// Phone is OFFERER (joins second), desktop is ANSWERER. peerId = role +
+// "-" + nonce so a stale tab doesn't collide with a fresh session under a
+// fixed role key. The server's `state` snapshot recovers signals sent
+// before late-joiners arrive; applied only when we're not already on a
+// healthy connection.
 const SIGNAL_WS_URL = "wss://signal.neevs.io";
 // proxy.neevs.io mints short-lived Cloudflare Realtime TURN creds. STUN
 // servers stay in-line as a zero-roundtrip fallback so a degraded proxy

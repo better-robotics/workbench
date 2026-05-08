@@ -143,18 +143,15 @@ export function wireCheckUpdatesMenuItem({ btnId }) {
 
 // ── Hard refresh ───────────────────────────────────────────────────────
 
-// Single owner of the destructive sequence (was duplicated across
-// surfaces). Dialog body (which items get cleared) stays per-page in HTML
-// since phone + dashboard storage profiles differ.
-export function wireHardRefresh({
-  openBtnId, dialogId, closeBtnId, cancelBtnId, confirmBtnId,
-  onBeforeOpen,
-}) {
-  const dialog = document.getElementById(dialogId);
-  const open  = document.getElementById(openBtnId);
-  const close = document.getElementById(closeBtnId);
-  const cancel = document.getElementById(cancelBtnId);
-  const confirm = document.getElementById(confirmBtnId);
+// Single owner of the destructive sequence. Dialog body (which items get
+// cleared) stays per-page in HTML since phone + dashboard storage profiles
+// differ; surrounding chrome ids are shared.
+export function wireHardRefresh({ onBeforeOpen } = {}) {
+  const dialog = document.getElementById("hard-refresh-dialog");
+  const open = document.getElementById("menu-hard-refresh");
+  const close = document.getElementById("hard-refresh-close");
+  const cancel = document.getElementById("hard-refresh-cancel");
+  const confirm = document.getElementById("hard-refresh-confirm");
   if (!dialog || !open || !confirm) return;
   open.addEventListener("click", () => { onBeforeOpen?.(); dialog.showModal(); });
   close?.addEventListener("click", () => dialog.close());
@@ -308,21 +305,15 @@ export function setReportIssueLink(anchor, version) {
 
 // One capture combines a STUN probe, the last pair attempt's snapshot
 // (lastPairDiagnostic + getStats), and connected-robot telemetry into one
-// object. Refresh re-runs; Copy puts JSON on clipboard. Same shape on
-// desktop and phone.
-export function wireDiagnosticsMenuItem({
-  openBtnId, dialogId, closeBtnId,
-  refreshBtnId, copyBtnId,
-  outputId,
-  getTelemetrySources,
-  onBeforeOpen,
-}) {
-  const dialog  = document.getElementById(dialogId);
-  const open    = document.getElementById(openBtnId);
-  const close   = document.getElementById(closeBtnId);
-  const refresh = document.getElementById(refreshBtnId);
-  const copy    = document.getElementById(copyBtnId);
-  const out     = document.getElementById(outputId);
+// object. Refresh re-runs; Copy puts JSON on clipboard. Same dialog HTML
+// on desktop and phone, so element ids are shared chrome.
+export function wireDiagnosticsMenuItem({ getTelemetrySources, onBeforeOpen } = {}) {
+  const dialog  = document.getElementById("diagnostics-dialog");
+  const open    = document.getElementById("menu-diagnostics");
+  const close   = document.getElementById("diagnostics-close");
+  const refresh = document.getElementById("diagnostics-refresh");
+  const copy    = document.getElementById("diagnostics-copy");
+  const out     = document.getElementById("diagnostics-output");
   if (!dialog || !open || !out) return;
 
   // One capture combines STUN probe + last pair attempt + connected-robot

@@ -44,10 +44,8 @@ export async function uploadFile(id, filename, destPath, contentBytes, { restart
 let renderEntry = () => {};
 export function setRender(fn) { renderEntry = fn; }
 
-// Injected from app.js to avoid a circular import. Called right after a
-// commit succeeds (PNA or BLE) so app.js's onDisconnected handler knows
-// the upcoming BLE drop is the firmware rebooting and can auto-retry the
-// connection instead of leaving the entry idle for the user to click.
+// Called right after a commit succeeds (PNA or BLE) so onDisconnected
+// knows the upcoming BLE drop is the firmware rebooting and can auto-retry.
 let _markExpectingReconnect = () => {};
 export function setExpectingReconnectHandler(fn) { _markExpectingReconnect = fn; }
 

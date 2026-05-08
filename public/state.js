@@ -4,7 +4,8 @@ export const state = {
   devices: new Map(),
 };
 
-// Lazy injection to avoid a circular dep with connect.js.
+// app.js registers its onDisconnected here. Late-bound to keep state.js
+// free of any UI dependency.
 let _onDisconnectedById = () => {};
 export function setDisconnectHandler(fn) { _onDisconnectedById = fn; }
 
