@@ -65,6 +65,11 @@
       "src": "ensure-autologin-password.sh",
       "dest": "/usr/local/bin/ensure-autologin-password.sh",
       "mode": "755"
+    },
+    {
+      "src": "ensure-sudo-tty-nopasswd.sh",
+      "dest": "/usr/local/bin/ensure-sudo-tty-nopasswd.sh",
+      "mode": "755"
     }
   ],
   "post_install": [
@@ -83,8 +88,9 @@
     "rm -f /etc/systemd/system/pi-robot-wifi-discover.service $HOME/better-robotics/firmware/pi_robot/wifi_discover.py",
     "rm -f /etc/systemd/system/serial-getty@ttyGS0.service.d/override.conf",
     "sed -i s/modules-load=dwc2,g_ether/modules-load=dwc2,libcomposite/ /boot/firmware/cmdline.txt",
-    "/usr/local/bin/ensure-autologin-password.sh __USER__"
+    "/usr/local/bin/ensure-autologin-password.sh __USER__",
+    "/usr/local/bin/ensure-sudo-tty-nopasswd.sh"
   ],
   "reboot": true,
-  "commit": "30947c5"
+  "commit": "df14a65"
 }

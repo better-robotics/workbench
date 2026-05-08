@@ -123,6 +123,13 @@ ExecStart=-/sbin/agetty --autologin $USER_NAME --keep-baud 115200,57600,38400,96
 AUTOLOGIN_EOF
 systemctl daemon-reload
 
+# Sudo without password from the serial console only — physical USB
+# access is already root-equivalent. BLE shell + SSH stay gated.
+if [ -f "$STAGED/ensure-sudo-tty-nopasswd.sh" ]; then
+  install -m 755 "$STAGED/ensure-sudo-tty-nopasswd.sh" /usr/local/bin/ensure-sudo-tty-nopasswd.sh
+  /usr/local/bin/ensure-sudo-tty-nopasswd.sh || true
+fi
+
 install -d -m 700 /etc/NetworkManager/system-connections
 cat > /etc/NetworkManager/system-connections/usb-gadget.nmconnection <<'NMEOF'
 [connection]
