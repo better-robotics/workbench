@@ -9,7 +9,9 @@
 static const char *TAG = "motors";
 
 // LEDC timer/channels — share TIMER_0 with flash (same 1 kHz / 8-bit).
-// Channels 0..3 = motors L-IN1, L-IN2, R-IN1, R-IN2.
+// Channels 0..3 = motors L-fwd, L-bwd, R-fwd, R-bwd (the two direction
+// pins per motor; "forward" / "backward" matches the dashboard's
+// motors_pins schema and gpiozero's Motor() naming on the Pi side).
 #define MOTOR_MODE       LEDC_LOW_SPEED_MODE
 #define MOTOR_TIMER      LEDC_TIMER_0
 #define MOTOR_FREQ_HZ    1000
@@ -35,20 +37,20 @@ static uint32_t s_active_pulse_id = 0;
 static esp_timer_handle_t s_watchdog_timer;
 static esp_timer_handle_t s_pulse_timer;
 
-static void drive_half_bridge(ledc_channel_t in1, ledc_channel_t in2, int8_t signed_speed) {
+static void drive_half_bridge(ledc_channel_t fwd, ledc_channel_t bwd, int8_t signed_speed) {
     if (!s_attached) return;
     int magnitude = signed_speed < 0 ? -signed_speed : signed_speed;
     if (magnitude > 100) magnitude = 100;
     uint32_t duty = ((uint32_t)magnitude * 255) / 100;
     if (signed_speed >= 0) {
-        ledc_set_duty(MOTOR_MODE, in1, duty);
-        ledc_set_duty(MOTOR_MODE, in2, 0);
+        ledc_set_duty(MOTOR_MODE, fwd, duty);
+        ledc_set_duty(MOTOR_MODE, bwd, 0);
     } else {
-        ledc_set_duty(MOTOR_MODE, in1, 0);
-        ledc_set_duty(MOTOR_MODE, in2, duty);
+        ledc_set_duty(MOTOR_MODE, fwd, 0);
+        ledc_set_duty(MOTOR_MODE, bwd, duty);
     }
-    ledc_update_duty(MOTOR_MODE, in1);
-    ledc_update_duty(MOTOR_MODE, in2);
+    ledc_update_duty(MOTOR_MODE, fwd);
+    ledc_update_duty(MOTOR_MODE, bwd);
 }
 
 static void watchdog_fire(void *arg) {
@@ -74,10 +76,10 @@ void motors_init(const pin_config_t *cfg) {
         ESP_LOGI(TAG, "pins -1, cap disabled");
         return;
     }
-    s_pin[0] = cfg->motor_l_in1;
-    s_pin[1] = cfg->motor_l_in2;
-    s_pin[2] = cfg->motor_r_in1;
-    s_pin[3] = cfg->motor_r_in2;
+    s_pin[0] = cfg->motor_l_fwd;
+    s_pin[1] = cfg->motor_l_bwd;
+    s_pin[2] = cfg->motor_r_fwd;
+    s_pin[3] = cfg->motor_r_bwd;
 
     ledc_timer_config_t tcfg = {
         .speed_mode = MOTOR_MODE,

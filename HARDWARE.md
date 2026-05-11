@@ -21,9 +21,11 @@ Either way, firmware advertises a `camera` capability and broadcasts the LAN IP 
 
 ### Motor wiring (L298N)
 
-Default firmware pins: left `IN1=14, IN2=15`, right `IN1=13, IN2=4`. Tradeoffs are spelled out in the firmware comments above the declarations; the short version: those four are the only safe combination on this chip. Camera + PSRAM consume 15 GPIOs; the remaining survivors are 13/14/15/4 (and GPIO 4 doubles as the white flash LED, so it'll flicker visibly when the right motor is driven — cosmetic only).
+Default firmware pins: left `forward=14, backward=15`, right `forward=13, backward=4`. The schema names match gpiozero's `Motor(forward=, backward=, enable=)` constructor — same vocabulary on both ESP32 and Pi. Tradeoffs are spelled out in the firmware comments above the declarations; the short version: those four GPIOs are the only safe combination on this chip. Camera + PSRAM consume 15 GPIOs; the remaining survivors are 13/14/15/4 (and GPIO 4 doubles as the white flash LED, so it'll flicker visibly when the right motor is driven — cosmetic only).
 
-**Leave the L298N's ENA/ENB jumpers ON.** The 5V tie-up keeps the H-bridge always enabled and lets PWM ride the IN pins themselves. Forward = `IN1=PWM, IN2=LOW`; reverse = swap. Same 2-pin-per-motor pattern the Pi uses with gpiozero. Trying to do separate IN + ENA/ENB control needs 6 GPIOs we don't have.
+"Forward" / "backward" only mean what they say *after* the wiring is calibrated. The chip side speaks IN1..IN4 (silkscreen on the L298N/DRV8833/TB6612 board); each per-motor pair (left.forward + left.backward) wires to two of those chip terminals. If a wheel spins the wrong direction once everything's hooked up, swap the motor leads at the driver terminals — or swap the two GPIO assignments in the Pinout editor.
+
+**Leave the L298N's ENA/ENB jumpers ON.** The 5V tie-up keeps the H-bridge always enabled and lets PWM ride the direction pins themselves. Forward = `forward-pin=PWM, backward-pin=LOW`; reverse = swap. Same 2-pin-per-motor pattern gpiozero uses on the Pi. Trying to do separate direction + enable control needs 6 GPIOs we don't have.
 
 GPIO 15 is a strap pin (must be HIGH at boot for normal serial output). L298N's IN pins are high-impedance CMOS, but if your specific board has a weak pull-down on IN that fights the strap, add a 10k pull-up from GPIO 15 to 3.3V. Symptom: garbled serial during the first second of boot. Functionally harmless if you don't need that bootloader log.
 

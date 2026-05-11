@@ -8,10 +8,10 @@
 typedef struct {
     int led;
     int flash;
-    int motor_l_in1;
-    int motor_l_in2;
-    int motor_r_in1;
-    int motor_r_in2;
+    int motor_l_fwd;
+    int motor_l_bwd;
+    int motor_r_fwd;
+    int motor_r_bwd;
 } pin_config_t;
 
 bool pin_valid(int pin);

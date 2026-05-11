@@ -129,7 +129,12 @@ SCAN_MAX = 10      # Bounded so the full JSON fits in one ATT read.
 #   led_enabled     bool — advertise the LED char
 #   led_pin         int  — BCM pin for the LED
 #   motors_enabled  bool — advertise the motor char
-#   motors_pins     {left:{in1,in2}, right:{in1,in2}} — H-bridge direction pins
+#   motors_pins     {left:{forward,backward,enable?}, right:{forward,backward,enable?}}
+#                   Per-motor direction-pin map. Names match gpiozero's
+#                   Motor(forward=, backward=, enable=) constructor exactly.
+#                   `enable` is optional — set it only if you've cut the
+#                   driver board's ENA/ENB jumpers to wire speed control
+#                   to a GPIO.
 #   camera_enabled  "auto" | true | false
 # Missing or unreadable file → default to all capabilities on, so existing Pis
 # OTA'd from pre-config versions keep working.
@@ -150,8 +155,8 @@ MOTORS_ENABLED = bool(_config.get("motors_enabled", True))
 # None in the try/except, which silently breaks control while leaving
 # the L298N's floating inputs to run a wheel.
 MOTORS_PINS    = _config.get("motors_pins", {
-    "left":  {"in1": 5,  "in2": 6},
-    "right": {"in1": 13, "in2": 26},
+    "left":  {"forward": 5,  "backward": 6},
+    "right": {"forward": 13, "backward": 26},
 })
 CAMERA_ENABLED = _config.get("camera_enabled", "auto")  # "auto" | True | False
 
@@ -241,10 +246,10 @@ log = logging.getLogger("pi_robot")
 
 def _pin_conflicts() -> list[tuple[int, list[str]]]:
     """Reports GPIOs claimed by more than one capability. Catches the
-    classic pi-robot.conf trap — e.g. LED and motors.left.in1 both on
-    GPIO 17 causes gpiozero to raise GPIOPinInUse, the Motor try/except
-    silently drops both drivers, and the L298N's floating inputs spin
-    a wheel."""
+    classic pi-robot.conf trap — e.g. LED and motors.left.forward both
+    on GPIO 17 causes gpiozero to raise GPIOPinInUse, the Motor
+    try/except silently drops both drivers, and the L298N's floating
+    inputs spin a wheel."""
     claimed: dict[int, list[str]] = {}
     if LED_ENABLED:
         claimed.setdefault(LED_PIN, []).append("led")
@@ -272,18 +277,14 @@ _motor_left_drv: Motor | None = None
 _motor_right_drv: Motor | None = None
 if MOTORS_ENABLED:
     try:
-        # Optional ENA/ENB pins let the user PWM the driver's enable line
-        # instead of the direction pins. When set, gpiozero PWMs the enable;
-        # IN1/IN2 stay digital. Default: PWM on direction pins, ENA/ENB
-        # jumpers on (always-enabled).
-        _left_pins = MOTORS_PINS["left"]
-        _right_pins = MOTORS_PINS["right"]
-        _left_kwargs  = {"forward": _left_pins["in1"],  "backward": _left_pins["in2"]}
-        _right_kwargs = {"forward": _right_pins["in1"], "backward": _right_pins["in2"]}
-        if "ena" in _left_pins:  _left_kwargs["enable"]  = _left_pins["ena"]
-        if "enb" in _right_pins: _right_kwargs["enable"] = _right_pins["enb"]
-        _motor_left_drv  = Motor(**_left_kwargs)
-        _motor_right_drv = Motor(**_right_kwargs)
+        # Config keys (forward/backward/enable) match gpiozero's Motor
+        # constructor exactly, so the dict can splat directly. Optional
+        # `enable` pin lets the user PWM the driver's enable line instead
+        # of the direction pins — set only if the ENA/ENB jumpers have
+        # been removed. Default: PWM on direction pins, ENA/ENB jumpers
+        # on (always-enabled).
+        _motor_left_drv  = Motor(**MOTORS_PINS["left"])
+        _motor_right_drv = Motor(**MOTORS_PINS["right"])
     except Exception as e:
         log.warning("motor init failed: %s", e)
         _motor_left_drv = _motor_right_drv = None

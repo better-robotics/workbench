@@ -6,7 +6,9 @@
 #include "pin_config.h"
 
 // L298N H-bridge driver. PWM rides the IN pins (ENA/ENB jumpered ON).
-// Forward = IN1=PWM/IN2=LOW; reverse = IN1=LOW/IN2=PWM.
+// Each motor has two direction pins (named `forward` / `backward` in
+// the dashboard schema, matching gpiozero's Motor() on the Pi side):
+// forward = fwd-pin PWM, bwd-pin LOW; backward = fwd-pin LOW, bwd-pin PWM.
 // signedSpeed range is [-100, 100]; magnitude > 100 clamps to 100.
 //
 // Two safety rungs match firmware/pi_robot/pi_robot.py:

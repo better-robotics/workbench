@@ -64,7 +64,7 @@ const ESP32_PINS_BOT = [
   { label: "3V3",  kind: "3v3" },
 ];
 
-// Supports both flat {role: gpio} and nested {left: {in1: 17, in2: 27}} shapes.
+// Supports both flat {role: gpio} and nested {left: {forward: 17, backward: 27}} shapes.
 function flattenPins(obj, prefix = "") {
   const out = [];
   for (const [k, v] of Object.entries(obj || {})) {
@@ -175,14 +175,18 @@ const TERMINAL_XS = [45, 117, 189, 261, 333, 405];
 const TERMINAL_ROLES = ["ena", "in1", "in2", "in3", "in4", "enb"];
 const TERMINAL_LABELS = { ena: "ENA", in1: "IN1", in2: "IN2", in3: "IN3", in4: "IN4", enb: "ENB" };
 const TERM_CY = DRIVER_Y + 85;                  // 653
-// motors_pins path (role from flattenPins) → driver terminal role.
+// motors_pins path (role from flattenPins) → driver terminal role. The
+// per-motor names (forward/backward/enable) match gpiozero's Motor()
+// constructor; the L298N chip-side names (IN1..IN4/ENA/ENB) match the
+// silkscreen. Two vocabularies on purpose — the wires between them
+// document the mapping that "forward/backward" hides on the chip.
 const ROLE_TO_TERMINAL = {
-  "left in1":  "in1",
-  "left in2":  "in2",
-  "left ena":  "ena",
-  "right in1": "in3",
-  "right in2": "in4",
-  "right enb": "enb",
+  "left forward":   "in1",
+  "left backward":  "in2",
+  "left enable":    "ena",
+  "right forward":  "in3",
+  "right backward": "in4",
+  "right enable":   "enb",
 };
 
 function renderBoardWithDriver(claims) {
@@ -215,7 +219,7 @@ function renderBoardWithDriver(claims) {
 
   // Wires derive from the same claims map used to decorate Pi pins — so
   // view mode and edit mode render wires identically. Each motors-claimed
-  // pin has a role like "left in1" that maps to a driver terminal.
+  // pin has a role like "left forward" that maps to a driver terminal.
   const wires = [];
   for (const [physStr, info] of Object.entries(claims)) {
     if (info?.cap !== "motors") continue;
@@ -425,10 +429,9 @@ function renderEdit(entry) {
           <span>Motors (H-bridge)</span>
         </label>
         <div style="padding-left: 24px;">
-          <!-- Labels match the silkscreen on L298N / DRV8833 / TB6612 boards:
-               IN1+IN2 drive motor A (left), IN3+IN4 drive motor B (right).
-               Config keys stay motors_pins.{left,right}.{in1,in2} — that's
-               the firmware contract; only the display labels changed. -->
+          <!-- Per-motor names (forward / backward / enable) match
+               gpiozero's Motor() constructor on the Pi side. Chip-side
+               IN1..IN4 / ENA / ENB live on the wiring diagram above. -->
           <!-- Fallbacks match pi_robot.py's MOTORS_PINS default. Without
                this alignment, opening the editor on a fresh robot shows
                pins that don't match what's actually being driven, and
@@ -436,35 +439,35 @@ function renderEdit(entry) {
                fictional values into the conf — silently overriding the
                firmware's safe defaults. -->
           <label class="pinout-edit-row">
-            <span class="pinout-edit-label">IN1 · left motor</span>
+            <span class="pinout-edit-label">Left forward</span>
             <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input"
-                   data-path="motors_pins.left.in1" value="${ml.in1 ?? 5}">
+                   data-path="motors_pins.left.forward" value="${ml.forward ?? 5}">
           </label>
           <label class="pinout-edit-row">
-            <span class="pinout-edit-label">IN2 · left motor</span>
+            <span class="pinout-edit-label">Left backward</span>
             <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input"
-                   data-path="motors_pins.left.in2" value="${ml.in2 ?? 6}">
+                   data-path="motors_pins.left.backward" value="${ml.backward ?? 6}">
           </label>
           <label class="pinout-edit-row">
-            <span class="pinout-edit-label">IN3 · right motor</span>
+            <span class="pinout-edit-label">Right forward</span>
             <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input"
-                   data-path="motors_pins.right.in1" value="${mr.in1 ?? 13}">
+                   data-path="motors_pins.right.forward" value="${mr.forward ?? 13}">
           </label>
           <label class="pinout-edit-row">
-            <span class="pinout-edit-label">IN4 · right motor</span>
+            <span class="pinout-edit-label">Right backward</span>
             <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input"
-                   data-path="motors_pins.right.in2" value="${mr.in2 ?? 26}">
+                   data-path="motors_pins.right.backward" value="${mr.backward ?? 26}">
           </label>
-          <div class="meta" style="margin-top: 6px;">Wire each Pi GPIO to the driver board's IN pin of the same number (IN1 ↔ IN1, etc.). Works with L298N, DRV8833, TB6612, and most H-bridge clones.</div>
+          <div class="meta" style="margin-top: 6px;">"Forward" / "backward" are the two direction pins per motor — which one actually drives the wheel forward depends on motor lead orientation. If a wheel spins the wrong way after wiring, swap the two leads or swap these two GPIOs. Works with L298N, DRV8833, TB6612, and most H-bridge clones.</div>
           <label class="pinout-edit-row" style="margin-top: 10px;">
-            <span class="pinout-edit-label">ENA · left speed</span>
+            <span class="pinout-edit-label">Left enable</span>
             <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input"
-                   data-path="motors_pins.left.ena" data-optional="true" value="${ml.ena ?? ""}" placeholder="—">
+                   data-path="motors_pins.left.enable" data-optional="true" value="${ml.enable ?? ""}" placeholder="—">
           </label>
           <label class="pinout-edit-row">
-            <span class="pinout-edit-label">ENB · right speed</span>
+            <span class="pinout-edit-label">Right enable</span>
             <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input"
-                   data-path="motors_pins.right.enb" data-optional="true" value="${mr.enb ?? ""}" placeholder="—">
+                   data-path="motors_pins.right.enable" data-optional="true" value="${mr.enable ?? ""}" placeholder="—">
           </label>
           <div class="meta" style="margin-top: 6px;">Leave blank unless you've removed the ENA/ENB jumpers to wire speed control to a GPIO.</div>
         </div>
@@ -537,7 +540,7 @@ function renderEdit(entry) {
   // the canonical assignments and wants the working ones back.
   $("pinout-safe-defaults-btn")?.addEventListener("click", () => {
     editConfig.led_pin = 17;
-    editConfig.motors_pins = { left: { in1: 5, in2: 6 }, right: { in1: 13, in2: 26 } };
+    editConfig.motors_pins = { left: { forward: 5, backward: 6 }, right: { forward: 13, backward: 26 } };
     renderEdit(entry);
   });
 
@@ -689,10 +692,10 @@ function esp32PinsFromFwInfo(entry) {
   return {
     led:     led    ?? 33,
     flash:   flash  ?? 4,
-    m_l_in1: motors?.left?.in1  ?? 14,
-    m_l_in2: motors?.left?.in2  ?? 15,
-    m_r_in1: motors?.right?.in1 ?? 13,
-    m_r_in2: motors?.right?.in2 ?? 12,
+    m_l_fwd: motors?.left?.forward   ?? 14,
+    m_l_bwd: motors?.left?.backward  ?? 15,
+    m_r_fwd: motors?.right?.forward  ?? 13,
+    m_r_bwd: motors?.right?.backward ?? 12,
   };
 }
 
@@ -730,12 +733,12 @@ function renderEsp32View(entry) {
     ${renderEsp32Board()}
     <div class="pinout-edit">
       <div class="pinout-edit-section">
-        ${row("LED",        "led")}
-        ${row("Flash",      "flash")}
-        ${row("Left IN1",   "m_l_in1")}
-        ${row("Left IN2",   "m_l_in2")}
-        ${row("Right IN1",  "m_r_in1")}
-        ${row("Right IN2",  "m_r_in2")}
+        ${row("LED",            "led")}
+        ${row("Flash",          "flash")}
+        ${row("Left forward",   "m_l_fwd")}
+        ${row("Left backward",  "m_l_bwd")}
+        ${row("Right forward",  "m_r_fwd")}
+        ${row("Right backward", "m_r_bwd")}
       </div>
     </div>
     <div class="row" style="margin-top: 12px;">
@@ -755,7 +758,7 @@ function beginEsp32Edit(entry) {
 function renderEsp32Edit(entry) {
   const c = editConfig;
   const usedBy = {};
-  for (const k of ["led", "flash", "m_l_in1", "m_l_in2", "m_r_in1", "m_r_in2"]) {
+  for (const k of ["led", "flash", "m_l_fwd", "m_l_bwd", "m_r_fwd", "m_r_bwd"]) {
     if (c[k] < 0) continue;  // -1 = disabled, multiple disables don't conflict
     (usedBy[c[k]] ||= []).push(k);
   }
@@ -790,12 +793,12 @@ function renderEsp32Edit(entry) {
     ${renderEsp32Board()}
     <div class="pinout-edit">
       <div class="pinout-edit-section">
-        ${input("LED",        "led")}
-        ${input("Flash",      "flash")}
-        ${input("Left IN1",   "m_l_in1")}
-        ${input("Left IN2",   "m_l_in2")}
-        ${input("Right IN1",  "m_r_in1")}
-        ${input("Right IN2",  "m_r_in2")}
+        ${input("LED",            "led")}
+        ${input("Flash",          "flash")}
+        ${input("Left forward",   "m_l_fwd")}
+        ${input("Left backward",  "m_l_bwd")}
+        ${input("Right forward",  "m_r_fwd")}
+        ${input("Right backward", "m_r_bwd")}
       </div>
       ${warn}
     </div>
@@ -828,7 +831,7 @@ async function saveEsp32Edit(entry) {
   // Range check (firmware also validates, but reject early so the user
   // gets a focused error instead of a silent ignore over BLE). -1 means
   // "cap disabled" — accepted; only out-of-range positives reject.
-  for (const key of ["led", "flash", "m_l_in1", "m_l_in2", "m_r_in1", "m_r_in2"]) {
+  for (const key of ["led", "flash", "m_l_fwd", "m_l_bwd", "m_r_fwd", "m_r_bwd"]) {
     const v = editConfig[key];
     if (!Number.isInteger(v) || v === -1) continue;
     if (v < 0 || v > 39) {

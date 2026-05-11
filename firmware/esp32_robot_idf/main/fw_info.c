@@ -48,10 +48,10 @@ void fw_info_init(const pin_config_t *pins) {
     if (motors_enabled()) {
         o += snprintf(s_buf + o, FW_INFO_BUF_SIZE - o,
             ",{\"name\":\"motors\",\"type\":\"signed-pair\",\"range\":[-100,100],"
-            "\"pins\":{\"left\":{\"in1\":%d,\"in2\":%d},"
-            "\"right\":{\"in1\":%d,\"in2\":%d}}}",
-            pins->motor_l_in1, pins->motor_l_in2,
-            pins->motor_r_in1, pins->motor_r_in2);
+            "\"pins\":{\"left\":{\"forward\":%d,\"backward\":%d},"
+            "\"right\":{\"forward\":%d,\"backward\":%d}}}",
+            pins->motor_l_fwd, pins->motor_l_bwd,
+            pins->motor_r_fwd, pins->motor_r_bwd);
     }
     if (camera_ready()) {
         o += snprintf(s_buf + o, FW_INFO_BUF_SIZE - o,
