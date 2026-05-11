@@ -5,13 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#1a1d20">
   <title>BetterRobotics</title>
-  <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/svg+xml" href="icon.svg">
   <link rel="apple-touch-icon" href="icon.svg">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="BetterRobotics">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <!-- No manifest + no apple-mobile-web-app-capable on this surface: iOS
+       standalone PWA mode makes navigator.mediaDevices flaky-to-undefined
+       (WebKit 185448 / 252465) and re-prompts camera every launch (WebKit
+       215884). Phone surface needs the camera reliably more than it needs
+       a standalone install — Home-Screen icon stays via apple-touch-icon
+       and just opens in Safari, where getUserMedia works and the permission
+       persists. Dashboard (index.html) keeps the PWA install path. -->
   <link rel="stylesheet" href="styles.css">
   <!-- Error capture: synchronous, before any module — feeds report-issue
        body so users can attach console errors when filing a bug. -->
