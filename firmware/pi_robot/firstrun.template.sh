@@ -152,17 +152,32 @@ nmcli connection reload 2>/dev/null || true
 note usb_gadget_configured
 
 INSTALL_OK=0
+FIRMWARE_OK=1
 DEST="/home/$USER_NAME/better-robotics/firmware/pi_robot"
 install -d -o "$USER_NAME" -g "$USER_NAME" "$DEST"
-for f in pi_robot.py uuids.py requirements.txt pi-robot.service heartbeat.py pi-robot-heartbeat.service pi_robot_health.py pi-robot-health.service avahi-betterrobot.service pi_robot_rtc.py pi-robot-rtc.service; do
+# Required: their absence means pi_robot.py can't even start. Missing one
+# aborts the install so firstrun.sh stays in place and the user is told.
+for f in pi_robot.py uuids.py requirements.txt pi-robot.service; do
     if [ -f "$STAGED/$f" ]; then
         install -m 644 -o "$USER_NAME" -g "$USER_NAME" "$STAGED/$f" "$DEST/$f"
     else
-        note firmware_missing "$f not staged on boot partition"
+        note firmware_missing_required "$f not staged on boot partition"
+        FIRMWARE_OK=0
+    fi
+done
+# Optional: heartbeat/health/rtc are degraded-mode acceptable.
+for f in heartbeat.py pi-robot-heartbeat.service pi_robot_health.py pi-robot-health.service avahi-betterrobot.service pi_robot_rtc.py pi-robot-rtc.service; do
+    if [ -f "$STAGED/$f" ]; then
+        install -m 644 -o "$USER_NAME" -g "$USER_NAME" "$STAGED/$f" "$DEST/$f"
+    else
+        note firmware_missing_optional "$f not staged"
     fi
 done
 note firmware_staged
 
+if [ "$FIRMWARE_OK" = "0" ]; then
+    note firmware_required_missing_aborting "see firmware_missing_required notes — leaving firstrun.sh in place"
+else
 note venv_create_start
 sudo -u "$USER_NAME" python3 -m venv --system-site-packages "$DEST/.venv"
 note venv_created
@@ -297,16 +312,19 @@ BTEOF
     sleep 15
     systemctl status pi-robot.service --no-pager -l > "$BOOTFS/pi-robot-status.log" 2>&1
     journalctl -u pi-robot.service --no-pager -n 100 > "$BOOTFS/pi-robot-journal.log" 2>&1
+    # INSTALL_OK=1 only if the service actually came up. The old script set
+    # it unconditionally after the probe, which silently let pi_robot.py
+    # crash-loops (e.g. missing import) ship as "install succeeded".
     if systemctl is-active --quiet pi-robot.service; then
         note service_probe_ok "pi-robot.service is active"
+        INSTALL_OK=1
     else
         note service_probe_failed "see /boot/firmware/pi-robot-journal.log"
     fi
-
-    INSTALL_OK=1
 else
     note pip_install_failed "full log in /boot/firmware/pip.log (exit $PIP_RC)"
 fi
+fi  # end FIRMWARE_OK conditional
 
 # Always clear the systemd.run trigger from cmdline.txt so we never re-run.
 sed -i 's| systemd\.run=[^ ]*||g; s| systemd\.run_success_action=[^ ]*||g; s| systemd\.unit=[^ ]*||g' "$BOOTFS/cmdline.txt"

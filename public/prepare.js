@@ -4,7 +4,7 @@ import { ensurePassword } from "./passwords.js";
 
 const FIRMWARE_URL    = "firmware/pi_robot";
 const FIRMWARE_FILES  = [
-  "pi_robot.py", "requirements.txt", "pi-robot.service",
+  "pi_robot.py", "uuids.py", "requirements.txt", "pi-robot.service",
   "heartbeat.py", "pi-robot-heartbeat.service",
   "pi_robot_health.py", "pi-robot-health.service",
   "avahi-betterrobot.service",
