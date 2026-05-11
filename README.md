@@ -70,7 +70,7 @@ The wedge is **fork-and-run dev environment with AI assist**, not these adjacent
 
 ### Use it (no install)
 
-1. Open [neevs.io/better-robotics](https://neevs.io/better-robotics/) in Chrome or Edge.
+1. Open [neves.cloud/better-robotics](https://neves.cloud/better-robotics/) in Chrome or Edge.
 2. Flash or prepare hardware:
    - **ESP32 on USB:** click **Flash firmware** — bins come from GitHub Pages, no local toolchain.
    - **Pi 4 with a flashed SD card:** click **Customize card** (or hit the URL with `?prepare`) and point it at the mounted boot partition.

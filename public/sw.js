@@ -29,7 +29,7 @@ const CACHE = `dashboard-${VERSION}`;
 // Cached at install time so the dashboard can cold-boot offline AND
 // dynamically-imported dialogs (recovery, scripts) are ready before the
 // user opens them. Relative paths because the dashboard deploys at a
-// subpath (neevs.io/better-robotics/); absolute "/" resolves to origin
+// subpath (neves.cloud/better-robotics/); absolute "/" resolves to origin
 // root, not SW scope.
 const BOOTSTRAP = [
   "./", "./index.html", "./app.js", "./styles.css", "./icons.svg",
