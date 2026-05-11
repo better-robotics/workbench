@@ -64,6 +64,19 @@ const ESP32_PINS_BOT = [
   { label: "3V3",  kind: "3v3" },
 ];
 
+// Firmware defaults — MUST match pi_robot.py's LED_PIN and MOTORS_PINS.
+// Used as input fallbacks AND as claimsFromConfig fallbacks so the SVG
+// wires appear on first open of a fresh robot (where the conf is empty
+// and pi_robot.py is running on its compiled-in defaults). Also the
+// safe-defaults button's restore target.
+const PI_DEFAULTS = {
+  led_pin: 17,
+  motors_pins: {
+    left:  { forward: 5,  backward: 6  },
+    right: { forward: 13, backward: 26 },
+  },
+};
+
 // Supports both flat {role: gpio} and nested {left: {forward: 17, backward: 27}} shapes.
 function flattenPins(obj, prefix = "") {
   const out = [];
@@ -333,13 +346,22 @@ const CONFIG_RESPONSE_TIMEOUT_MS = 6000;
 function claimsFromConfig(cfg) {
   // Build a claims map identical to claimsFromEntry but from the live conf
   // being edited, so preview reflects uncommitted edits before save.
+  // Fall back to PI_DEFAULTS for any field the conf doesn't override —
+  // matches what pi_robot.py is actually using (and what the input fields
+  // display) so SVG wires render on first open of a fresh robot.
   const claims = {};
-  if (cfg?.led_enabled && cfg.led_pin != null) {
-    const phys = GPIO_TO_PHYS.get(cfg.led_pin);
+  const ledPin = cfg?.led_pin ?? PI_DEFAULTS.led_pin;
+  if (cfg?.led_enabled && ledPin != null) {
+    const phys = GPIO_TO_PHYS.get(ledPin);
     if (phys) claims[phys] = { cap: "led", role: "out" };
   }
-  if (cfg?.motors_enabled && cfg.motors_pins) {
-    for (const [role, gpio] of flattenPins(cfg.motors_pins)) {
+  if (cfg?.motors_enabled) {
+    const mp = cfg.motors_pins || {};
+    const effective = {
+      left:  { ...PI_DEFAULTS.motors_pins.left,  ...(mp.left  || {}) },
+      right: { ...PI_DEFAULTS.motors_pins.right, ...(mp.right || {}) },
+    };
+    for (const [role, gpio] of flattenPins(effective)) {
       const phys = GPIO_TO_PHYS.get(gpio);
       if (phys) claims[phys] = { cap: "motors", role };
     }
@@ -441,7 +463,7 @@ function renderEdit(entry) {
                using when the conf doesn't override — not arbitrary values
                that contradict the running config. -->
           <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input"
-                 data-path="led_pin" value="${c.led_pin ?? 17}">
+                 data-path="led_pin" value="${c.led_pin ?? PI_DEFAULTS.led_pin}">
         </label>
       </div>
       <div class="pinout-edit-section">
@@ -453,31 +475,32 @@ function renderEdit(entry) {
           <!-- Per-motor names (forward / backward / enable) match
                gpiozero's Motor() constructor on the Pi side. Chip-side
                IN1..IN4 / ENA / ENB live on the wiring diagram above. -->
-          <!-- Fallbacks match pi_robot.py's MOTORS_PINS default. Without
-               this alignment, opening the editor on a fresh robot shows
-               pins that don't match what's actually being driven, and
-               clicking Save without touching anything writes those
-               fictional values into the conf — silently overriding the
-               firmware's safe defaults. -->
+          <!-- Fallbacks come from PI_DEFAULTS — same constant the SVG
+               wire-rendering code falls back to. Without this alignment,
+               opening the editor on a fresh robot shows pins that don't
+               match what's actually being driven, and clicking Save
+               without touching anything writes those fictional values
+               into the conf — silently overriding the firmware's safe
+               defaults. -->
           <label class="pinout-edit-row">
             <span class="pinout-edit-label">Left forward</span>
             <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input"
-                   data-path="motors_pins.left.forward" value="${ml.forward ?? 5}">
+                   data-path="motors_pins.left.forward" value="${ml.forward ?? PI_DEFAULTS.motors_pins.left.forward}">
           </label>
           <label class="pinout-edit-row">
             <span class="pinout-edit-label">Left backward</span>
             <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input"
-                   data-path="motors_pins.left.backward" value="${ml.backward ?? 6}">
+                   data-path="motors_pins.left.backward" value="${ml.backward ?? PI_DEFAULTS.motors_pins.left.backward}">
           </label>
           <label class="pinout-edit-row">
             <span class="pinout-edit-label">Right forward</span>
             <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input"
-                   data-path="motors_pins.right.forward" value="${mr.forward ?? 13}">
+                   data-path="motors_pins.right.forward" value="${mr.forward ?? PI_DEFAULTS.motors_pins.right.forward}">
           </label>
           <label class="pinout-edit-row">
             <span class="pinout-edit-label">Right backward</span>
             <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input"
-                   data-path="motors_pins.right.backward" value="${mr.backward ?? 26}">
+                   data-path="motors_pins.right.backward" value="${mr.backward ?? PI_DEFAULTS.motors_pins.right.backward}">
           </label>
           <div class="meta" style="margin-top: 6px;">"Forward" / "backward" are the two direction pins per motor — which one actually drives the wheel forward depends on motor lead orientation. If a wheel spins the wrong way after wiring, swap the two leads or swap these two GPIOs. Works with L298N, DRV8833, TB6612, and most H-bridge clones.</div>
           <label class="pinout-edit-row" style="margin-top: 10px;">
@@ -560,8 +583,8 @@ function renderEdit(entry) {
   // is a *restore* affordance — useful after the user has drifted off
   // the canonical assignments and wants the working ones back.
   $("pinout-safe-defaults-btn")?.addEventListener("click", () => {
-    editConfig.led_pin = 17;
-    editConfig.motors_pins = { left: { forward: 5, backward: 6 }, right: { forward: 13, backward: 26 } };
+    editConfig.led_pin = PI_DEFAULTS.led_pin;
+    editConfig.motors_pins = structuredClone(PI_DEFAULTS.motors_pins);
     renderEdit(entry);
   });
 
