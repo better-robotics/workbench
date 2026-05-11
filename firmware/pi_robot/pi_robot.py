@@ -1393,7 +1393,9 @@ async def _motion_tick_loop(cfg) -> None:
         raise
 
 
-async def _motion_start(x: float, y: float, theta: float, mode: str) -> None:
+async def _motion_start(x: float, y: float, theta: float, mode: str,
+                        wheel_sep: float = None, wheel_r: float = None,
+                        max_spd: float = None) -> None:
     global _motion_controller, _motion_task
     if _motion_controller is not None:
         _motion_controller.cancel()
@@ -1401,14 +1403,18 @@ async def _motion_start(x: float, y: float, theta: float, mode: str) -> None:
     if _motion_task is not None and not _motion_task.done():
         _motion_task.cancel()
         _motion_task = None
-    cfg  = DiffDriveConfig(WHEEL_SEPARATION, WHEEL_RADIUS, MAX_WHEEL_SPEED)
+    sep = wheel_sep if (wheel_sep and wheel_sep > 0) else WHEEL_SEPARATION
+    r   = wheel_r   if (wheel_r   and wheel_r   > 0) else WHEEL_RADIUS
+    spd = max_spd   if (max_spd   and max_spd   > 0) else MAX_WHEEL_SPEED
+    cfg  = DiffDriveConfig(sep, r, spd)
     goal = MotionPose2D(x, y, theta)
     ctrl = ContinuousController() if mode == "continuous" else SpinMoveSpinController()
     ctrl.setGoal(goal)
     _motion_controller = ctrl
     _motion_task = asyncio.create_task(_motion_tick_loop(cfg))
     _motion_publish_status("moving")
-    log.info("motion: goal=(%.3f, %.3f, %.3f) mode=%s", x, y, theta, mode)
+    log.info("motion: goal=(%.3f, %.3f, %.3f) mode=%s sep=%.3f r=%.3f spd=%.2f",
+             x, y, theta, mode, sep, r, spd)
 
 
 def _motion_goal_handle_write(data: bytearray) -> None:
@@ -1429,8 +1435,11 @@ def _motion_goal_handle_write(data: bytearray) -> None:
     except (KeyError, ValueError) as e:
         log.warning("motion-goal: missing field — %s", e)
         return
-    mode = str(msg.get("mode", "spin_move_spin"))
-    _schedule(_motion_start(x, y, theta, mode))
+    mode      = str(msg.get("mode", "spin_move_spin"))
+    wheel_sep = float(msg["wheel_sep"]) if "wheel_sep" in msg else None
+    wheel_r   = float(msg["wheel_r"])   if "wheel_r"   in msg else None
+    max_spd   = float(msg["max_spd"])   if "max_spd"   in msg else None
+    _schedule(_motion_start(x, y, theta, mode, wheel_sep, wheel_r, max_spd))
 
 
 def _motion_pose_handle_write(data: bytearray) -> None:
