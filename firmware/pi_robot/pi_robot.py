@@ -62,6 +62,9 @@ from uuids import (  # noqa: F401 — re-exported for clarity / import sites els
     OPS_RESPONSE_CHAR_UUID,
     TELEMETRY_CHAR_UUID,
     SIGNAL_CHAR_UUID,
+    MOTION_GOAL_CHAR_UUID,
+    MOTION_POSE_CHAR_UUID,
+    MOTION_STATUS_CHAR_UUID,
 )
 
 # Capability schema, built at startup from config. Types name a UI/data
@@ -80,6 +83,8 @@ def _build_caps() -> list:
     if MOTORS_ENABLED:
         caps.append({"name": "motors", "type": "signed-pair",
                      "range": [-100, 100], "pins": MOTORS_PINS, "pin_mode": "pwm"})
+    if MOTORS_ENABLED and _motion_available:
+        caps.append({"name": "motion", "type": "pose-control"})
     caps.append({"name": "wifi", "type": "wifi-scan"})
     caps.append({"name": "ota", "type": "bundle-ota"})
     if CAMERA_ENABLED is not False:
@@ -158,7 +163,10 @@ MOTORS_PINS    = _config.get("motors_pins", {
     "left":  {"forward": 5,  "backward": 6},
     "right": {"forward": 13, "backward": 26},
 })
-CAMERA_ENABLED = _config.get("camera_enabled", "auto")  # "auto" | True | False
+CAMERA_ENABLED   = _config.get("camera_enabled", "auto")  # "auto" | True | False
+WHEEL_SEPARATION = float(_config.get("wheel_separation", 0.15))  # meters, center to center
+WHEEL_RADIUS     = float(_config.get("wheel_radius",     0.033))  # meters
+MAX_WHEEL_SPEED  = float(_config.get("max_wheel_speed",  0.5))   # m/s
 
 # Dashboards the robot trusts. Each .pub is one line:
 #     ssh-ed25519 <base64> [comment]
@@ -241,6 +249,16 @@ if CAMERA_ENABLED is not False:
     except Exception as _e:  # noqa: BLE001 — see comment above
         _camera_import_err = f"{type(_e).__name__}: {_e}"
 
+_motion_available = False
+try:
+    from motion_control import (
+        ContinuousController, SpinMoveSpinController,
+        DiffDriveConfig, to_wheel_speeds, Pose2D as MotionPose2D,
+    )
+    _motion_available = True
+except ImportError as _e:
+    _motion_available = False
+
 logging.basicConfig(format="%(asctime)s %(message)s", level=logging.INFO)
 log = logging.getLogger("pi_robot")
 
@@ -306,6 +324,11 @@ _motor_last_write_at: float = 0.0
 # human joystick write between pulse-start and pulse-end invalidates the
 # scheduled stop and the joystick's command wins.
 _motor_pulse_id: int = 0
+
+_motion_status: dict = {"st": "idle"}
+_motion_current_pose = None   # MotionPose2D | None — updated by dashboard
+_motion_controller   = None   # ContinuousController | SpinMoveSpinController | None
+_motion_task: asyncio.Task | None = None
 
 _robot_status: dict = {"st": "ready"}
 
@@ -810,6 +833,8 @@ def _apply_motors(left: int, right: int) -> None:
 
 
 def _motor_handle_write(data: bytearray) -> None:
+    if _motion_controller is not None:
+        _motion_cancel()
     """Motor char accepts two payload shapes:
       2 bytes [l, r]                   — persistent (user joystick). Watchdog
                                           stops after MOTOR_WATCHDOG_MS silence.
@@ -1309,6 +1334,105 @@ async def _motor_watchdog_task() -> None:
             log.info("motor watchdog: stopped")
 
 
+# ── Motion controller ──────────────────────────────────────────────────────
+#
+# Dashboard writes the robot's current pose to MOTION_POSE_CHAR_UUID (from
+# whatever localization source it has — April tags, odometry, etc.) and a
+# goal pose + mode to MOTION_GOAL_CHAR_UUID. A 20 Hz asyncio task calls
+# controller.tick() and forwards (v, ω) → (left, right) through _apply_motors.
+# A manual write to MOTOR_CHAR_UUID cancels any active goal.
+
+def _motion_publish_status(st: str) -> None:
+    global _motion_status
+    _motion_status = {"st": st}
+    _publish(MOTION_STATUS_CHAR_UUID, _json_bytes(_motion_status))
+    log.info("motion-status → %s", st)
+
+
+def _motion_cancel() -> None:
+    global _motion_controller, _motion_task
+    if _motion_controller is not None:
+        _motion_controller.cancel()
+        _motion_controller = None
+    if _motion_task is not None and not _motion_task.done():
+        _motion_task.cancel()
+        _motion_task = None
+    _apply_motors(0, 0)
+    _motion_publish_status("cancelled")
+
+
+async def _motion_tick_loop(cfg) -> None:
+    global _motion_controller
+    try:
+        while _motion_controller is not None:
+            if _motion_current_pose is not None:
+                output = _motion_controller.tick(_motion_current_pose)
+                wheels = to_wheel_speeds(output, cfg)
+                _apply_motors(int(round(wheels.left)), int(round(wheels.right)))
+                if _motion_controller is not None and _motion_controller.isDone():
+                    _motion_controller = None
+                    _apply_motors(0, 0)
+                    _motion_publish_status("done")
+                    return
+            await asyncio.sleep(0.05)
+    except asyncio.CancelledError:
+        _apply_motors(0, 0)
+        raise
+
+
+async def _motion_start(x: float, y: float, theta: float, mode: str) -> None:
+    global _motion_controller, _motion_task
+    if _motion_controller is not None:
+        _motion_controller.cancel()
+        _motion_controller = None
+    if _motion_task is not None and not _motion_task.done():
+        _motion_task.cancel()
+        _motion_task = None
+    cfg  = DiffDriveConfig(WHEEL_SEPARATION, WHEEL_RADIUS, MAX_WHEEL_SPEED)
+    goal = MotionPose2D(x, y, theta)
+    ctrl = ContinuousController() if mode == "continuous" else SpinMoveSpinController()
+    ctrl.setGoal(goal)
+    _motion_controller = ctrl
+    _motion_task = asyncio.create_task(_motion_tick_loop(cfg))
+    _motion_publish_status("moving")
+    log.info("motion: goal=(%.3f, %.3f, %.3f) mode=%s", x, y, theta, mode)
+
+
+def _motion_goal_handle_write(data: bytearray) -> None:
+    if not _motion_available or not MOTORS_ENABLED:
+        return
+    try:
+        msg = json.loads(bytes(data).decode("utf-8"))
+    except Exception as e:
+        log.warning("motion-goal: bad JSON — %s", e)
+        return
+    if msg.get("op") == "cancel":
+        _motion_cancel()
+        return
+    try:
+        x     = float(msg["x"])
+        y     = float(msg["y"])
+        theta = float(msg["theta"])
+    except (KeyError, ValueError) as e:
+        log.warning("motion-goal: missing field — %s", e)
+        return
+    mode = str(msg.get("mode", "spin_move_spin"))
+    _schedule(_motion_start(x, y, theta, mode))
+
+
+def _motion_pose_handle_write(data: bytearray) -> None:
+    global _motion_current_pose
+    if not _motion_available:
+        return
+    try:
+        msg = json.loads(bytes(data).decode("utf-8"))
+        _motion_current_pose = MotionPose2D(
+            float(msg["x"]), float(msg["y"]), float(msg["theta"])
+        )
+    except Exception as e:
+        log.warning("motion-pose: bad JSON — %s", e)
+
+
 async def _check_current_wifi() -> None:
     """On startup, reflect the actual current connection state."""
     try:
@@ -1389,6 +1513,8 @@ def on_read(characteristic: BlessGATTCharacteristic, **_) -> bytearray:
         # Chunked protocol — direct reads have no single value. Status
         # lands via notify on state changes.
         return bytearray()
+    if uuid == MOTION_STATUS_CHAR_UUID:
+        return _json_bytes(_motion_status)
     return characteristic.value
 
 
@@ -1430,6 +1556,12 @@ def on_write(characteristic: BlessGATTCharacteristic, value: bytearray, **_) -> 
         return
     if uuid == SIGNAL_CHAR_UUID:
         _signal_handle_write(bytes(value))
+        return
+    if uuid == MOTION_GOAL_CHAR_UUID:
+        _motion_goal_handle_write(value)
+        return
+    if uuid == MOTION_POSE_CHAR_UUID:
+        _motion_pose_handle_write(value)
         return
 
 
@@ -1579,6 +1711,30 @@ async def main() -> None:
         GATTAttributePermissions.readable,
     )
 
+    if MOTORS_ENABLED and _motion_available:
+        await _server.add_new_characteristic(
+            SERVICE_UUID, MOTION_GOAL_CHAR_UUID,
+            GATTCharacteristicProperties.write,
+            bytearray(),
+            GATTAttributePermissions.writeable,
+        )
+        await _server.add_new_characteristic(
+            SERVICE_UUID, MOTION_POSE_CHAR_UUID,
+            GATTCharacteristicProperties.write,
+            bytearray(),
+            GATTAttributePermissions.writeable,
+        )
+        await _server.add_new_characteristic(
+            SERVICE_UUID, MOTION_STATUS_CHAR_UUID,
+            GATTCharacteristicProperties.read | GATTCharacteristicProperties.notify,
+            _json_bytes(_motion_status),
+            GATTAttributePermissions.readable,
+        )
+        log.info("motion: ready (wheel_sep=%.3f wheel_r=%.3f max_spd=%.2f)",
+                 WHEEL_SEPARATION, WHEEL_RADIUS, MAX_WHEEL_SPEED)
+    elif not _motion_available:
+        log.info("motion: unavailable (motion_control import failed)")
+
     await _server.start()
     log.info("Advertising on service %s", SERVICE_UUID)
     log.info("Ctrl+C to stop.")
@@ -1586,7 +1742,9 @@ async def main() -> None:
     asyncio.create_task(_telemetry_task())
     if MOTORS_ENABLED:
         asyncio.create_task(_motor_watchdog_task())
-    log.info("capabilities: led=%s motors=%s camera=%s", LED_ENABLED, MOTORS_ENABLED, _camera_available)
+    log.info("capabilities: led=%s motors=%s camera=%s motion=%s",
+             LED_ENABLED, MOTORS_ENABLED, _camera_available,
+             _motion_available and MOTORS_ENABLED)
     try:
         await asyncio.Event().wait()
     finally:
