@@ -27,6 +27,7 @@ import { initPhones, broadcastTargetInfo, sendArucoStatus } from "./phones.js";
 // (local-llm imports moved to assistant.js where the /install slash lives)
 import { initHelpers, setHelpersRobotRenderer, renderHelpers } from "./helpers.js";
 import { startTracking as startArucoTracking, stopTracking as stopArucoTracking } from "./aruco.js";
+import { initCvLocalize } from "./cv-localize.js";
 import {
   setupServiceWorker, wireInstallMenuItem, wireCheckUpdatesMenuItem,
   wireHardRefresh, wireDiagnosticsMenuItem, setReportIssueLink, readSwVersion,
@@ -1726,6 +1727,7 @@ document.addEventListener("DOMContentLoaded", () => {
   try { initAssistant(); } catch (err) { console.error("[pip] init failed:", err); }
   initPhones();
   initHelpers();
+  try { initCvLocalize(); } catch (err) { console.error("[cv-localize] init failed:", err); }
   initRobotPresence();
 
   // Lazy-load prepare.js on first click — it's ~230 LOC and touches the File

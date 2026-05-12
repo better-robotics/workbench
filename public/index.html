@@ -100,6 +100,23 @@
     <div id="helpers-list"></div>
   </div>
 
+  <section class="card" id="cv-localize-panel">
+    <div class="row">
+      <div class="label">Overhead localization</div>
+      <div class="cv-controls">
+        <select id="cv-camera-select" class="cv-select"></select>
+        <button class="icon sm" id="cv-refresh-btn" title="Refresh camera list">↺</button>
+        <button class="sm" id="cv-start-btn">Start</button>
+        <button class="sm secondary" id="cv-stop-btn" hidden>Stop</button>
+        <button class="sm" id="cv-scan-btn" disabled>Scan</button>
+      </div>
+    </div>
+    <video id="cv-video" autoplay playsinline muted hidden></video>
+    <canvas id="cv-canvas" hidden></canvas>
+    <div id="cv-results"></div>
+    <div id="cv-status" class="hint cv-status"></div>
+  </section>
+
   <details class="tray" id="log-tray">
     <summary class="label">
       Log
