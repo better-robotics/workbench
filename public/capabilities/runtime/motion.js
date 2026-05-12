@@ -3,6 +3,10 @@
 // Three chars: goal (write JSON), pose (write JSON), status (notify JSON).
 // Manual mode drives motorsChar directly so the Pi's diff-drive kinematics
 // apply the same way as the dedicated motors card.
+//
+// CV correction: whenever entry.cvPosition is updated by the overhead camera
+// panel, it is automatically written to motionPoseChar so the robot's
+// odometry stays aligned with camera ground truth. No user action needed.
 
 import { UUIDS_BY_CAP, encodeJson, decodeJson } from "../../ble.js";
 import { attachJoypad } from "../../joypad.js";
@@ -12,16 +16,8 @@ import { capSection } from "./cap-section.js";
 import { renderEntry } from "./render-bus.js";
 
 const LS_PREFIX = "better-robotics:motion";
-const CV_STALE_MS = 10_000;  // don't apply a fix older than this
-
-function cvFixLine(entry) {
-  const p = entry.cvPosition;
-  if (!p) return `<div class="hint motion-cv-fix">CV fix: none — overhead camera not running</div>`;
-  const age = Math.round((Date.now() - p.updatedAt) / 1000);
-  const stale = (Date.now() - p.updatedAt) > CV_STALE_MS;
-  const detail = `(${p.x}, ${p.y} mm · ${p.headingDeg}°) · ${age}s ago`;
-  return `<div class="hint motion-cv-fix ${stale ? "motion-cv-stale" : ""}">CV fix: ${stale ? "stale — " : ""}${detail}</div>`;
-}
+const CV_STALE_MS = 10_000;
+const CV_POLL_MS  = 500;
 
 function lsGet(entry, k, def = "") {
   try {
@@ -33,6 +29,38 @@ function lsSet(entry, k, v) {
   try { localStorage.setItem(`${LS_PREFIX}:${k}:${entry.name}`, String(v)); } catch {}
 }
 
+// Poll entry.cvPosition every CV_POLL_MS. When a new fix arrives (updatedAt
+// has advanced) and it isn't stale, push it to motionPoseChar. Stored on the
+// entry so cleanup() can cancel it on disconnect.
+function startCvWatch(entry) {
+  stopCvWatch(entry);
+  let lastApplied = 0;
+  entry._cvWatchInterval = setInterval(async () => {
+    const p = entry.cvPosition;
+    if (!p || !entry.motionPoseChar) return;
+    if (p.updatedAt <= lastApplied) return;
+    if ((Date.now() - p.updatedAt) > CV_STALE_MS) return;
+    try {
+      await entry.motionPoseChar.writeValueWithResponse(encodeJson({
+        x:     p.x / 1000,
+        y:     p.y / 1000,
+        theta: p.headingDeg * (Math.PI / 180),
+      }));
+      lastApplied = p.updatedAt;
+      logFor(entry, `motion cv fix: (${p.x}, ${p.y} mm, ${p.headingDeg}°)`);
+    } catch (err) {
+      logFor(entry, `motion cv fix failed: ${err.message}`);
+    }
+  }, CV_POLL_MS);
+}
+
+function stopCvWatch(entry) {
+  if (entry._cvWatchInterval) {
+    clearInterval(entry._cvWatchInterval);
+    entry._cvWatchInterval = null;
+  }
+}
+
 export function makeMotionCap(schema) {
   const { name } = schema;
 
@@ -41,11 +69,12 @@ export function makeMotionCap(schema) {
     schema,
 
     initEntry: () => ({
-      motionGoalChar:   null,
-      motionPoseChar:   null,
-      motionStatusChar: null,
-      motionStatus:     "idle",
-      _motionJoypad:    null,
+      motionGoalChar:    null,
+      motionPoseChar:    null,
+      motionStatusChar:  null,
+      motionStatus:      "idle",
+      _motionJoypad:     null,
+      _cvWatchInterval:  null,
     }),
 
     async probe(entry, service) {
@@ -64,7 +93,6 @@ export function makeMotionCap(schema) {
           const msg = decodeJson(e.target.value);
           if (!msg?.st) return;
           entry.motionStatus = msg.st;
-          // Surgical update — avoid full re-render during active movement.
           const sec = entry.node?.querySelector(`.cap-section[data-cap-name="${name}"]`);
           if (sec) {
             const stateEl = sec.querySelector(".cap-state");
@@ -76,6 +104,7 @@ export function makeMotionCap(schema) {
           }
           logFor(entry, `motion → ${entry.motionStatus}`);
         });
+        startCvWatch(entry);
       } catch (err) {
         logFor(entry, `motion probe failed: ${err.message}`);
         entry.motionGoalChar = null;
@@ -83,6 +112,7 @@ export function makeMotionCap(schema) {
     },
 
     cleanup(entry) {
+      stopCvWatch(entry);
       entry._motionJoypad?.destroy();
       entry._motionJoypad = null;
       entry.motionGoalChar = entry.motionPoseChar = entry.motionStatusChar = null;
@@ -133,7 +163,6 @@ export function makeMotionCap(schema) {
           <button class="secondary sm" data-action="motion-cancel" type="button">Cancel</button>
           <span class="motion-status-pill" data-motion-status>${st}</span>
         </div>
-        ${cvFixLine(entry)}
         <details class="motion-wheel-config">
           <summary>Wheel config</summary>
           <div class="motion-wheel-fields">
@@ -162,11 +191,9 @@ export function makeMotionCap(schema) {
     },
 
     wireActions(entry, node) {
-      // Destroy any in-progress joypad drag from the previous render cycle.
       entry._motionJoypad?.destroy();
       entry._motionJoypad = null;
 
-      // Mode tabs
       node.querySelector("[data-action='motion-tab-manual']")?.addEventListener("click", () => {
         lsSet(entry, "mode", "manual");
         renderEntry(entry);
@@ -176,7 +203,6 @@ export function makeMotionCap(schema) {
         renderEntry(entry);
       });
 
-      // Stop — cancel goal + zero motors
       node.querySelector("[data-action='motion-stop']")?.addEventListener("click", async () => {
         entry._motionJoypad?.reset?.();
         if (entry.motionGoalChar) {
@@ -198,7 +224,6 @@ export function makeMotionCap(schema) {
           });
         }
       } else {
-        // Controller type toggle — surgical aria-pressed swap, no re-render.
         const ctrlSms  = node.querySelector("[data-action='motion-ctrl-sms']");
         const ctrlCont = node.querySelector("[data-action='motion-ctrl-cont']");
         ctrlSms?.addEventListener("click", () => {
@@ -212,12 +237,10 @@ export function makeMotionCap(schema) {
           ctrlSms?.setAttribute("aria-pressed", "false");
         });
 
-        // Persist field edits to localStorage on blur/enter.
         node.querySelectorAll("[data-motion-field]").forEach(el => {
           el.addEventListener("change", () => lsSet(entry, el.dataset.motionField, el.value));
         });
 
-        // Go
         node.querySelector("[data-action='motion-go']")?.addEventListener("click", async () => {
           if (!entry.motionGoalChar) return;
           const get = (a) => node.querySelector(`[data-action="${a}"]`)?.value;
@@ -233,25 +256,6 @@ export function makeMotionCap(schema) {
           if (sep > 0) msg.wheel_sep = sep;
           if (rad > 0) msg.wheel_r   = rad;
           if (spd > 0) msg.max_spd   = spd;
-
-          // Apply CV ground-truth fix before sending the goal so the robot's
-          // odometry starts from the camera-measured position rather than its
-          // dead-reckoned estimate. Skip if no fix or fix is stale (> 10s).
-          const p = entry.cvPosition;
-          if (p && entry.motionPoseChar && (Date.now() - p.updatedAt) < CV_STALE_MS) {
-            try {
-              const fix = {
-                x:     p.x / 1000,                      // mm → m
-                y:     p.y / 1000,
-                theta: p.headingDeg * (Math.PI / 180),  // deg → rad
-              };
-              await entry.motionPoseChar.writeValueWithResponse(encodeJson(fix));
-              logFor(entry, `motion cv fix: (${p.x}, ${p.y} mm, ${p.headingDeg}°)`);
-            } catch (err) {
-              logFor(entry, `motion cv fix failed: ${err.message}`);
-            }
-          }
-
           try {
             await entry.motionGoalChar.writeValueWithResponse(encodeJson(msg));
             logFor(entry, `motion go (${xVal}, ${yVal}, ${tDeg}°) ${ctrl}`);
@@ -260,7 +264,6 @@ export function makeMotionCap(schema) {
           }
         });
 
-        // Cancel
         node.querySelector("[data-action='motion-cancel']")?.addEventListener("click", async () => {
           if (!entry.motionGoalChar) return;
           try { await entry.motionGoalChar.writeValueWithResponse(encodeJson({ op: "cancel" })); }
