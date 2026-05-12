@@ -2827,5 +2827,7 @@ body.phone textarea {
 }
 .cv-result-row:last-child { border-bottom: none; }
 .cv-marker-id { font-weight: 500; min-width: 36px; }
+.cv-robot-name { flex: 1; font-size: 13px; }
+.cv-no-robot { color: var(--ink-muted); font-style: italic; }
 .cv-no-markers { padding: 4px 0; }
 .cv-status { margin-top: 6px; }

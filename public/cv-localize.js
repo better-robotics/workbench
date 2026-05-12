@@ -4,10 +4,15 @@
 // which matches the DICT_4X4_50 PDFs from the object-tracking project.
 // Separate detector instance — no conflict with the per-robot ARUCO tracker.
 //
-// Metric pose is computed via POS.Posit using the known printed marker size.
-// Focal length is estimated from the image dimensions (assumes a typical
-// 60-70° FOV webcam). No calibration file needed — accuracy is ~5-15%,
-// which is sufficient for robot position correction.
+// Marker ID is used as a direct index into the ordered robot list:
+//   marker 0 → first paired robot, marker 1 → second, etc.
+// Robots not in frame are left at their last known cvPosition. Marker IDs
+// with no corresponding robot are silently ignored.
+//
+// Metric pose via POS.Posit uses the known printed marker size and a focal
+// length estimated from image dimensions — no calibration file needed.
+
+import { state } from "./state.js";
 
 const CDN = "https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src";
 const SCRIPTS = ["cv.js", "aruco.js", "posit1.js"];
@@ -16,6 +21,7 @@ const DICTIONARY = "ARUCO_4X4_50";
 let _detector = null;
 let _detectorPromise = null;
 let _stream = null;
+let _intervalId = null;
 
 function loadScript(url) {
   return new Promise((resolve, reject) => {
@@ -50,21 +56,18 @@ async function enumerateCameras() {
     .map((d, i) => ({ id: d.deviceId, label: d.label || `Camera ${i + 1}` }));
 }
 
-// Estimate focal length in pixels from image dimensions. Assumes a ~70° FOV
-// lens, which covers most consumer webcams. The estimate is good enough for
-// approximate pose when a calibration file isn't available.
+function getOrderedRobots() {
+  return [...state.devices.values()];
+}
+
 function estimateFocalLength(w, h) {
   return Math.max(w, h) * 0.85;
 }
 
-// Returns approximate {x, y, z, headingDeg} in the same units as markerSizeMm.
-// x/y are the floor position relative to the camera center; z is distance from
-// the camera lens. headingDeg uses the corner-edge convention (corner 0→1).
 function estimatePose(corners, w, h, markerSizeMm) {
   if (!window.POS?.Posit) return null;
   const cx = w / 2;
   const cy = h / 2;
-  // POS.Posit expects corners relative to image center, Y pointing up.
   const centered = corners.map(c => ({ x: c.x - cx, y: -(c.y - cy) }));
   const focalLength = estimateFocalLength(w, h);
   try {
@@ -111,16 +114,17 @@ export async function initCvLocalize() {
   const panel = document.getElementById("cv-localize-panel");
   if (!panel) return;
 
-  const videoEl    = document.getElementById("cv-video");
-  const canvasEl   = document.getElementById("cv-canvas");
-  const selectEl   = document.getElementById("cv-camera-select");
-  const sizeEl     = document.getElementById("cv-marker-size");
-  const refreshBtn = document.getElementById("cv-refresh-btn");
-  const startBtn   = document.getElementById("cv-start-btn");
-  const stopBtn    = document.getElementById("cv-stop-btn");
-  const scanBtn    = document.getElementById("cv-scan-btn");
-  const statusEl   = document.getElementById("cv-status");
-  const resultsEl  = document.getElementById("cv-results");
+  const videoEl      = document.getElementById("cv-video");
+  const canvasEl     = document.getElementById("cv-canvas");
+  const selectEl     = document.getElementById("cv-camera-select");
+  const sizeEl       = document.getElementById("cv-marker-size");
+  const intervalEl   = document.getElementById("cv-interval-select");
+  const refreshBtn   = document.getElementById("cv-refresh-btn");
+  const startBtn     = document.getElementById("cv-start-btn");
+  const stopBtn      = document.getElementById("cv-stop-btn");
+  const scanBtn      = document.getElementById("cv-scan-btn");
+  const statusEl     = document.getElementById("cv-status");
+  const resultsEl    = document.getElementById("cv-results");
 
   function setStatus(msg) { statusEl.textContent = msg; }
 
@@ -138,16 +142,102 @@ export async function initCvLocalize() {
     startBtn.disabled = false;
   }
 
+  function stopPeriodicScan() {
+    if (_intervalId) { clearInterval(_intervalId); _intervalId = null; }
+  }
+
+  function startPeriodicScan(ms) {
+    stopPeriodicScan();
+    if (ms <= 0) return;
+    _intervalId = setInterval(() => doScan({ silent: true }), ms);
+  }
+
   function setRunning(on) {
     videoEl.hidden = !on;
     startBtn.hidden = on;
     stopBtn.hidden = !on;
     scanBtn.disabled = !on;
+    intervalEl.disabled = !on;
     selectEl.disabled = on;
     refreshBtn.disabled = on;
     if (!on) {
+      stopPeriodicScan();
       canvasEl.hidden = true;
       resultsEl.innerHTML = "";
+    }
+  }
+
+  // Core scan: capture frame, detect markers, update state, render results.
+  // `silent` suppresses the "Scanning…" flash for periodic auto-scans.
+  async function doScan({ silent = false } = {}) {
+    if (!silent) setStatus("Scanning…");
+    try {
+      const detector = await ensureDetector();
+      const w = videoEl.videoWidth;
+      const h = videoEl.videoHeight;
+      if (!w || !h) throw new Error("no video frame — camera not ready");
+
+      const markerSizeMm = Math.max(1, parseFloat(sizeEl.value) || 100);
+
+      canvasEl.width = w;
+      canvasEl.height = h;
+      const ctx = canvasEl.getContext("2d");
+      ctx.drawImage(videoEl, 0, 0, w, h);
+      const imageData = ctx.getImageData(0, 0, w, h);
+
+      const raw = detector.detect(imageData);
+      const robots = getOrderedRobots();
+      const now = Date.now();
+
+      const markers = raw.map(m => {
+        const c = m.corners;
+        const cx = (c[0].x + c[1].x + c[2].x + c[3].x) / 4;
+        const cy = (c[0].y + c[1].y + c[2].y + c[3].y) / 4;
+        const headingRad = Math.atan2(c[1].y - c[0].y, c[1].x - c[0].x);
+        const pose = estimatePose(c, w, h, markerSizeMm);
+        const robot = robots[m.id] || null;
+
+        // Write ground-truth position back to the robot's state entry so the
+        // pose controller (and Pip) can read it without depending on odometry.
+        if (robot && pose) {
+          robot.cvPosition = {
+            x: pose.x, y: pose.y,
+            headingDeg: Math.round(headingRad * 180 / Math.PI),
+            markerSizeMm,
+            updatedAt: now,
+          };
+        }
+
+        return { id: m.id, cx, cy, headingRad, corners: c, pose, robot };
+      });
+
+      drawOverlay(canvasEl, markers);
+      canvasEl.hidden = false;
+
+      if (markers.length === 0) {
+        resultsEl.innerHTML = `<div class="hint cv-no-markers">No markers detected · try repositioning the camera or improving lighting</div>`;
+      } else {
+        resultsEl.innerHTML = markers.map(m => {
+          const deg = Math.round(m.headingRad * 180 / Math.PI);
+          const robotName = m.robot ? m.robot.name : `<span class="cv-no-robot">no robot at index ${m.id}</span>`;
+          const posStr = m.pose
+            ? `${m.pose.x}, ${m.pose.y} mm`
+            : `${Math.round(m.cx)}, ${Math.round(m.cy)} px`;
+          return `<div class="cv-result-row">
+            <span class="cv-marker-id">id ${m.id}</span>
+            <span class="cv-robot-name">${robotName}</span>
+            <span class="meta">${posStr}</span>
+            <span class="meta">${deg >= 0 ? "+" : ""}${deg}°</span>
+          </div>`;
+        }).join("");
+      }
+
+      const t = new Date(now).toLocaleTimeString();
+      const auto = _intervalId ? "Auto · " : "";
+      const updated = markers.filter(m => m.robot && m.pose).length;
+      setStatus(`${auto}${markers.length} marker${markers.length === 1 ? "" : "s"} · ${updated} robot${updated === 1 ? "" : "s"} updated · ${t}`);
+    } catch (err) {
+      if (!silent) setStatus(`Scan failed: ${err.message}`);
     }
   }
 
@@ -169,7 +259,9 @@ export async function initCvLocalize() {
       videoEl.play();
       await populateSelect();
       setRunning(true);
-      setStatus("Camera ready · click Scan");
+      const ms = parseInt(intervalEl.value) || 0;
+      startPeriodicScan(ms);
+      setStatus(ms > 0 ? `Camera ready · auto-scanning every ${intervalEl.options[intervalEl.selectedIndex].text}` : "Camera ready · click Scan");
     } catch (err) {
       startBtn.disabled = false;
       setStatus(`Camera error: ${err.message}`);
@@ -183,60 +275,14 @@ export async function initCvLocalize() {
     setStatus("Camera stopped · select a camera and click Start");
   });
 
-  scanBtn.addEventListener("click", async () => {
-    scanBtn.disabled = true;
-    setStatus("Scanning…");
-    try {
-      const detector = await ensureDetector();
-      const w = videoEl.videoWidth;
-      const h = videoEl.videoHeight;
-      if (!w || !h) throw new Error("no video frame — camera not ready");
-
-      const markerSizeMm = Math.max(1, parseFloat(sizeEl.value) || 100);
-
-      canvasEl.width = w;
-      canvasEl.height = h;
-      const ctx = canvasEl.getContext("2d");
-      ctx.drawImage(videoEl, 0, 0, w, h);
-      const imageData = ctx.getImageData(0, 0, w, h);
-
-      const raw = detector.detect(imageData);
-      const markers = raw.map(m => {
-        const c = m.corners;
-        const cx = (c[0].x + c[1].x + c[2].x + c[3].x) / 4;
-        const cy = (c[0].y + c[1].y + c[2].y + c[3].y) / 4;
-        const headingRad = Math.atan2(c[1].y - c[0].y, c[1].x - c[0].x);
-        const pose = estimatePose(c, w, h, markerSizeMm);
-        return { id: m.id, cx, cy, headingRad, corners: c, pose };
-      });
-
-      drawOverlay(canvasEl, markers);
-      canvasEl.hidden = false;
-
-      if (markers.length === 0) {
-        resultsEl.innerHTML = `<div class="hint cv-no-markers">No markers detected · try repositioning the camera or improving lighting</div>`;
-      } else {
-        resultsEl.innerHTML = markers.map(m => {
-          const deg = Math.round(m.headingRad * 180 / Math.PI);
-          const poseStr = m.pose
-            ? `<span class="meta">${m.pose.x}, ${m.pose.y} mm</span>`
-            : `<span class="meta">(${Math.round(m.cx)}, ${Math.round(m.cy)}) px</span>`;
-          return `<div class="cv-result-row">
-            <span class="cv-marker-id">id ${m.id}</span>
-            ${poseStr}
-            <span class="meta">${deg >= 0 ? "+" : ""}${deg}°</span>
-          </div>`;
-        }).join("");
-      }
-
-      const t = new Date().toLocaleTimeString();
-      setStatus(`${markers.length} marker${markers.length === 1 ? "" : "s"} · ${t}`);
-    } catch (err) {
-      setStatus(`Scan failed: ${err.message}`);
-    } finally {
-      scanBtn.disabled = false;
-    }
+  intervalEl.addEventListener("change", () => {
+    if (!_stream) return;
+    const ms = parseInt(intervalEl.value) || 0;
+    startPeriodicScan(ms);
+    setStatus(ms > 0 ? `Auto-scanning every ${intervalEl.options[intervalEl.selectedIndex].text}` : "Manual mode · click Scan");
   });
+
+  scanBtn.addEventListener("click", () => doScan({ silent: false }));
 
   await populateSelect();
   setStatus("Select a camera and click Start.");
