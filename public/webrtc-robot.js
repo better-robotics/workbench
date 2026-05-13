@@ -66,10 +66,19 @@ async function openChannelViaBLE(robotId, label, signalChar, opts) {
   closePeer(robotId);
 
   onStatus("Opening peer over BLE…");
-  // STUN-only is fine — for LAN both peers' local candidates are enough;
-  // STUN as fallback covers any in-house NAT segments.
+  // iceTransportPolicy:"relay" forces Chrome to gather AND use only TURN
+  // relay candidates. Required to mirror the chip's relay-only filter
+  // (filter_sdp_for_chip in webrtc_peer.c): the chip's TURN allocation
+  // only channel-binds to addresses it has explicit permission for, so
+  // if Chrome reaches the chip's relay from a non-relay source (its
+  // host IP, its srflx), the chip's TURN rejects the packet with
+  // "Not found for bind remote". Both sides through TURN = symmetric,
+  // both with channel bindings, DTLS handshake actually completes.
+  // Cost: ~15-40 ms RTT extra vs same-LAN host pair — within budget for
+  // every use case in this project, and same-LAN was unreliable anyway
+  // on the WiFi-as-a-service networks robots actually live on.
   const iceServers = await fetchIceServers();
-  const pc = new RTCPeerConnection({ iceServers });
+  const pc = new RTCPeerConnection({ iceServers, iceTransportPolicy: "relay" });
   const entry = { pc, channels: new Map() };
   _peers.set(robotId, entry);
 
