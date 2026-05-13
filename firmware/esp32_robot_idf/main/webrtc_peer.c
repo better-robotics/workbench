@@ -610,12 +610,22 @@ static void handle_offer(const char *sdp) {
         ESP_LOGW(TAG, "ice_servers: none — host candidates only");
     }
 
-    // Default-impl config — ipv6_support tells the agent to gather IPv6
-    // host candidates alongside IPv4. Without this flag esp_peer 1.3.0
-    // only binds AF_INET sockets, so the dashboard's IPv6 host can't
-    // pair and ICE falls back to the slow IPv4 path.
+    // Default-impl config — ipv6_support kept OFF deliberately. When
+    // enabled, the agent gathers IPv6 host candidates; ICE prefers them
+    // for host-host pairing because of higher priority. But on cellular
+    // IPv6 (e.g. T-Mobile 2607:FB90:...), the carrier allows short STUN
+    // binding packets through but drops sustained UDP / larger DTLS
+    // handshake flow. The result is the symptom seen on BR-A044:
+    //   "Connection OK [v6 addr]" → "Start DTLS role as 1" →
+    //   "PEER_DEF: agent_recv timeout" forever, while the parallel
+    //   IPv4 srflx pair shows healthy bidirectional binding traffic
+    //   that libpeer's binary lib never falls back to.
+    // Forcing IPv4-only lets ICE work through host (same LAN) → srflx →
+    // relay in order, all of which carry DTLS reliably on the networks
+    // we've observed. Cost: same-LAN IPv6 path is unused, but its
+    // latency advantage was hypothetical anyway.
     static esp_peer_default_cfg_t default_cfg = {
-        .ipv6_support = true,
+        .ipv6_support = false,
     };
 
     esp_peer_cfg_t cfg = {
