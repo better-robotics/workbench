@@ -23,10 +23,12 @@ import { initMotorsKeyboard } from "./capabilities/runtime/signed-pair.js";
 import { initAuthUI, fingerprint as dashFingerprint, pubkeySsh, onKeyChange } from "./auth.js";
 import { initPasswordsUI } from "./passwords.js";
 import { initAssistant, emitPipEvent } from "./assistant.js";
-import { initPhones, broadcastTargetInfo, sendArucoStatus } from "./phones.js";
-// (local-llm imports moved to assistant.js where the /install slash lives)
+import { initPhones, broadcastTargetInfo } from "./phones.js";
 import { initHelpers, setHelpersRobotRenderer, renderHelpers } from "./helpers.js";
-import { startTracking as startArucoTracking, stopTracking as stopArucoTracking } from "./aruco.js";
+// aruco.js is wired through helpers.js — phone helpers can be designated
+// as the overhead camera; detection runs against the helper's existing
+// preview tile. No init call here.
+import "./aruco.js";
 import {
   setupServiceWorker, wireInstallMenuItem, wireCheckUpdatesMenuItem,
   wireHardRefresh, wireDiagnosticsMenuItem, setReportIssueLink, readSwVersion,
@@ -40,9 +42,7 @@ setExpectingReconnectHandler((id) => markExpectingReconnect(id));
 // A phone helper's camera mounted on this robot (phone-as-eye). The video
 // element is discoverable by perception.js's findCameraElement enumerator
 // via [data-attached-camera-id]. srcObject is bound by renderEntry after
-// innerHTML rebuild. The SVG sibling is the ArUco debug overlay — sized
-// to match the video's natural dims via patchArucoOverlay so corner
-// coords from aruco.js (image-pixel) don't need re-scaling per render.
+// innerHTML rebuild.
 function attachedCameraHtml(entry) {
   if (!entry.attachedCameraStream) return "";
   return `
@@ -53,87 +53,10 @@ function attachedCameraHtml(entry) {
       <div class="cap-body">
         <div class="attached-camera-frame">
           <video class="robot-camera" data-attached-camera-id="${escapeHtml(entry.id)}" autoplay playsinline muted></video>
-          <svg class="aruco-overlay" data-aruco-overlay-id="${escapeHtml(entry.id)}"></svg>
         </div>
-        <div class="meta aruco-help">
-          <a href="https://chev.me/arucogen/" target="_blank" rel="noopener">Print marker</a>
-          — "Original ArUco" dictionary, id 0, tape flat on top of the robot.
-        </div>
-        <div class="meta aruco-status" data-aruco-status-id="${escapeHtml(entry.id)}">Loading detector…</div>
       </div>
     </div>
   `;
-}
-
-// Surgical patcher for the ArUco debug overlay. Called from the tracker
-// each tick — mutates the SVG in place so a 10 Hz detection rhythm
-// doesn't trigger full-card re-renders that would destroy other
-// in-flight UI (perception prompt, hover state, etc).
-//
-// `frameCount` in the status is load-bearing diagnostic — without it,
-// "detector still loading", "loop running but nothing found", and
-// "loop wedged" all read identically to the operator.
-function patchArucoOverlay(entry, { markers, frameCount, error }) {
-  const node = entry.node;
-  if (!node) return;
-  const svg = node.querySelector(`svg[data-aruco-overlay-id="${entry.id}"]`);
-  if (!svg) return;
-  const status = node.querySelector(`[data-aruco-status-id="${entry.id}"]`);
-  if (error) {
-    if (svg) svg.innerHTML = "";
-    if (status) {
-      status.classList.remove("aruco-locked");
-      status.textContent = `Detector error: ${error}`;
-    }
-    return;
-  }
-  if (markers.length === 0) {
-    svg.innerHTML = "";
-    if (status) {
-      status.classList.remove("aruco-locked");
-      status.textContent = `Scanning · ${frameCount} frame${frameCount === 1 ? "" : "s"} · no marker yet`;
-    }
-    // Push to phone-as-eye holder so they see lock state without checking
-    // the dashboard. Only on lock-state transitions to keep the data
-    // channel quiet (10 Hz of no-marker pings would be churn for nothing).
-    if (entry.attachedFromPhoneId && entry.arucoLastLocked !== false) {
-      sendArucoStatus(entry.attachedFromPhoneId, { locked: false, detail: "Scanning for marker…" });
-      entry.arucoLastLocked = false;
-    }
-    return;
-  }
-  const { frameW, frameH } = markers[0];
-  svg.setAttribute("viewBox", `0 0 ${frameW} ${frameH}`);
-  // preserveAspectRatio default ("xMidYMid meet") matches how the video
-  // is letterboxed in its container — corners line up.
-  const pieces = [];
-  for (const m of markers) {
-    const pts = m.corners.map(c => `${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(" ");
-    // Heading line from center along the marker's "top edge" direction.
-    const len = Math.min(frameW, frameH) * 0.08;
-    const hx = m.cx + Math.cos(m.headingRad) * len;
-    const hy = m.cy + Math.sin(m.headingRad) * len;
-    pieces.push(`<polygon points="${pts}" />`);
-    pieces.push(`<line x1="${m.cx.toFixed(1)}" y1="${m.cy.toFixed(1)}" x2="${hx.toFixed(1)}" y2="${hy.toFixed(1)}" class="heading" />`);
-    pieces.push(`<text x="${m.cx.toFixed(1)}" y="${m.cy.toFixed(1)}" dy="-8">id ${m.id}</text>`);
-  }
-  svg.innerHTML = pieces.join("");
-  if (status) {
-    status.classList.add("aruco-locked");
-    const ids = markers.map(m => `id ${m.id}`).join(", ");
-    status.textContent = `Tracking ${ids} · frame ${frameCount}`;
-  }
-  // Phone-side lock indicator. Send on transition into locked AND on
-  // marker-id change while locked; suppress while still locked on the
-  // same id to avoid 10 Hz traffic.
-  if (entry.attachedFromPhoneId) {
-    const primaryId = markers[0].id;
-    if (entry.arucoLastLocked !== true || entry.arucoLastMarkerId !== primaryId) {
-      sendArucoStatus(entry.attachedFromPhoneId, { locked: true, markerId: primaryId });
-      entry.arucoLastLocked = true;
-      entry.arucoLastMarkerId = primaryId;
-    }
-  }
 }
 
 // The header meta line ("WiFi … · up …h · reset: …"). Reused by renderEntry
@@ -149,20 +72,18 @@ function metaText(entry) {
     formatUptime(t),
     formatResetReason(t?.reset_reason),
   ];
-  // Free RAM + temp folded in here so the body's separate telemetry
-  // line (which duplicated uptime) can be dropped — one canonical
-  // status row at the top instead of two.
+  // One canonical status row at the top — free RAM + temp join the
+  // WiFi/uptime line so the body doesn't need a separate telemetry row.
   if (typeof t?.mem_free_mb === "number") parts.push(`${t.mem_free_mb} MB free`);
   else if (typeof t?.free_heap === "number") parts.push(`${Math.floor(t.free_heap / 1024)} KB free`);
   if (typeof t?.temp_c === "number") parts.push(`${t.temp_c.toFixed(1)}°C`);
   return parts.filter(Boolean).join(" · ");
 }
 
-// Surgical patcher for the secondary row + body telemetry line. Avoids the
-// full-card innerHTML rewrite that telemetry's 10 s notify rhythm was
-// causing — that rewrite destroyed/recreated the entire card DOM, which
-// reads as a card flash. patchOtaSection set the precedent; this generalizes
-// to the high-frequency notify channels.
+// Surgical patcher for the secondary row + body telemetry line. Avoids a
+// full-card innerHTML rewrite on every 10 s telemetry notify — the
+// rewrite destroys/recreates the entire card DOM and reads as a flash.
+// Same shape as patchOtaSection, generalized to high-frequency channels.
 function patchSecondaryRow(entry) {
   const node = entry.node;
   if (!node) return;
@@ -263,9 +184,9 @@ function gattConnectWithTimeout(device) {
 
 async function loadPaired() {
   // Restore remembered robots first — works even when getDevices() is missing.
-  for (const { id, name, fwType, autoReconnect, lastConnectedAt } of loadKnown()) {
+  for (const { id, name, fwType, autoReconnect, lastConnectedAt, arucoMarkerId } of loadKnown()) {
     if (!state.devices.has(id)) {
-      state.devices.set(id, makeEntry(id, name, fwType, { autoReconnect, lastConnectedAt }));
+      state.devices.set(id, makeEntry(id, name, fwType, { autoReconnect, lastConnectedAt, arucoMarkerId }));
     }
   }
   if (navigator.bluetooth.getDevices) {
@@ -505,8 +426,8 @@ async function connect(id) {
       });
     } catch { /* ops-response char absent on older firmware — optional */ }
 
-    // signal char (Phase 2.F.1) — chunked SDP exchange for WebRTC over BLE.
-    // When present, webrtc-robot.js uses BLE for signaling instead of
+    // signal char — chunked SDP exchange for WebRTC over BLE. When
+    // present, webrtc-robot.js uses BLE for signaling instead of
     // wss://signal.neevs.io — fully P2P over LAN, no internet rendezvous.
     // Older firmware silently skips and falls back to the wss path.
     try {
@@ -625,11 +546,8 @@ function onDisconnected(id) {
   if (entry.autoReconnect !== false) {
     emitPipEvent("robot.disconnected", { id, name: entry.name });
     // OTA-induced disconnect: the firmware sets entry.expectingReconnectUntil
-    // before its restart, so we know to keep trying. Without this the user
-    // had to click Connect manually after every OTA — every reboot read as
-    // "user error: just reconnect" when actually the dashboard knew the
-    // disconnect was coming and could've retried itself. Backoff at 3 / 6 /
-    // 12 / 25 s spreads attempts across the chip's ~10-30 s reboot window.
+    // before its restart, so we keep retrying. Backoff 3 / 6 / 12 / 25 s
+    // spreads attempts across the chip's ~10-30 s reboot window.
     if (entry.expectingReconnectUntil && Date.now() < entry.expectingReconnectUntil) {
       schedulePostOtaReconnect(id);
     }
@@ -706,12 +624,11 @@ function updateQrHint() {
 }
 
 // Robot presence — probe each paired robot's :81/health endpoint to show
-// "BR-XXXX on wifi" when the dashboard isn't BLE-connected to it. Pi-only
-// after Phase 2.H: ESP32 firmware no longer runs an HTTP server (everything
-// flows over BLE + WebRTC). ESP32 robots still appear in the panel when
-// BLE-connected via the wifi-status notify; they just don't surface
-// passively when only on WiFi. Pi continues to expose pi_robot_health.py
-// on :81 for service-crash detection (pi_robot_service field).
+// "BR-XXXX on wifi" when the dashboard isn't BLE-connected to it. Pi-only;
+// ESP32 firmware doesn't run an HTTP server (everything flows over BLE +
+// WebRTC). ESP32 still appears via BLE wifi-status notify when paired.
+// Pi exposes pi_robot_health.py on :81 for service-crash detection
+// (pi_robot_service field).
 const HEALTH_PORT = 81;
 const PROBE_TIMEOUT_MS = 4000;
 const PROBE_INTERVAL_MS = 30000;
@@ -730,9 +647,8 @@ async function _probeUrl(url) {
 }
 
 async function _probeRobot(known) {
-  // Skip ESP32 robots — Phase 2.H removed their HTTP /health endpoint.
-  // Their presence shows up via the BLE wifi-status notify when paired,
-  // not via passive probing.
+  // ESP32 firmware doesn't expose /health — presence shows up via the
+  // BLE wifi-status notify when paired, not via passive probing.
   if (known.fwType === "esp32") return null;
   const candidates = [];
   if (known.name) {
@@ -756,8 +672,8 @@ async function _probeTick() {
     const health = await _probeRobot(r);
     if (!health) return;
     const id = r.id;
-    // Pi /health includes pi_robot_service; same active→inactive transition
-    // detection the WS-based path used to do, just sourced from the probe.
+    // active→inactive transition surfaces as a service-crash event so
+    // Pip can nudge the user toward recovery.
     const now = health.pi_robot_service;
     const was = _lastRobotServiceState.get(id);
     if (was === "active" && now && now !== "active") {
@@ -848,9 +764,8 @@ function renderEntry(entry) {
     ? (/no longer in range|not found/i.test(entry.lastConnectError || "") ? "Out of range" : "Error")
     : firmwareDown ? "Firmware down"
     : "";
-  // Card-style status hint via a colored left edge stripe (see .robot.connected
-  // etc. in styles.css). Replaces the previous in-row dot — the stripe carries
-  // status with more visual presence and the dot was redundant next to it.
+  // Card-style status hint via a colored left edge stripe (see
+  // .robot.connected etc. in styles.css).
   entry.node.classList.toggle("status-connected",     status === "connected");
   entry.node.classList.toggle("status-connecting",    connecting);
   entry.node.classList.toggle("status-error",         status === "error");
@@ -1056,16 +971,6 @@ function renderEntry(entry) {
   if (entry.attachedCameraStream) {
     const v = entry.node.querySelector(`video[data-attached-camera-id="${entry.id}"]`);
     if (v) v.srcObject = entry.attachedCameraStream;
-    // Lazy-start ArUco tracking. The tracker is idempotent (returns if
-    // already running) — sourceFn re-resolves the <video> each tick so a
-    // re-render that swaps the element doesn't strand the loop.
-    startArucoTracking(
-      entry.id,
-      () => entry.node?.querySelector(`video[data-attached-camera-id="${entry.id}"]`),
-      (result) => patchArucoOverlay(entry, result),
-    );
-  } else {
-    stopArucoTracking(entry.id);
   }
   // Per-cap try/catch: one cap's wireActions throwing shouldn't silently
   // break wiring for every cap that comes after it. Surface the error so
@@ -1172,8 +1077,7 @@ function openMenu(triggerBtn, id) {
   $("menu-restart").hidden = !entry?.opsChar;
   $("menu-reboot").hidden  = !entry?.opsChar;
   $("menu-log").hidden     = !entry?.opsChar;
-  // Shell is Pi-only (no shell on ESP32) and only useful when WiFi is up
-  // (signaling is HTTP-on-:82 today). pi-robot-rtc.service must also be
+  // Shell is Pi-only (no shell on ESP32). pi-robot-rtc.service must be
   // installed; if it's not, the connect button surfaces a clear error.
   $("menu-shell").hidden   = !(entry?.fwType === "pi" && entry?.status === "connected");
   $("menu-pinout").hidden  = !(entry?.status === "connected" && entry?.fwInfo);
@@ -1331,13 +1235,11 @@ document.addEventListener("DOMContentLoaded", () => {
   // Wire the recovery menu FIRST and in isolation. Anything throwing in
   // the rest of init can no longer strand the user without Hard Refresh.
   try { wireRecoveryMenu(); } catch (err) { console.error("[recovery-menu]", err); }
-  // Browsers without Web Bluetooth (iOS Safari is the common case — a phone
-  // user who navigated phone → "Open dashboard view") still need the chrome
-  // to work: they should be able to open the BetterRobotics menu, install
-  // the PWA, check for updates, get a random profile name. The earlier
-  // early-return killed every wiring below it, so the menu was inert and
-  // the avatar stayed at "?". Now: surface the unsupported banner + disable
-  // BLE-only buttons, but let the rest of init run.
+  // Browsers without Web Bluetooth (iOS Safari is the common case — a
+  // phone user who navigated phone → "Open dashboard view") still need
+  // the chrome to work: BetterRobotics menu, PWA install, update check,
+  // random profile name. Surface the unsupported banner + disable BLE-only
+  // buttons, then let the rest of init run.
   const hasBLE = !!navigator.bluetooth;
   if (!hasBLE) {
     $("unsupported").hidden = false;

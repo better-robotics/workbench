@@ -959,21 +959,21 @@ details.tray.has-alert > summary::after {
 }
 
 /* Pinout edit mode — pin inputs + preset controls under the board view. */
+.pinout-edit-input { width: 70px; padding: 4px 8px; }
+.pinout-edit-input.conflict { border-color: #ef4444; background: #fff5f5; }
+/* ESP32 read-only / edit form rows — Pi path now lives in the SVG via
+   inline terminal inputs, but ESP32 fw_info reports pins directly (no
+   conf file) so its dialog still uses these legacy rows. */
 .pinout-edit { margin-top: 16px; }
-.pinout-edit-section {
-  padding: 8px 0;
-  border-top: 1px solid var(--line);
-}
+.pinout-edit-section { padding: 8px 0; border-top: 1px solid var(--line); }
 .pinout-edit-row {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 4px 0;
   font-size: 14px;
-  cursor: pointer;
 }
 .pinout-edit-label { color: var(--ink-muted); font-size: 13px; min-width: 72px; }
-.pinout-edit-input { width: 70px; padding: 4px 8px; }
 .pinout-warn {
   margin-top: 12px;
   padding: 8px 10px;
@@ -982,9 +982,80 @@ details.tray.has-alert > summary::after {
   color: #7a2400;
   font-size: 13px;
 }
-/* Soft variant — latent conflict (one claimant currently off). Muted so it
-   reads as "heads up" rather than "blocking." */
-.pinout-warn.soft { background: #fff4e0; color: #7a4a00; }
+/* Toolbar above the SVG — three caps (LED / Motors / Camera) live here as
+   compact toggles. LED carries its GPIO input inline because it's a single
+   pin direct to a single LED; the SVG below stays focused on the H-bridge,
+   where the wiring is the interesting bit. */
+.pinout-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.toolbar-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.toolbar-toggle .pinout-edit-input { width: 50px; }
+.pinout-helper { margin-top: 8px; font-size: 12px; }
+/* Compact one-line warnings replacing the old stacked banners. Same colors
+   as the legacy .pinout-warn / .soft so meaning carries; smaller padding
+   and font so a typical config fits in one row below the diagram. */
+.pinout-warn-line {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: #fff4e0;
+  color: #7a4a00;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.pinout-warn-line.has-hard { background: #ffe1d9; color: #7a2400; }
+.pinout-warn-line .warn-hard { font-weight: 600; }
+
+/* Motor calibration wizard — three-step flow living inside the pinout
+   dialog body. Stepper across the top, choice buttons stack on small
+   screens. Uses existing button classes for visual continuity. */
+.cal-wizard { padding: 4px 2px; }
+.cal-wizard h3 { font-size: 16px; }
+.cal-wizard p { font-size: 14px; margin: 8px 0; }
+.cal-progress {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0 14px;
+}
+.cal-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px; height: 26px;
+  border-radius: 13px;
+  background: var(--line);
+  color: var(--ink-muted);
+  font: 600 12px ui-monospace, "SF Mono", Menlo, monospace;
+}
+.cal-step.active { background: var(--accent, #2563eb); color: #fff; }
+.cal-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0;
+}
+.cal-choices button { text-align: left; }
+.cal-summary { margin: 8px 0; padding-left: 20px; font-size: 14px; }
+.cal-warn {
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: #fff4e0;
+  color: #7a4a00;
+  font-size: 13px;
+}
 
 .log-dialog { width: min(820px, calc(100vw - 32px)); max-width: 820px; }
 .log-dialog-body {
@@ -1624,6 +1695,31 @@ details.tray.has-alert > summary::after {
   font: 600 11px ui-monospace, "SF Mono", Menlo, monospace;
   fill: #e5e5e5;
 }
+/* Inline GPIO inputs sitting below each driver terminal in edit mode.
+   Embedded via <foreignObject>. Dark, semi-transparent so they read as
+   silkscreen labels you can type into — keeps the PCB metaphor intact. */
+.pinout-svg .terminal-input {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 3px;
+  color: #f3f4f6;
+  font: 600 12px ui-monospace, "SF Mono", Menlo, monospace;
+  text-align: center;
+  padding: 0;
+  outline: none;
+}
+.pinout-svg .terminal-input::placeholder { color: rgba(255, 255, 255, 0.35); }
+.pinout-svg .terminal-input:focus {
+  border-color: #93c5fd;
+  background: rgba(96, 165, 250, 0.18);
+}
+.pinout-svg .terminal-input.conflict {
+  border-color: #ef4444;
+  background: rgba(239, 68, 68, 0.18);
+}
 /* Wires from Pi GPIOs to driver terminals. IN wires are solid blue
    (direction control); EN wires are dashed purple (optional speed control).
    Low opacity so they stay visually subordinate to the pin dots. */
@@ -1790,37 +1886,6 @@ details.tray.has-alert > summary::after {
   margin-top: 12px;
 }
 .attached-camera-frame .robot-camera { margin-top: 0; }
-.aruco-overlay {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  border-radius: 8px;
-}
-.aruco-overlay polygon {
-  fill: color-mix(in srgb, var(--success) 22%, transparent);
-  stroke: var(--success);
-  stroke-width: 2;
-  vector-effect: non-scaling-stroke;
-}
-.aruco-overlay line.heading {
-  stroke: var(--success);
-  stroke-width: 3;
-  stroke-linecap: round;
-  vector-effect: non-scaling-stroke;
-}
-.aruco-overlay text {
-  fill: var(--success);
-  font-size: 14px;
-  font-weight: 600;
-  text-anchor: middle;
-  paint-order: stroke;
-  stroke: rgba(0, 0, 0, 0.6);
-  stroke-width: 3;
-}
-.aruco-status { margin-top: 8px; }
-.aruco-status.aruco-locked { color: var(--success); }
 
 /* Flex column with gap is immune to margin-collapse + specificity edge cases —
    spacing stays right whether the .empty-sub is present or not. */
@@ -2242,6 +2307,16 @@ dialog[open]::backdrop { opacity: 1; }
    empty-state's framing so the eye reads "this is a section." */
 .helpers-section { max-width: 440px; }
 .helpers-section:has(#helpers-list:empty) { display: none; }
+.helpers-heading {
+  padding: 0 4px;
+  margin: 24px 0 12px;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.helpers-heading .label { font-size: 13px; color: var(--ink-muted); font-weight: 500; }
+.helpers-heading .meta-prose { font-size: 12px; color: var(--ink-muted); opacity: 0.75; }
+#helpers-list { display: flex; flex-direction: column; gap: 16px; }
 /* Topbar pair-phone button — small accent dot when nearby phones are
    broadcasting on wifi (presence-aware affordance). The hint moves to
    the title attr; the dot is the glance-level signal. */
@@ -2270,64 +2345,96 @@ dialog[open]::backdrop { opacity: 1; }
   border-radius: 4px;
 }
 .link-btn:not(:disabled):hover { color: var(--ink); background: var(--border-subtle); }
-#helpers-list {
-  display: block;
-  margin-bottom: 0;
-}
 #helpers-list > .card {
   margin-bottom: 0;
   max-width: none;
 }
+/* Helpers reuse the .robot card scaffold but NOT its identity signals.
+   Robot cards carry a green left-stripe to mean "BLE-connected" — that
+   semantic belongs to robots only. Neutralize the stripe on helpers so
+   it can't be confused with robot-connected state. Active overhead is
+   communicated via the role picker + the dot/pill status line, not at
+   the card edge. */
 .card.helper {
-  background: transparent;
-  border: none;
-  border-bottom: 1px solid var(--line);
-  border-radius: 0;
-  padding: 12px 0;
-  /* Status stripe from .robot would re-introduce a card-like edge — drop
-     it for helpers. Connection state surfaces via the meta line + type
-     badge instead. */
-  border-left: none;
-}
-#helpers-list > .card.helper:last-child {
-  border-bottom: none;
+  padding: 16px 18px;
+  border-left: 1px solid var(--border-default);
 }
 .helper .label-btn { font-size: 14px; }
-.helper-video {
-  /* Live preview is a reference, not the focus. Capping keeps the row
-     reading as a row and not a video panel. Aspect-ratio respected by
-     letting width auto-fit within the cap. */
-  width: auto;
-  max-width: 280px;
-  max-height: 160px;
-  border-radius: 8px;
-  background: #000;
+.helper-preview {
+  margin-top: 12px;
+  position: relative;
   display: block;
-  margin-top: 8px;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #000;
 }
-.helpers-empty {
-  padding: 4px 0 0;
+.helper-preview .helper-video {
+  /* Live preview as a flush media tile — covers the container, no
+     letterboxing. Aspect is set on the wrapper so a 4:3 phone or 4:3
+     webcam crops cleanly to the 16:9 tile instead of bracketing black. */
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
-/* Mount picker on the phone helper card — quiet inline control under the
-   secondary row. The value is the current state (Operator vs Robot N) so
-   the picker doubles as status display. */
+.helpers-empty { padding: 4px 0 0; }
+/* Role picker — quiet inline control under the secondary row. Label uses
+   .meta-prose (not .meta) so it reads as UI text, not data. */
 .phone-mount {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 6px;
-  margin-left: 26px;  /* aligned under name + meta, clears the chevron column */
-  font-size: 12px;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 13px;
 }
-.phone-mount > .meta { font-size: inherit; }
+.phone-mount > .meta-prose { font-size: inherit; }
+/* Strip native chrome and lay out our own chevron — native selects render
+   the arrow crowded against the right edge across browsers, which the
+   robot-card buttons + other modern UI in this dashboard don't. SVG is
+   inline as a data URL so it ships without a separate asset. */
 .phone-mount select {
   font: inherit;
-  padding: 1px 6px;
-  background: transparent;
-  border: 1px solid var(--border-subtle);
-  border-radius: 4px;
+  font-size: 13px;
+  padding: 5px 30px 5px 10px;
+  background-color: var(--bg);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%238a8a92' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3 4.5l3 3 3-3'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
   color: var(--ink);
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
 }
+.phone-mount select:hover { border-color: var(--ink-muted); }
+.phone-mount select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+/* Permanent print-markers hint, visible whenever a helper is designated
+   overhead. Sits between the role row and the preview tile so it reads
+   as "to use this, you need these." Subtle text register; links inherit
+   the muted color and underline on hover for affordance without shouting. */
+.helper-markers-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--ink-muted);
+  opacity: 0.85;
+}
+.helper-markers-hint a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+}
+.helper-markers-hint a:hover { text-decoration-color: currentColor; }
 
 /* ── Phone-side page (phone.html) ─────────────────────────────────────── */
 body.phone {
@@ -2664,25 +2771,6 @@ body.phone textarea {
   aspect-ratio: 4 / 3;
   object-fit: cover;
 }
-/* Phone-side ArUco lock indicator. Shown when this phone is mounted on a
-   robot and the dashboard is pushing detection state — operator holding
-   the phone overhead can see "marker locked" without checking the
-   dashboard. Lifts to a green register on lock. */
-.aruco-lock {
-  padding: 8px 12px;
-  border-radius: 12px;
-  border: 1px solid var(--border-default);
-  background: var(--surface);
-  font-size: 14px;
-  color: var(--ink-muted);
-  text-align: center;
-}
-.aruco-lock.locked {
-  border-color: var(--success);
-  background: color-mix(in srgb, var(--success) 14%, transparent);
-  color: var(--success);
-  font-weight: 500;
-}
 /* Reconnect surface — visible only when not paired or after a drop. Hosts
    the QR scanner so the user can re-pair without going back to the desktop. */
 .phone-reconnect {
@@ -2847,3 +2935,62 @@ body.phone textarea {
   .label-modal::backdrop { display: none; }
   .modal-header button, .modal-footer { display: none; }
 }
+
+/* Helpers preview tile + ArUco overlay. The <svg> overlay sits on top of
+   the <video> via absolute positioning; its viewBox matches the video's
+   frame dimensions so detected-marker corner coords paint without per-
+   render rescaling. preserveAspectRatio default ("xMidYMid meet") tracks
+   the letterboxing of `object-fit: contain`. */
+.helper-preview { position: relative; display: block; }
+.helper-preview .helper-video { display: block; width: 100%; border-radius: 4px; }
+.helper-preview .aruco-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  border-radius: 4px;
+}
+.aruco-overlay polygon {
+  fill: color-mix(in srgb, var(--success) 22%, transparent);
+  stroke: var(--success);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.aruco-overlay line.heading {
+  stroke: var(--success);
+  stroke-width: 3;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+.aruco-overlay text {
+  fill: var(--success);
+  font-size: 14px;
+  font-weight: 600;
+  text-anchor: middle;
+  paint-order: stroke;
+  stroke: rgba(0, 0, 0, 0.6);
+  stroke-width: 3;
+}
+.aruco-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+.aruco-status::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ink-muted);
+  flex-shrink: 0;
+}
+.aruco-status.aruco-locked { color: var(--success); }
+.aruco-status.aruco-locked::before {
+  background: var(--success);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--success) 55%, transparent);
+}
+.aruco-status a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }

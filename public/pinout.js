@@ -4,6 +4,7 @@ import { getConfig } from "./capabilities/runtime/command.js";
 import { onOpsResponse } from "./ops-response.js";
 import { uploadFile } from "./capabilities/ota.js";
 import { SERVICE_UUID, PIN_CONFIG_CHAR_UUID, encodeJson } from "./ble.js";
+import { beginMotorsCalibration } from "./motors-calibrate.js";
 
 // BCM GPIO is what config + firmware use; physical pin is what the header
 // silkscreen shows. Users wire against physical, so lead with those.
@@ -63,6 +64,19 @@ const ESP32_PINS_BOT = [
   { label: "IO16", kind: "gpio", status: "free",     note: "Free on ESP32 modules without PSRAM. WROVER modules with PSRAM use IO16 internally — check your module first." },
   { label: "3V3",  kind: "3v3" },
 ];
+
+// Firmware defaults — MUST match pi_robot.py's LED_PIN and MOTORS_PINS.
+// Used as input fallbacks AND as claimsFromConfig fallbacks so the SVG
+// wires appear on first open of a fresh robot (where the conf is empty
+// and pi_robot.py is running on its compiled-in defaults). Also the
+// safe-defaults button's restore target.
+const PI_DEFAULTS = {
+  led_pin: 17,
+  motors_pins: {
+    left:  { forward: 5,  backward: 6  },
+    right: { forward: 13, backward: 26 },
+  },
+};
 
 // Supports both flat {role: gpio} and nested {left: {forward: 17, backward: 27}} shapes.
 function flattenPins(obj, prefix = "") {
@@ -198,7 +212,21 @@ const ROLE_TO_TERMINAL = {
   "right enable":   "enb",
 };
 
-function renderBoardWithDriver(claims) {
+// Reverse mapping for edit-mode inline inputs. The SVG terminal carries an
+// input whose data-path matches the form-input handlers in renderEdit, so
+// save/validation/conflict logic stays unchanged — the only thing that
+// changed is where the input lives on screen.
+const TERMINAL_TO_PATH = {
+  in1: { path: "motors_pins.left.forward",   optional: false },
+  in2: { path: "motors_pins.left.backward",  optional: false },
+  in3: { path: "motors_pins.right.forward",  optional: false },
+  in4: { path: "motors_pins.right.backward", optional: false },
+  ena: { path: "motors_pins.left.enable",    optional: true  },
+  enb: { path: "motors_pins.right.enable",   optional: true  },
+};
+
+function renderBoardWithDriver(claims, opts = {}) {
+  const { editable = false, editConfig = null, flagged = new Set() } = opts;
   const driverPcb = `
     <rect class="driver-pcb" x="15" y="${DRIVER_Y}" width="${PI_W - 30}" height="${DRIVER_H}" rx="6"/>
     <text class="driver-title" x="${PI_W / 2}" y="${DRIVER_Y + 22}" text-anchor="middle">H-bridge driver inputs</text>
@@ -217,10 +245,43 @@ function renderBoardWithDriver(claims) {
   const terminals = TERMINAL_ROLES.map((role, i) => {
     const cx = TERMINAL_XS[i];
     const kind = role.startsWith("en") ? "enable" : "input";
-    const wire = terminalToWire[role] ? ` data-wire="${escapeHtml(terminalToWire[role])}"` : "";
+    const wireRole = terminalToWire[role];
+    const wireAttr = wireRole ? ` data-wire="${escapeHtml(wireRole)}"` : "";
+
+    // Inline editable input below each terminal — turns the SVG into the
+    // editor instead of a preview of one. data-path matches what the
+    // existing input handlers expect; conflict class flags GPIOs that
+    // appear in hard/reserved sets so the user sees the offender right
+    // at the wire endpoint instead of in a banner.
+    let inputFrag = "";
+    if (editable) {
+      const { path, optional } = TERMINAL_TO_PATH[role];
+      const parts = path.split(".");
+      let v = editConfig;
+      for (const p of parts) v = v?.[p];
+      if (v == null && !optional) {
+        // Required pins fall back to PI_DEFAULTS so first-open shows
+        // what pi_robot.py is actually using, not blanks.
+        let dv = PI_DEFAULTS.motors_pins;
+        for (const p of parts.slice(1)) dv = dv?.[p];
+        v = dv;
+      }
+      const display = v == null ? "" : String(v);
+      const placeholder = optional ? "—" : "";
+      const conflictCls = (v != null && flagged.has(v)) ? " conflict" : "";
+      inputFrag = `
+        <foreignObject x="${cx - 22}" y="${TERM_CY + 12}" width="44" height="22">
+          <input xmlns="http://www.w3.org/1999/xhtml" type="text" inputmode="numeric" maxlength="2"
+                 class="terminal-input${conflictCls}" data-path="${path}"${optional ? ' data-optional="true"' : ""}${wireAttr}
+                 value="${escapeHtml(display)}" placeholder="${placeholder}" />
+        </foreignObject>
+      `;
+    }
+
     return `
       <text class="driver-label" x="${cx}" y="${TERM_CY - 14}" text-anchor="middle">${TERMINAL_LABELS[role]}</text>
-      <circle class="driver-pin ${kind}" cx="${cx}" cy="${TERM_CY}" r="${TERM_R}" data-role="${role}"${wire}/>
+      <circle class="driver-pin ${kind}" cx="${cx}" cy="${TERM_CY}" r="${TERM_R}" data-role="${role}"${wireAttr}/>
+      ${inputFrag}
     `;
   }).join("");
 
@@ -230,7 +291,7 @@ function renderBoardWithDriver(claims) {
   // Pi and driver, or motor supply not hooked up. Rendered as muted text
   // at the bottom of the driver PCB, visually subordinate to the
   // configurable INs and ENs above.
-  const supplyY = TERM_CY + 45;
+  const supplyY = TERM_CY + (editable ? 58 : 45);
   const supplyNote = `
     <text class="driver-supply" x="${PI_W / 2}" y="${supplyY}" text-anchor="middle">
       Also connect (not shown): Pi GND ↔ L298N GND · motor supply 7–12V to VS
@@ -333,13 +394,22 @@ const CONFIG_RESPONSE_TIMEOUT_MS = 6000;
 function claimsFromConfig(cfg) {
   // Build a claims map identical to claimsFromEntry but from the live conf
   // being edited, so preview reflects uncommitted edits before save.
+  // Fall back to PI_DEFAULTS for any field the conf doesn't override —
+  // matches what pi_robot.py is actually using (and what the input fields
+  // display) so SVG wires render on first open of a fresh robot.
   const claims = {};
-  if (cfg?.led_enabled && cfg.led_pin != null) {
-    const phys = GPIO_TO_PHYS.get(cfg.led_pin);
+  const ledPin = cfg?.led_pin ?? PI_DEFAULTS.led_pin;
+  if (cfg?.led_enabled && ledPin != null) {
+    const phys = GPIO_TO_PHYS.get(ledPin);
     if (phys) claims[phys] = { cap: "led", role: "out" };
   }
-  if (cfg?.motors_enabled && cfg.motors_pins) {
-    for (const [role, gpio] of flattenPins(cfg.motors_pins)) {
+  if (cfg?.motors_enabled) {
+    const mp = cfg.motors_pins || {};
+    const effective = {
+      left:  { ...PI_DEFAULTS.motors_pins.left,  ...(mp.left  || {}) },
+      right: { ...PI_DEFAULTS.motors_pins.right, ...(mp.right || {}) },
+    };
+    for (const [role, gpio] of flattenPins(effective)) {
       const phys = GPIO_TO_PHYS.get(gpio);
       if (phys) claims[phys] = { cap: "motors", role };
     }
@@ -382,8 +452,6 @@ function renderEdit(entry) {
   const motorsChecked = c.motors_enabled ? "checked" : "";
   const cameraChecked = c.camera_enabled !== false ? "checked" : "";
   const motors = c.motors_pins || {};
-  const ml = motors.left || {};
-  const mr = motors.right || {};
   // Duplicate GPIO usage detection, in two tiers:
   //   hard — every claimant is enabled; robot will misbehave on next boot.
   //   soft — at least one claimant is disabled; fine right now but a latent
@@ -414,100 +482,59 @@ function renderEdit(entry) {
   };
   if (c.led_pin != null) checkReserved(c.led_pin, "LED", !!c.led_enabled);
   for (const [role, g] of flattenPins(motors)) checkReserved(g, `motors.${role}`, !!c.motors_enabled);
-  const warn = [
-    hard.length
-      ? `<div class="pinout-warn">Conflict: ${hard.map(([g, v]) => `GPIO ${g} claimed by ${fmt(v)}`).join("; ")}</div>`
-      : "",
-    soft.length
-      ? `<div class="pinout-warn soft">Latent conflict: ${soft.map(([g, v]) => `GPIO ${g} claimed by ${fmt(v)}`).join("; ")} — fine while one side is off, will break if re-enabled.</div>`
-      : "",
-    reservedHits.length
-      ? `<div class="pinout-warn soft">Reserved hardware pin${reservedHits.length > 1 ? "s" : ""}: ${reservedHits.map(h => `GPIO ${h.pin} is ${h.fn} (used here for ${h.role})`).join("; ")}. Works only if the matching kernel interface is disabled in raspi-config — otherwise gpiozero can't claim it and motors silently fail.</div>`
-      : "",
-  ].join("");
-  const conflicts = hard;  // only hard blocks Save
+  // GPIOs to flag inline (red border on the input). Soft conflicts live in
+  // the warning line only — they aren't actively-broken state, so flagging
+  // both sides would mislead.
+  const flagged = new Set();
+  for (const [g] of hard) flagged.add(parseInt(g, 10));
+  for (const r of reservedHits) flagged.add(r.pin);
+
+  const warnParts = [];
+  if (hard.length) warnParts.push(`<span class="warn-hard">Conflict: ${hard.map(([g, v]) => `GPIO ${g} (${fmt(v)})`).join("; ")}</span>`);
+  if (soft.length) warnParts.push(`<span class="warn-soft">Latent: ${soft.map(([g, v]) => `GPIO ${g} (${fmt(v)})`).join("; ")}</span>`);
+  if (reservedHits.length) warnParts.push(`<span class="warn-soft">Reserved: ${reservedHits.map(h => `GPIO ${h.pin} (${h.fn})`).join("; ")}</span>`);
+  const warnLine = warnParts.length
+    ? `<div class="pinout-warn-line${hard.length ? " has-hard" : ""}">${warnParts.join(" · ")}</div>`
+    : "";
+
+  const ledFlagCls = (c.led_pin != null && flagged.has(c.led_pin)) ? " conflict" : "";
+
   $("pinout-body").innerHTML = `
-    ${renderBoardWithDriver(claims)}
-    <div class="pinout-edit">
-      <div class="pinout-edit-section">
-        <label class="pinout-edit-row">
-          <input type="checkbox" data-toggle="led_enabled" ${ledChecked}>
-          <span>LED</span>
-        </label>
-        <label class="pinout-edit-row" style="padding-left: 24px;">
-          <span class="pinout-edit-label">GPIO</span>
-          <!-- Fallback matches firmware default (pi_robot.py LED_PIN). The
-               editor should show the truth — what the robot is actually
-               using when the conf doesn't override — not arbitrary values
-               that contradict the running config. -->
-          <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input"
-                 data-path="led_pin" value="${c.led_pin ?? 17}">
-        </label>
-      </div>
-      <div class="pinout-edit-section">
-        <label class="pinout-edit-row">
-          <input type="checkbox" data-toggle="motors_enabled" ${motorsChecked}>
-          <span>Motors (H-bridge)</span>
-        </label>
-        <div style="padding-left: 24px;">
-          <!-- Per-motor names (forward / backward / enable) match
-               gpiozero's Motor() constructor on the Pi side. Chip-side
-               IN1..IN4 / ENA / ENB live on the wiring diagram above. -->
-          <!-- Fallbacks match pi_robot.py's MOTORS_PINS default. Without
-               this alignment, opening the editor on a fresh robot shows
-               pins that don't match what's actually being driven, and
-               clicking Save without touching anything writes those
-               fictional values into the conf — silently overriding the
-               firmware's safe defaults. -->
-          <label class="pinout-edit-row">
-            <span class="pinout-edit-label">Left forward</span>
-            <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input"
-                   data-path="motors_pins.left.forward" value="${ml.forward ?? 5}">
-          </label>
-          <label class="pinout-edit-row">
-            <span class="pinout-edit-label">Left backward</span>
-            <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input"
-                   data-path="motors_pins.left.backward" value="${ml.backward ?? 6}">
-          </label>
-          <label class="pinout-edit-row">
-            <span class="pinout-edit-label">Right forward</span>
-            <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input"
-                   data-path="motors_pins.right.forward" value="${mr.forward ?? 13}">
-          </label>
-          <label class="pinout-edit-row">
-            <span class="pinout-edit-label">Right backward</span>
-            <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input"
-                   data-path="motors_pins.right.backward" value="${mr.backward ?? 26}">
-          </label>
-          <div class="meta" style="margin-top: 6px;">"Forward" / "backward" are the two direction pins per motor — which one actually drives the wheel forward depends on motor lead orientation. If a wheel spins the wrong way after wiring, swap the two leads or swap these two GPIOs. Works with L298N, DRV8833, TB6612, and most H-bridge clones.</div>
-          <label class="pinout-edit-row" style="margin-top: 10px;">
-            <span class="pinout-edit-label">Left enable</span>
-            <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input"
-                   data-path="motors_pins.left.enable" data-optional="true" value="${ml.enable ?? ""}" placeholder="—">
-          </label>
-          <label class="pinout-edit-row">
-            <span class="pinout-edit-label">Right enable</span>
-            <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input"
-                   data-path="motors_pins.right.enable" data-optional="true" value="${mr.enable ?? ""}" placeholder="—">
-          </label>
-          <div class="meta" style="margin-top: 6px;">Leave blank unless you've removed the ENA/ENB jumpers to wire speed control to a GPIO.</div>
-        </div>
-      </div>
-      <div class="pinout-edit-section">
-        <label class="pinout-edit-row">
-          <input type="checkbox" data-toggle="camera_auto" ${cameraChecked}>
-          <span>Camera (auto-detect)</span>
-        </label>
-      </div>
-      <div class="meta" style="margin-top: 12px;">Numbers are BCM GPIO IDs (the GPIO# label on the board), not physical pin positions.</div>
-      ${warn}
-      <div class="modal-footer">
-        <button class="secondary sm" id="pinout-cancel-btn">Cancel</button>
-        <!-- One-click preset for beginners: all pins set to safe, non-reserved,
-             conflict-free values that work on any Pi 4 with stock raspi-config. -->
-        <button class="secondary sm" id="pinout-safe-defaults-btn">Use safe defaults</button>
-        <button class="sm" id="pinout-save-btn" ${conflicts.length ? "disabled" : ""}>Save &amp; restart</button>
-      </div>
+    <div class="pinout-toolbar">
+      <label class="toolbar-toggle">
+        <input type="checkbox" data-toggle="led_enabled" ${ledChecked}>
+        <span>LED</span>
+        <!-- LED is one pin direct to one LED — no driver chip, no diagram
+             value beyond the Pi pin claim. Lives in the toolbar; the SVG
+             below stays focused on the H-bridge wiring. -->
+        <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input${ledFlagCls}"
+               data-path="led_pin" value="${c.led_pin ?? PI_DEFAULTS.led_pin}">
+      </label>
+      <label class="toolbar-toggle">
+        <input type="checkbox" data-toggle="motors_enabled" ${motorsChecked}>
+        <span>Motors (H-bridge)</span>
+      </label>
+      <label class="toolbar-toggle">
+        <input type="checkbox" data-toggle="camera_auto" ${cameraChecked}>
+        <span>Camera (auto)</span>
+      </label>
+    </div>
+    ${renderBoardWithDriver(claims, { editable: true, editConfig: c, flagged })}
+    ${warnLine}
+    <div class="meta pinout-helper">
+      Numbers are BCM GPIO IDs. Empty ENA/ENB = jumpers left on (no speed-control wire).
+      Swap "forward"/"backward" to fix a wheel that spins the wrong way.
+    </div>
+    <div class="modal-footer">
+      <button class="secondary sm" id="pinout-cancel-btn">Cancel</button>
+      <!-- One-click preset: pins set to safe, non-reserved, conflict-free
+           values that work on any Pi 4 with stock raspi-config. -->
+      <button class="secondary sm" id="pinout-safe-defaults-btn">Use safe defaults</button>
+      <!-- Pulses each motor in turn, asks what wheel turned + which way,
+           writes the derived orientation flips. Eliminates the recurring
+           swap/polarity wiring guesswork. -->
+      <button class="secondary sm" id="pinout-calibrate-btn">Calibrate motors</button>
+      <button class="sm" id="pinout-save-btn" ${hard.length ? "disabled" : ""}>Save &amp; restart</button>
     </div>
   `;
   // Wire inputs — keep editConfig in sync + re-render so conflict banner
@@ -530,12 +557,17 @@ function renderEdit(entry) {
         obj = obj[path[i]];
       }
       const key = path[path.length - 1];
-      // Empty value on an optional field clears the key from config — lets
-      // the user remove an ENA/ENB assignment cleanly. Required fields
-      // ignore empty (user hasn't typed a new value yet).
+      // Empty value on an optional field clears the key from config so the
+      // wire disappears. Required fields stay in a transient invalid state
+      // (the input is empty, editConfig still holds the prior value) and
+      // skip the re-render — otherwise the rebuild snaps the input back to
+      // the prior value from editConfig and the user can't replace the
+      // last remaining digit.
       if (raw === "") {
-        if (el.dataset.optional === "true") delete obj[key];
-        renderEdit(entry);
+        if (el.dataset.optional === "true") {
+          delete obj[key];
+          renderEdit(entry);
+        }
         return;
       }
       const v = parseInt(raw, 10);
@@ -560,9 +592,29 @@ function renderEdit(entry) {
   // is a *restore* affordance — useful after the user has drifted off
   // the canonical assignments and wants the working ones back.
   $("pinout-safe-defaults-btn")?.addEventListener("click", () => {
-    editConfig.led_pin = 17;
-    editConfig.motors_pins = { left: { forward: 5, backward: 6 }, right: { forward: 13, backward: 26 } };
+    editConfig.led_pin = PI_DEFAULTS.led_pin;
+    editConfig.motors_pins = structuredClone(PI_DEFAULTS.motors_pins);
     renderEdit(entry);
+  });
+  $("pinout-calibrate-btn")?.addEventListener("click", () => {
+    beginMotorsCalibration({
+      entry,
+      editConfig,
+      onCancel: () => renderEdit(entry),
+      onDone: (ok) => {
+        if (ok) {
+          // Service restart drops BLE briefly; close the dialog so the user
+          // sees the disconnect+reconnect on the card. Mirrors saveEdit.
+          editMode = false;
+          editConfig = null;
+          $("pinout-modal").close();
+        } else {
+          // Save failed — drop back to the editor; the orientation we
+          // derived is still in the user's head, they can retry.
+          renderEdit(entry);
+        }
+      },
+    });
   });
 
   // Restore focus to whatever input was active before the re-render so the
