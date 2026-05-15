@@ -100,16 +100,35 @@ Each transport has a distinct job:
 
 Pattern: control = BLE, observe = wifi/discover, recover = USB.
 
-# Network-shaped WebRTC failure
+# ESP32 WebRTC: chip is the DTLS client, not the server
 
-Some networks (apartment WiFi-as-a-service like WhiteSky, guest WiFi, certain enterprise APs) silently break WebRTC ICE between two devices even though signaling completes cleanly. The dashboard symptom is distinctive:
+Classic ESP32 streams WebRTC video to current Chrome via four coordinated
+patches that don't independently make sense — anyone debugging this stack
+needs to see them as one shape:
 
-- BLE-signaled handshake completes, chip generates a valid answer SDP
-- Dashboard sets remote description, channel never opens, 30 s ICE timeout
-- wss fallback fails the same way (signal isn't the problem, data path is)
-- Bumping the chip and laptop onto **different** networks often works (cross-NAT via STUN), so it's not always pure client-isolation — could be NAT type, hairpin, port blocking, or something else network-shaped
+1. **DTLS role: chip is CLIENT** (forced in `dtls_srtp_init` regardless of
+   what libpeer's binary blob passes). libpeer always passes ROLE_SERVER,
+   but mbedTLS's `ssl_parse_client_hello` can't reassemble Chrome's ~1413-
+   byte fragmented ClientHello — bails immediately with `FEATURE_UNAVAILABLE`.
+   As CLIENT, chip sends the (small, never-fragmented) ClientHello and
+   Chrome handles whatever it receives. Chrome 124+ enforces this strictly.
+2. **Self-signed cert is ECDSA P-256**, not RSA. WebRTC standardized on
+   ECDSA; current Chrome rejects RSA in DTLS-SRTP.
+3. **Answer SDP rewrite**: `setup:passive` → `setup:active`. libpeer's
+   binary always emits passive; we override to match the actual on-wire
+   role.
+4. **mbedTLS Kconfig** must enable the WebRTC cipher set explicitly
+   (DTLS_SRTP, ECDHE_ECDSA, ECDH_C, ECDSA_C, SECP256R1, GCM_C, SHA1_C,
+   CIPHER_MODE_CTR, HKDF_C, X509_CREATE_C). IDF defaults are tuned for
+   HTTPS-client and lack what DTLS-SRTP needs.
+5. **PSRAM-default malloc** with `RESERVE_INTERNAL=32768` — mbedTLS context
+   + libpeer SCTP/SRTP buffers go to PSRAM so the camera DMA's 32 KB
+   contiguous internal block is always available mid-session.
 
-If WebRTC fails on a network that "should work," try the chip and laptop on different networks (phone hotspot is the quickest split) before assuming code regression. We burned hours on 2026-04-30 debugging this; the symptom looks like a code bug because every layer above the ICE check appears healthy.
+Removing any one of these reverts the chip to "DTLS handshake never
+completes" or "camera_acquire fails after WebRTC opens." The full set is
+documented in firmware/esp32_robot_idf/components/espressif__esp_peer/src/
+dtls_srtp.c and sdkconfig.defaults.esp32.
 
 # Connection-first init
 
