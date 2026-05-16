@@ -6,6 +6,7 @@
 
 #include "ble_host.h"
 #include "camera.h"
+#include "encoders.h"
 #include "flash.h"
 #include "fw_info.h"
 #include "http_stream.h"
@@ -63,6 +64,7 @@ void app_main(void) {
     led_init(pins.led);
     flash_init(pins.flash);
     motors_init(&pins);
+    encoders_init(&pins);
 
     // fw-info reflects the cap surface; built once after caps are up.
     // Changes (camera profile, pin config) reboot, so a fresh boot

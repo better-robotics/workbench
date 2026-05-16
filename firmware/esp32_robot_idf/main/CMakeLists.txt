@@ -21,6 +21,7 @@ idf_component_register(
         "led.c"
         "flash.c"
         "motors.c"
+        "encoders.c"
         "ota.c"
         "camera.c"
         "snapshot.c"

@@ -12,6 +12,7 @@
 #include "host/ble_hs.h"
 
 #include "ble_host.h"
+#include "encoders.h"
 #include "gatt_svr.h"
 #ifdef CONFIG_BR_WEBRTC_ESP_PEER
 #include "webrtc_peer.h"
@@ -83,6 +84,12 @@ static void on_tick(void *arg) {
     int8_t rssi;
     if (conn != BLE_HS_CONN_HANDLE_NONE && ble_gap_conn_rssi(conn, &rssi) == 0) {
         o += snprintf(s_buf + o, TELEMETRY_BUF_SIZE - o, ",\"rssi_dbm\":%d", (int)rssi);
+    }
+    if (encoders_enabled()) {
+        uint32_t l, r;
+        encoders_get(&l, &r);
+        o += snprintf(s_buf + o, TELEMETRY_BUF_SIZE - o,
+            ",\"enc_l\":%u,\"enc_r\":%u", (unsigned)l, (unsigned)r);
     }
     snprintf(s_buf + o, TELEMETRY_BUF_SIZE - o, "}");
     gatt_svr_notify_telemetry();

@@ -29,6 +29,12 @@ void pin_config_load(pin_config_t *out) {
     out->motor_l_bwd = 15;
     out->motor_r_fwd = 13;
     out->motor_r_bwd = 12;
+    // Encoders default disabled — ESP32-CAM has ~8 user-assignable GPIOs
+    // (most SD- or PSRAM-shared) and motors already claim four. The user
+    // picks free pins via the dashboard pin map; we don't ship a default
+    // that might collide with their board variant or shared peripherals.
+    out->enc_l       = -1;
+    out->enc_r       = -1;
 
     nvs_handle_t h;
     if (nvs_open("pins", NVS_READONLY, &h) != ESP_OK) return;
@@ -38,6 +44,8 @@ void pin_config_load(pin_config_t *out) {
     out->motor_l_bwd = nvs_get_int_default(h, "m_l_bwd", out->motor_l_bwd);
     out->motor_r_fwd = nvs_get_int_default(h, "m_r_fwd", out->motor_r_fwd);
     out->motor_r_bwd = nvs_get_int_default(h, "m_r_bwd", out->motor_r_bwd);
+    out->enc_l       = nvs_get_int_default(h, "enc_l",   out->enc_l);
+    out->enc_r       = nvs_get_int_default(h, "enc_r",   out->enc_r);
     nvs_close(h);
 }
 
@@ -91,9 +99,11 @@ void pin_config_handle_write(const uint8_t *json_bytes, size_t len) {
     int l_bwd  = extract_int_key(json, len, "m_l_bwd");
     int r_fwd  = extract_int_key(json, len, "m_r_fwd");
     int r_bwd  = extract_int_key(json, len, "m_r_bwd");
+    int enc_l  = extract_int_key(json, len, "enc_l");
+    int enc_r  = extract_int_key(json, len, "enc_r");
 
-    int candidates[6] = { led, flash, l_fwd, l_bwd, r_fwd, r_bwd };
-    for (int i = 0; i < 6; i++) {
+    int candidates[8] = { led, flash, l_fwd, l_bwd, r_fwd, r_bwd, enc_l, enc_r };
+    for (int i = 0; i < 8; i++) {
         int p = candidates[i];
         if (p == PIN_ABSENT || p == -1) continue;
         if (p < 0 || p > 39) {
@@ -104,7 +114,7 @@ void pin_config_handle_write(const uint8_t *json_bytes, size_t len) {
             ESP_LOGW(TAG, "GPIO %d is camera-reserved, ignored", p);
             return;
         }
-        for (int j = i + 1; j < 6; j++) {
+        for (int j = i + 1; j < 8; j++) {
             if (candidates[j] == p) {
                 ESP_LOGW(TAG, "GPIO %d assigned twice, ignored", p);
                 return;
@@ -123,10 +133,12 @@ void pin_config_handle_write(const uint8_t *json_bytes, size_t len) {
     if (l_bwd  != PIN_ABSENT) nvs_set_i32(h, "m_l_bwd", l_bwd);
     if (r_fwd  != PIN_ABSENT) nvs_set_i32(h, "m_r_fwd", r_fwd);
     if (r_bwd  != PIN_ABSENT) nvs_set_i32(h, "m_r_bwd", r_bwd);
+    if (enc_l  != PIN_ABSENT) nvs_set_i32(h, "enc_l",   enc_l);
+    if (enc_r  != PIN_ABSENT) nvs_set_i32(h, "enc_r",   enc_r);
     nvs_commit(h);
     nvs_close(h);
 
-    ESP_LOGI(TAG, "saved (led=%d flash=%d L=%d/%d R=%d/%d)",
-             led, flash, l_fwd, l_bwd, r_fwd, r_bwd);
+    ESP_LOGI(TAG, "saved (led=%d flash=%d L=%d/%d R=%d/%d enc=%d/%d)",
+             led, flash, l_fwd, l_bwd, r_fwd, r_bwd, enc_l, enc_r);
     schedule_restart(500);
 }

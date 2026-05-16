@@ -12,6 +12,8 @@ typedef struct {
     int motor_l_bwd;
     int motor_r_fwd;
     int motor_r_bwd;
+    int enc_l;
+    int enc_r;
 } pin_config_t;
 
 bool pin_valid(int pin);

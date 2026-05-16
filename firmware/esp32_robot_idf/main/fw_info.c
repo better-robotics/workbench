@@ -6,6 +6,7 @@
 #include "esp_log.h"
 
 #include "camera.h"
+#include "encoders.h"
 #include "flash.h"
 #include "led.h"
 #include "motors.h"
@@ -50,6 +51,15 @@ void fw_info_init(const pin_config_t *pins) {
             "\"right\":{\"forward\":%d,\"backward\":%d}}}",
             pins->motor_l_fwd, pins->motor_l_bwd,
             pins->motor_r_fwd, pins->motor_r_bwd);
+    }
+    // tick-count cap has no dashboard runtime (yet) — RUNTIMES[type]
+    // falls through to no-op; claimsFromEntry still picks up `pins` for
+    // the pinout view. Ticks reach the dashboard via telemetry.
+    if (encoders_enabled()) {
+        o += snprintf(s_buf + o, FW_INFO_BUF_SIZE - o,
+            ",{\"name\":\"encoders\",\"type\":\"tick-count\","
+            "\"pins\":{\"left\":%d,\"right\":%d}}",
+            pins->enc_l, pins->enc_r);
     }
     if (camera_present()) {
         o += snprintf(s_buf + o, FW_INFO_BUF_SIZE - o,
