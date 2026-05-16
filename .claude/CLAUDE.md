@@ -111,15 +111,22 @@ needs to see them as one shape:
    byte fragmented ClientHello — bails immediately with `FEATURE_UNAVAILABLE`.
    As CLIENT, chip sends the (small, never-fragmented) ClientHello and
    Chrome handles whatever it receives. Chrome 124+ enforces this strictly.
-2. **Self-signed cert is ECDSA P-256**, not RSA. WebRTC standardized on
-   ECDSA; current Chrome rejects RSA in DTLS-SRTP.
+2. **DTLS cert is dashboard-supplied**, ECDSA P-256. The browser generates
+   the keypair (WebCrypto) and self-signs an X.509 cert (@peculiar/x509),
+   then pushes both PEMs over the SIGNAL char (opcodes 0x07/0x08/0x09) BEFORE
+   the offer. Chip's `dtls_srtp_init` refuses to open WebRTC if nothing was
+   supplied — chip-gen path was removed for ~9 KB flash saved (linker gc on
+   mbedtls x509write_crt_* + ecp_gen_key). WebRTC standardized on ECDSA;
+   current Chrome rejects RSA in DTLS-SRTP, so the dashboard cert is built
+   ECDSA-only too.
 3. **Answer SDP rewrite**: `setup:passive` → `setup:active`. libpeer's
    binary always emits passive; we override to match the actual on-wire
    role.
 4. **mbedTLS Kconfig** must enable the WebRTC cipher set explicitly
    (DTLS_SRTP, ECDHE_ECDSA, ECDH_C, ECDSA_C, SECP256R1, GCM_C, SHA1_C,
-   CIPHER_MODE_CTR, HKDF_C, X509_CREATE_C). IDF defaults are tuned for
-   HTTPS-client and lack what DTLS-SRTP needs.
+   HKDF_C). IDF defaults are tuned for HTTPS-client and lack what DTLS-SRTP
+   needs. X509_CREATE_C is no longer needed — dashboard does the cert
+   creation; chip only parses.
 5. **PSRAM-default malloc** with `RESERVE_INTERNAL=32768` — mbedTLS context
    + libpeer SCTP/SRTP buffers go to PSRAM so the camera DMA's 32 KB
    contiguous internal block is always available mid-session.

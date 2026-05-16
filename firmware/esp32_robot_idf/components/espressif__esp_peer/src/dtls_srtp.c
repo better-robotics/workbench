@@ -6,94 +6,14 @@
  */
 
 #include "dtls_common.h"
-#include <mbedtls/ecp.h>
 
-static int dtls_srtp_selfsign_cert(dtls_srtp_t *dtls_srtp, bool export_for_cache)
-{
-    int ret;
-    mbedtls_x509write_cert crt;
-    unsigned char *cert_buf = (unsigned char *)malloc(DTLS_CERT_PEM_BUF_SIZE);
-    if (cert_buf == NULL) {
-        return -1;
-    }
-    const char *pers = "dtls_srtp";
-
-    mbedtls_x509write_crt_init(&crt);
-    ret = mbedtls_ctr_drbg_seed(&dtls_srtp->ctr_drbg, dtls_srtp_entropy_func, NULL, (const unsigned char *)pers,
-                                strlen(pers));
-    if (ret != 0) {
-        ESP_LOGE(TAG, "mbedtls_ctr_drbg_seed failed, ret=%d", ret);
-        goto _exit;
-    }
-    // PATCH: ECDSA P-256 instead of RSA-1024. WebRTC standardized on ECDSA;
-    // Chrome 124+ rejects DTLS handshakes when the cert is RSA. Symptom
-    // prior to this fix: ICE connects on every pair type, DTLS times out
-    // forever ("Start DTLS role as 1" → "agent_recv timeout"). aiortc on
-    // a Pi using ECDSA succeeds on the same network where the chip with
-    // stock RSA-1024 fails.
-    ret = mbedtls_pk_setup(&dtls_srtp->pkey, mbedtls_pk_info_from_type(MBEDTLS_PK_ECKEY));
-    if (ret != 0) {
-        ESP_LOGE(TAG, "mbedtls_pk_setup(ECKEY) failed, ret=%d", ret);
-        goto _exit;
-    }
-    ret = mbedtls_ecp_gen_key(MBEDTLS_ECP_DP_SECP256R1, mbedtls_pk_ec(dtls_srtp->pkey),
-                              mbedtls_ctr_drbg_random, &dtls_srtp->ctr_drbg);
-    if (ret != 0) {
-        ESP_LOGE(TAG, "mbedtls_ecp_gen_key(SECP256R1) failed, ret=%d", ret);
-        goto _exit;
-    }
-
-    mbedtls_x509write_crt_set_version(&crt, MBEDTLS_X509_CRT_VERSION_3);
-    mbedtls_x509write_crt_set_md_alg(&crt, MBEDTLS_MD_SHA256);
-    mbedtls_x509write_crt_set_subject_name(&crt, "CN=dtls_srtp");
-    mbedtls_x509write_crt_set_issuer_name(&crt, "CN=dtls_srtp");
-
-#if MBEDTLS_VERSION_MAJOR == 3 && MBEDTLS_VERSION_MINOR >= 4 || MBEDTLS_VERSION_MAJOR >= 4
-    unsigned char *serial = (unsigned char *)"1";
-    size_t serial_len = 1;
-    ret = mbedtls_x509write_crt_set_serial_raw(&crt, serial, serial_len);
-    if (ret < 0) {
-        printf("mbedtls_x509write_crt_set_serial_raw failed\n");
-    }
-#else
-    mbedtls_mpi serial;
-    mbedtls_mpi_init(&serial);
-    mbedtls_mpi_fill_random(&serial, 16, mbedtls_ctr_drbg_random, &dtls_srtp->ctr_drbg);
-    mbedtls_x509write_crt_set_serial(&crt, &serial);
-    mbedtls_mpi_free(&serial);
-#endif
-
-    mbedtls_x509write_crt_set_validity(&crt, "20230101000000", "20280101000000");
-    mbedtls_x509write_crt_set_subject_key(&crt, &dtls_srtp->pkey);
-    mbedtls_x509write_crt_set_issuer_key(&crt, &dtls_srtp->pkey);
-    ret = mbedtls_x509write_crt_pem(&crt, cert_buf, DTLS_CERT_PEM_BUF_SIZE, mbedtls_ctr_drbg_random,
-                                    &dtls_srtp->ctr_drbg);
-    if (ret < 0) {
-        ESP_LOGE(TAG, "mbedtls_x509write_crt_pem failed");
-        goto _exit;
-    }
-    ret = mbedtls_x509_crt_parse(&dtls_srtp->cert, cert_buf, DTLS_CERT_PEM_BUF_SIZE);
-    if (ret != 0) {
-        ESP_LOGE(TAG, "mbedtls_x509_crt_parse failed, ret=%d", ret);
-        goto _exit;
-    }
-    if (export_for_cache) {
-#ifdef DTLS_SIGN_ONCE
-        ret = mbedtls_pk_write_key_pem(&dtls_srtp->pkey, s_cached_key_pem, sizeof(s_cached_key_pem));
-        if (ret != 0) {
-            ESP_LOGE(TAG, "mbedtls_pk_write_key_pem failed, ret=%d", ret);
-            goto _exit;
-        }
-        memcpy(s_cached_cert_pem, cert_buf, sizeof(s_cached_cert_pem));
-        s_cached_cert_ready = true;
-#endif
-    }
-    ret = 0;
-_exit:
-    mbedtls_x509write_crt_free(&crt);
-    free(cert_buf);
-    return ret;
-}
+// Chip-side ECDSA gen + X.509 self-sign has been removed; the dashboard
+// supplies a per-session ECDSA P-256 cert+key over BLE pre-handshake
+// (webrtc_peer.c opcodes 0x07/0x08/0x09 → dtls_srtp_supply_cert).
+// Browser-resident WebCrypto + @peculiar/x509 do the keygen; the chip
+// only parses. mbedtls_x509write_crt_* and mbedtls_ecp_gen_key are no
+// longer referenced from this TU — the linker's --gc-sections strips
+// them from the image (~3 KB on classic ESP32).
 
 static int dtls_srtp_try_gen_cert(dtls_srtp_t *dtls_srtp)
 {
@@ -108,45 +28,29 @@ static int dtls_srtp_try_gen_cert(dtls_srtp_t *dtls_srtp)
         ESP_LOGE(TAG, "mbedtls_ctr_drbg_seed failed, ret=%d", ret);
         return ret;
     }
-#ifdef DTLS_SIGN_ONCE
-    if (s_cached_cert_ready) {
-        size_t cert_pem_len = strlen((const char *)s_cached_cert_pem) + 1;
-        size_t key_pem_len = strlen((const char *)s_cached_key_pem) + 1;
-        ret = mbedtls_x509_crt_parse(&dtls_srtp->cert, s_cached_cert_pem, cert_pem_len);
-        if (ret == 0) {
-            ret = mbedtls_pk_parse_key(&dtls_srtp->pkey, s_cached_key_pem, key_pem_len, NULL, 0,
-                                       mbedtls_ctr_drbg_random, &dtls_srtp->ctr_drbg);
-        }
-        if (ret == 0) {
-            return 0;
-        }
-        ESP_LOGE(TAG, "Use cached cert/key failed, fallback to regenerate, ret=%d", ret);
+    if (!s_cached_cert_ready) {
+        ESP_LOGE(TAG, "no cert supplied — dashboard must push cert+key (opcode 0x07/0x08/0x09) before opening WebRTC");
+        return -1;
     }
-#endif
-    ret = dtls_srtp_selfsign_cert(dtls_srtp, true);
+    size_t cert_pem_len = strlen((const char *)s_cached_cert_pem) + 1;
+    size_t key_pem_len  = strlen((const char *)s_cached_key_pem) + 1;
+    ret = mbedtls_x509_crt_parse(&dtls_srtp->cert, s_cached_cert_pem, cert_pem_len);
+    if (ret == 0) {
+        ret = mbedtls_pk_parse_key(&dtls_srtp->pkey, s_cached_key_pem, key_pem_len, NULL, 0,
+                                   mbedtls_ctr_drbg_random, &dtls_srtp->ctr_drbg);
+    }
     if (ret != 0) {
-        return ret;
+        ESP_LOGE(TAG, "parse supplied cert/key failed, ret=%d", ret);
     }
-    return 0;
+    return ret;
 }
 
 int dtls_srtp_gen_cert(void)
 {
-#ifdef DTLS_SIGN_ONCE
-    dtls_srtp_t *dtls_srtp = (dtls_srtp_t *) media_lib_calloc(1, sizeof(dtls_srtp_t));
-    if (dtls_srtp == NULL) {
-        return -1;
-    }
-    mbedtls_x509_crt_init(&dtls_srtp->cert);
-    mbedtls_pk_init(&dtls_srtp->pkey);
-    mbedtls_ctr_drbg_init(&dtls_srtp->ctr_drbg);
-    int ret = dtls_srtp_selfsign_cert(dtls_srtp, true);
-    dtls_srtp_deinit(dtls_srtp);
-    media_lib_free(dtls_srtp);
-    return ret;
-#else
-    return -1;
-#endif
+    // libpeer calls this at boot to warm the cert cache. With dashboard-
+    // supplied certs the warm-up is a no-op — the cache fills when the
+    // dashboard pushes (per-session) rather than at chip init.
+    return 0;
 }
 
 dtls_srtp_t *dtls_srtp_init(dtls_srtp_cfg_t *cfg)

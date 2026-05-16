@@ -150,18 +150,13 @@ async function openChannelViaBLE(robotId, label, signalChar, opts) {
     // iCloud-Private-Relay-style networks). Pi fetches its own ICE servers
     // in pi_robot_rtc.py and accepts only opcodes 0x01-0x03 on this char.
     if (robotType === "esp32") {
-      // Cert+key first: chip's dtls_srtp_init uses the cached pair if
-      // present, else self-signs. Push before the offer so the chip's
-      // esp_peer_open path already has it when DTLS warms up. Soft-fail
-      // on cert gen — if WebCrypto / @peculiar/x509 fail, chip falls
-      // back to its own ECDSA gen rather than the camera not opening.
-      try {
-        onStatus("Sending session cert…");
-        const { certPem, keyPem } = await generateSessionCert();
-        await sendCertKey(signalChar, certPem, keyPem);
-      } catch (err) {
-        onStatus(`cert offload failed (${err.message}); chip will self-sign`);
-      }
+      // Cert+key first: chip's dtls_srtp_init refuses to open WebRTC
+      // without a supplied cert (chip-gen fallback removed to claim the
+      // mbedTLS x509write code-size savings). Push before the offer so
+      // the cache is filled when esp_peer_open warms DTLS up.
+      onStatus("Sending session cert…");
+      const { certPem, keyPem } = await generateSessionCert();
+      await sendCertKey(signalChar, certPem, keyPem);
       onStatus("Sending ICE servers…");
       const chipIce = await iceServersForChip(iceServers);
       const iceBytes = new TextEncoder().encode(JSON.stringify({ ice: chipIce }));
