@@ -19,17 +19,91 @@ const OP_COMMIT  = 0x03;
 const OP_STOP    = 0x04;
 const CHUNK_BYTES = 180;
 
+// Chunked JPEG reassembly + decode → canvas. Wire format matches the ESP32
+// firmware (and now the Pi firmware): [frame_id u16 BE][chunk_idx u8]
+// [total_chunks u8][jpeg]. Decode via WebCodecs ImageDecoder when present
+// (Chrome 94+, Safari 17+, Firefox 133+), createImageBitmap on older
+// browsers. Drops partial frames whose id is older than a newer one in
+// flight. onFirstFrame fires once after the first successful paint so
+// the caller can wire up phone restreaming on a canvas that's now
+// emitting real pixels.
+function attachChunkedJpegDecoder(channel, canvas, onFirstFrame) {
+  const ctrl = { canvas, ctx: canvas.getContext("2d") };
+  const useDecoder = typeof ImageDecoder !== "undefined";
+  const pending = new Map();
+  let first = true;
+
+  async function paint(bytes) {
+    const c = ctrl.canvas, g = ctrl.ctx;
+    if (!c || !g) return;
+    try {
+      if (useDecoder) {
+        const decoder = new ImageDecoder({ data: bytes, type: "image/jpeg" });
+        const { image } = await decoder.decode();
+        if (c.width !== image.codedWidth || c.height !== image.codedHeight) {
+          c.width = image.codedWidth; c.height = image.codedHeight;
+        }
+        g.drawImage(image, 0, 0);
+        image.close(); decoder.close();
+      } else {
+        const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/jpeg" }));
+        if (c.width !== bitmap.width || c.height !== bitmap.height) {
+          c.width = bitmap.width; c.height = bitmap.height;
+        }
+        g.drawImage(bitmap, 0, 0); bitmap.close();
+      }
+      if (first) { first = false; onFirstFrame?.(); }
+    } catch { /* partial JPEG from out-of-order reassembly — next frame replaces it */ }
+  }
+
+  channel.addEventListener("message", (e) => {
+    if (typeof e.data === "string") return;
+    const data = new Uint8Array(e.data);
+    if (data.length < 4) return;
+    const frameId = (data[0] << 8) | data[1];
+    const chunkIdx = data[2];
+    const totalChunks = data[3];
+    const payload = data.subarray(4);
+    let frame = pending.get(frameId);
+    if (!frame) { frame = { total: totalChunks, parts: new Map() }; pending.set(frameId, frame); }
+    frame.parts.set(chunkIdx, payload);
+    if (frame.parts.size !== frame.total) return;
+    let totalLen = 0;
+    for (let i = 0; i < frame.total; i++) {
+      const p = frame.parts.get(i);
+      if (!p) { pending.delete(frameId); return; }
+      totalLen += p.length;
+    }
+    const merged = new Uint8Array(totalLen);
+    let off = 0;
+    for (let i = 0; i < frame.total; i++) {
+      const p = frame.parts.get(i);
+      merged.set(p, off); off += p.length;
+    }
+    pending.delete(frameId);
+    for (const id of pending.keys()) if (id < frameId) pending.delete(id);
+    paint(merged);
+  });
+
+  // Hand callers a rebind hook so postRender can repoint the decoder
+  // at a freshly-rendered <canvas> after an innerHTML rebuild without
+  // restarting the WebRTC pipeline.
+  ctrl.attachCanvas = (next) => { ctrl.canvas = next; ctrl.ctx = next.getContext("2d"); };
+  return ctrl;
+}
+
 import { renderEntry } from "./render-bus.js";
 
 export function makeWebrtcInstallableCap(schema) {
   const { name } = schema;
   const chars = schema.chars || UUIDS_BY_CAP[name];
-  const signalField = `${name}SignalChar`;
-  const statusField = `${name}StatusChar`;
-  const pcField     = `${name}Pc`;
-  const streamField = `${name}Stream`;
-  const bufField    = `${name}RecvBuf`;
-  const statusState = `${name}Status`;
+  const signalField  = `${name}SignalChar`;
+  const statusField  = `${name}StatusChar`;
+  const pcField      = `${name}Pc`;
+  const streamField  = `${name}Stream`;
+  const bufField     = `${name}RecvBuf`;
+  const statusState  = `${name}Status`;
+  const decoderField = `${name}Decoder`;
   const actionStart   = `${name}-start`;
   const actionStop    = `${name}-stop`;
   const actionInstall = `${name}-install`;
@@ -98,15 +172,29 @@ export function makeWebrtcInstallableCap(schema) {
     const pc = new RTCPeerConnection({ iceServers });
     entry[pcField] = pc;
     registerExternalPc(entry.id, name, pc);
-    pc.addTransceiver("video", { direction: "recvonly" });
-    pc.ontrack = (e) => {
-      entry[streamField] = e.streams[0];
-      const video = entry.node?.querySelector(`video[data-${name}-id="${entry.id}"]`);
-      if (video) video.srcObject = entry[streamField];
-      // Forward to paired phones. Camera cap name is "camera", so
-      // entry.cameraStream is what phones.js picks up.
-      if (streamField === "cameraStream") notifyRobotStreamChange(entry);
-    };
+
+    // Chunked JPEG over data channel — same wire format the ESP32
+    // firmware uses, decoded by the WebCodecs path below. No RTP track
+    // (the Pi's aiortc software VP8 encoder was the throughput ceiling
+    // the chunked-JPEG path exists to bypass). Unreliable + unordered:
+    // a lost chunk is superseded by the next frame, no SCTP head-of-
+    // line stall.
+    const channel = pc.createDataChannel("video", { ordered: false, maxRetransmits: 0 });
+    channel.binaryType = "arraybuffer";
+    const canvas = entry.node?.querySelector(`canvas[data-${name}-id="${entry.id}"]`);
+    if (canvas) {
+      entry[decoderField] = attachChunkedJpegDecoder(channel, canvas, () => {
+        // Canvas exposes a synthetic MediaStream via captureStream —
+        // phone mirroring picks this up the same way it does for the
+        // ESP32 path.
+        if (streamField === "cameraStream" && !entry[streamField]) {
+          try {
+            entry[streamField] = canvas.captureStream(30);
+            notifyRobotStreamChange(entry);
+          } catch {}
+        }
+      });
+    }
     pc.onicecandidate = async (e) => {
       if (!e.candidate) return;
       try {
@@ -148,6 +236,7 @@ export function makeWebrtcInstallableCap(schema) {
       try { entry[pcField].close(); } catch {}
       entry[pcField] = null;
     }
+    entry[decoderField] = null;
     entry[streamField] = null;
     if (streamField === "cameraStream") notifyRobotStreamChange(entry);
     entry[statusState] = { st: "idle" };
@@ -169,6 +258,7 @@ export function makeWebrtcInstallableCap(schema) {
       [signalField]: null, [statusField]: null,
       [pcField]: null, [streamField]: null,
       [bufField]: null, [statusState]: null,
+      [decoderField]: null,
     }),
 
     async probe(entry, service) {
@@ -191,6 +281,7 @@ export function makeWebrtcInstallableCap(schema) {
         try { entry[pcField].close(); } catch {}
         entry[pcField] = null;
       }
+      entry[decoderField] = null;
       entry[streamField] = null;
       entry[statusState] = null;
     },
@@ -221,7 +312,7 @@ export function makeWebrtcInstallableCap(schema) {
       const body = `
         ${installHint}
         ${s.log ? `<div class="meta install-log">${escapeHtml(s.log)}</div>` : ""}
-        ${entry[pcField] ? `<video class="robot-camera" data-${name}-id="${entry.id}" autoplay playsinline muted></video>` : ""}
+        ${entry[pcField] ? `<canvas class="robot-camera" data-${name}-id="${entry.id}" width="640" height="480" aria-label="webrtc video"></canvas>` : ""}
       `;
       return capSection({ name, label, state: meta, action, body, transport: "wifi" });
     },
@@ -232,11 +323,22 @@ export function makeWebrtcInstallableCap(schema) {
       node.querySelector(`[data-action="${actionInstall}"]`)?.addEventListener("click", () => install(entry));
     },
 
-    // Rebind the live <video> to its MediaStream after innerHTML rebuild.
+    // After an innerHTML rebuild the canvas we were painting into may
+    // be a fresh DOM node. The decoder controller exposes attachCanvas
+    // so we can repoint it at the new element without restarting the
+    // WebRTC pipeline; captureStream regenerates from the new canvas
+    // so paired phones don't lose the feed.
     postRender(entry) {
-      if (!entry[streamField]) return;
-      const video = entry.node?.querySelector(`video[data-${name}-id="${entry.id}"]`);
-      if (video) video.srcObject = entry[streamField];
+      if (!entry[pcField] || !entry[decoderField]) return;
+      const canvas = entry.node?.querySelector(`canvas[data-${name}-id="${entry.id}"]`);
+      if (!canvas || canvas === entry[decoderField].canvas) return;
+      entry[decoderField].attachCanvas(canvas);
+      if (entry[streamField]) {
+        try {
+          entry[streamField] = canvas.captureStream(30);
+          if (streamField === "cameraStream") notifyRobotStreamChange(entry);
+        } catch {}
+      }
     },
   };
 }

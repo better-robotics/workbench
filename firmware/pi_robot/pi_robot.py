@@ -39,7 +39,7 @@ from bless import (
     GATTCharacteristicProperties,
     GATTAttributePermissions,
 )
-from gpiozero import LED, Motor
+from gpiozero import LED, Motor, DigitalInputDevice
 
 # UUIDs generated from protocol/uuids.json (tools/gen-uuids.py). Edit the
 # JSON + `make gen-uuids` to add a characteristic; ESP32 firmware AND the
@@ -80,6 +80,12 @@ def _build_caps() -> list:
     if MOTORS_ENABLED:
         caps.append({"name": "motors", "type": "signed-pair",
                      "range": [-100, 100], "pins": MOTORS_PINS, "pin_mode": "pwm"})
+    if ENCODERS_ENABLED:
+        # No dashboard runtime for "tick-count" yet — RUNTIMES[capSchema.type]
+        # falls through to no-op, but claimsFromEntry still picks up `pins`
+        # for the pinout view. Ticks reach the dashboard via telemetry.
+        caps.append({"name": "encoders", "type": "tick-count",
+                     "pins": ENCODERS_PINS, "pin_mode": "in_pull_up"})
     caps.append({"name": "wifi", "type": "wifi-scan"})
     caps.append({"name": "ota", "type": "bundle-ota"})
     if CAMERA_ENABLED is not False:
@@ -135,6 +141,10 @@ SCAN_MAX = 10      # Bounded so the full JSON fits in one ATT read.
 #                   `enable` is optional — set it only if you've cut the
 #                   driver board's ENA/ENB jumpers to wire speed control
 #                   to a GPIO.
+#   encoders_enabled bool — advertise the encoders char (advisory; ticks
+#                          surface via telemetry payload, not a dedicated
+#                          characteristic)
+#   encoders_pins   {left:int, right:int} — single OUT pin per wheel
 #   camera_enabled  "auto" | true | false
 # Missing or unreadable file → default to all capabilities on, so existing Pis
 # OTA'd from pre-config versions keep working.
@@ -158,6 +168,15 @@ MOTORS_PINS    = _config.get("motors_pins", {
     "left":  {"forward": 5,  "backward": 6},
     "right": {"forward": 13, "backward": 26},
 })
+# Wheel-speed encoders — single-OUT (Hall / optical) per side, counted as
+# raw ticks. Defaults sit on free GPIOs near 3V3 (pin 17) and GND (pin 20)
+# so VCC/GND/OUT bundles share one header cluster. pull_up=True matches
+# open-collector sensors (the common case); push-pull encoders also work
+# since the transition still fires when_activated. Active-HIGH sensors
+# need pull_up=False — change in this file and OTA, or wait for a runtime
+# UI knob.
+ENCODERS_ENABLED = bool(_config.get("encoders_enabled", True))
+ENCODERS_PINS    = _config.get("encoders_pins", {"left": 22, "right": 24})
 # Per-robot motor orientation — derived from the dashboard's calibration
 # flow, persisted here. The dashboard sends (L, R) in operator-frame
 # ("L drives the wheel on the operator's left, forward = wheel rolls
@@ -235,34 +254,34 @@ CAM_OP_CHUNK   = 0x02
 CAM_OP_COMMIT  = 0x03
 CAM_OP_STOP    = 0x04
 
-# Catch broadly: a broken av/aiortc install can raise OSError, AttributeError,
-# or partial-module-loaded errors that aren't ImportError. Silently degrading
-# to "no camera" is preferable to crashing BLE — the dashboard stays reachable
-# so the user can SSH / re-install / pick a different image.
+# Catch broadly: a broken aiortc / picamera2 install can raise OSError,
+# AttributeError, or partial-module-loaded errors that aren't ImportError.
+# Silently degrading to "no camera" is preferable to crashing BLE — the
+# dashboard stays reachable so the user can SSH / re-install / pick a
+# different image.
+#
+# Camera video ships as chunked JPEG over a WebRTC data channel (same wire
+# format the ESP32 firmware uses). picamera2's hardware JpegEncoder feeds
+# straight into the channel — no aiortc software VP8 encode in the way,
+# which is what made the old RTP-track path cap at ~10-15 fps on a Pi 4.
+# Trade-off: USB UVC cams now need libcamera ≥ 0.7 to be visible to
+# picamera2; older Pi-OS images that fell through to the V4L2 fallback
+# need to update libcamera (Bookworm ships it; Bullseye does not).
 _camera_available = False
 _camera_import_err = None
-_picamera2_available = False
 if CAMERA_ENABLED is not False:
     try:
         from aiortc import (  # type: ignore
             RTCPeerConnection, RTCSessionDescription, RTCIceCandidate,
-            RTCConfiguration, RTCIceServer, MediaStreamTrack,
+            RTCConfiguration, RTCIceServer,
         )
-        from aiortc.rtcrtpsender import RTCRtpSender  # type: ignore
-        from aiortc.contrib.media import MediaPlayer  # type: ignore
         import aiohttp  # type: ignore
-        import av  # type: ignore
-        import fractions
+        from picamera2 import Picamera2  # type: ignore
+        from picamera2.encoders import JpegEncoder  # type: ignore
+        from picamera2.outputs import Output as _Picamera2Output  # type: ignore
         _camera_available = True
     except Exception as _e:  # noqa: BLE001 — see comment above
         _camera_import_err = f"{type(_e).__name__}: {_e}"
-    # picamera2 is optional — only CSI cams need it. USB UVC cams use the
-    # V4L2 path via MediaPlayer below. Absence here is fine.
-    try:
-        from picamera2 import Picamera2  # type: ignore
-        _picamera2_available = True
-    except Exception:
-        pass
 
 logging.basicConfig(format="%(asctime)s %(message)s", level=logging.INFO)
 log = logging.getLogger("pi_robot")
@@ -280,6 +299,9 @@ def _pin_conflicts() -> list[tuple[int, list[str]]]:
         for side, pins in MOTORS_PINS.items():
             for role, pin in pins.items():
                 claimed.setdefault(int(pin), []).append(f"motors.{side}.{role}")
+    if ENCODERS_ENABLED:
+        for side, pin in ENCODERS_PINS.items():
+            claimed.setdefault(int(pin), []).append(f"encoders.{side}")
     return [(pin, tags) for pin, tags in claimed.items() if len(tags) > 1]
 
 _conflicts = _pin_conflicts()
@@ -287,10 +309,13 @@ for _pin, _tags in _conflicts:
     log.error("GPIO %d claimed by multiple caps: %s — edit pi-robot.conf or the Pinout dialog to resolve",
               _pin, " + ".join(_tags))
 if _conflicts:
-    # Refuse to initialize motors rather than leave them in undefined state.
-    # LED still goes through (it's usually the one the user meant to keep).
-    log.error("motors disabled due to pin conflict(s)")
+    # Refuse to initialize motors + encoders rather than leave them in
+    # undefined state — gpiozero would raise GPIOPinInUse on the second
+    # claim and the try/except would null-out one driver silently. LED
+    # still goes through (it's usually the one the user meant to keep).
+    log.error("motors + encoders disabled due to pin conflict(s)")
     MOTORS_ENABLED = False
+    ENCODERS_ENABLED = False
 
 led = LED(LED_PIN) if LED_ENABLED else None
 
@@ -311,6 +336,30 @@ if MOTORS_ENABLED:
     except Exception as e:
         log.warning("motor init failed: %s", e)
         _motor_left_drv = _motor_right_drv = None
+
+# Wheel-tick counters. gpiozero dispatches when_activated on its own thread,
+# so the int += 1 is racy-but-fine: Python int writes are atomic under GIL,
+# and we never read a partial update. Cumulative monotonic counts; the
+# dashboard derives speed from successive deltas.
+_enc_l_ticks: int = 0
+_enc_r_ticks: int = 0
+_enc_l_dev: DigitalInputDevice | None = None
+_enc_r_dev: DigitalInputDevice | None = None
+def _enc_l_tick() -> None:
+    global _enc_l_ticks
+    _enc_l_ticks += 1
+def _enc_r_tick() -> None:
+    global _enc_r_ticks
+    _enc_r_ticks += 1
+if ENCODERS_ENABLED:
+    try:
+        _enc_l_dev = DigitalInputDevice(ENCODERS_PINS["left"],  pull_up=True)
+        _enc_r_dev = DigitalInputDevice(ENCODERS_PINS["right"], pull_up=True)
+        _enc_l_dev.when_activated = _enc_l_tick
+        _enc_r_dev.when_activated = _enc_r_tick
+    except Exception as e:
+        log.warning("encoder init failed: %s", e)
+        _enc_l_dev = _enc_r_dev = None
 _led_state = 0
 _server: BlessServer | None = None
 _loop: asyncio.AbstractEventLoop | None = None
@@ -333,7 +382,6 @@ _motor_pulse_id: int = 0
 _robot_status: dict = {"st": "ready"}
 
 _cam_pc = None
-_cam_track = None
 _cam_buf: bytearray = bytearray()
 _cam_expected: int = 0
 
@@ -900,106 +948,111 @@ def _set_cam_status(**fields) -> None:
     _cam_send({"t": "status", "d": _cam_status})
 
 
-def _detect_camera_source() -> "tuple[str, str] | None":
-    """Returns ('picamera2', '') when libcamera sees a camera (CSI ribbon or
-    UVC webcam on libcamera ≥ 0.7's uvcvideo pipeline handler), ('v4l2',
-    '/dev/videoN') for direct V4L2 fallback on older libcamera builds, or
-    None if neither is present. picamera2 is preferred — it handles both
-    hardware classes through one well-tested path."""
-    if _picamera2_available:
-        try:
-            if Picamera2.global_camera_info():
-                return ("picamera2", "")
-        except Exception:
-            pass
-    # V4L2 enumeration. The Pi exposes many /dev/video* nodes for hardware
-    # codec / ISP / decoder blocks; only UVC webcams are capture sources.
-    # Filter by the kernel driver name in sysfs.
-    try:
-        from pathlib import Path as _Path
-        for entry in sorted(_Path("/sys/class/video4linux").iterdir()):
-            name_file = entry / "name"
-            if not name_file.exists():
-                continue
-            name = name_file.read_text().strip().lower()
-            if any(s in name for s in ("codec", "isp", "hevc-dec", "bcm2835")):
-                continue
-            dev_path = f"/dev/{entry.name}"
-            if _Path(dev_path).exists():
-                return ("v4l2", dev_path)
-    except FileNotFoundError:
-        pass
-    return None
+# ── Chunked-JPEG-over-DC video pump ──────────────────────────────────────
+#
+# Wire format per chunk (binary frames on the "video" DC, identical to the
+# ESP32 firmware's webrtc_peer.c):
+#
+#   [0..1] frame_id      u16 BE
+#   [2]    chunk_idx     u8
+#   [3]    total_chunks  u8
+#   [4..]  jpeg payload  (≤ VIDEO_CHUNK_PAYLOAD bytes)
+#
+# Dashboard reassembles by frame_id, drops incomplete frames whose id is
+# older than a newer one in flight, decodes each complete JPEG via
+# WebCodecs ImageDecoder straight to a <canvas>. DC is unreliable +
+# unordered (browser side requests it that way in webrtc-robot.js) — a
+# dropped chunk means the next frame supersedes the partial one, no
+# SCTP head-of-line stall.
+VIDEO_CHUNK_PAYLOAD = 1200
+
+_cam_jpeg_camera = None      # active Picamera2 instance, or None
+_cam_jpeg_output = None      # active _VideoDcOutput, or None
 
 
-def _open_camera_track():
-    """Returns a MediaStreamTrack for whatever camera is detected. Factory owns
-    the backend decision so callers stay agnostic."""
-    source = _detect_camera_source()
-    if source is None:
-        raise RuntimeError(
-            "no camera detected — picamera2 found no CSI cameras and no UVC "
-            "capture device under /dev/video*. Check ribbon seating + CAM port "
-            "for CSI, or `lsusb` + `v4l2-ctl --list-devices` for USB."
-        )
-    backend, path = source
-    if backend == "picamera2":
-        return _PiCameraTrack()
-    # V4L2 / UVC path. MJPG keeps CPU low on the Pi — the cam encodes in HW,
-    # libav decodes to raw frames for aiortc's VP8/H264 encoder.
-    player = MediaPlayer(path, format="v4l2", options={
-        "video_size": "640x480",
-        "framerate": "15",
-        "input_format": "mjpeg",
-    })
-    track = player.video
-    # Pin the player to the track so GC of the latter shuts the former down.
-    # Without this, MediaPlayer's reader thread can outlive teardown.
-    track._player = player  # type: ignore[attr-defined]
-    return track
+class _VideoDcOutput(_Picamera2Output if _camera_available else object):  # type: ignore
+    """JPEG sink for picamera2.start_recording(JpegEncoder(), ...). The
+    encoder's worker thread calls outputframe() for each frame; we hop
+    onto the asyncio loop to call channel.send (aiortc's RTCDataChannel
+    expects to be touched from the loop thread).
+    """
 
-
-class _PiCameraTrack(MediaStreamTrack if _camera_available else object):  # type: ignore
-    """640x480 @ 15fps — CPU-reasonable on a Pi 4, bandwidth-safe for WebRTC
-    over WiFi. UVC cams may center-crop this from their native sensor size;
-    revisit when full-FOV becomes a priority worth burning CPU on."""
-    kind = "video"
-
-    def __init__(self) -> None:
+    def __init__(self, channel, loop) -> None:
         super().__init__()
-        self.camera = Picamera2()
-        cfg = self.camera.create_video_configuration(
-            main={"size": (640, 480), "format": "RGB888"},
+        self._channel = channel
+        self._loop = loop
+        self._frame_id = 0
+
+    def outputframe(self, frame, keyframe: bool = True, timestamp=None) -> None:
+        # frame is a bytes-like JPEG buffer fresh out of the encoder.
+        try:
+            data = bytes(frame)
+        except Exception:
+            return
+        self._loop.call_soon_threadsafe(self._send, data)
+
+    def _send(self, jpeg_bytes: bytes) -> None:
+        ch = self._channel
+        if ch is None or ch.readyState != "open":
+            return
+        fid = self._frame_id & 0xFFFF
+        self._frame_id = (self._frame_id + 1) & 0xFFFF
+        total = (len(jpeg_bytes) + VIDEO_CHUNK_PAYLOAD - 1) // VIDEO_CHUNK_PAYLOAD
+        if total == 0 or total > 255:
+            return  # skip degenerate / oversized frames rather than corrupting reassembly
+        header_base = (fid >> 8, fid & 0xff)
+        for i in range(total):
+            chunk = jpeg_bytes[i * VIDEO_CHUNK_PAYLOAD:(i + 1) * VIDEO_CHUNK_PAYLOAD]
+            try:
+                ch.send(bytes((header_base[0], header_base[1], i, total)) + chunk)
+            except Exception:
+                return
+
+
+def _start_video_dc_pump(channel) -> None:
+    """Capture JPEG at 640×480 @ 30 fps via picamera2's hardware encoder
+    and stream it through the dashboard-opened "video" DC. Replaces the
+    aiortc RTP track approach because aiortc's software VP8 encoder caps
+    Pi-4 throughput around 10-15 fps; hardware JPEG via picamera2 +
+    chunked DC matches the ESP32 pipeline (3-6× faster end-to-end).
+    """
+    global _cam_jpeg_camera, _cam_jpeg_output
+    if not _camera_available:
+        raise RuntimeError("camera stack not installed")
+    if not Picamera2.global_camera_info():
+        raise RuntimeError(
+            "no camera detected by libcamera — check ribbon seating + CAM port "
+            "for CSI, or `lsusb` for USB UVC (needs libcamera ≥ 0.7)"
         )
-        self.camera.configure(cfg)
-        self.camera.start()
-        self._pts = 0
-        self._time_base = fractions.Fraction(1, 15)
+    _cam_jpeg_camera = Picamera2()
+    # FrameDurationLimits caps fps at the kernel level (microseconds per
+    # frame, min/max). YUV420 capture matches the JPEG encoder's native
+    # input plane layout — no extra colorspace conversion in software.
+    cfg = _cam_jpeg_camera.create_video_configuration(
+        main={"size": (640, 480), "format": "YUV420"},
+        controls={"FrameDurationLimits": (33333, 33333)},  # 30 fps
+    )
+    _cam_jpeg_camera.configure(cfg)
+    _cam_jpeg_output = _VideoDcOutput(channel, _loop)
+    # q=70 is the ESP32 firmware's default JPEG quality; same number here
+    # gives a comparable bitrate so frame-size differences fall out of
+    # the camera's own ISP characteristics, not the JPEG quantizer.
+    _cam_jpeg_camera.start_recording(JpegEncoder(q=70), _cam_jpeg_output)
 
-    async def recv(self):
-        arr = self.camera.capture_array("main")
-        # libcamera's "RGB888" config name describes the FORMAT, not the
-        # memory order — the uvcvideo pipeline (USB cams) hands back bytes
-        # in true R,G,B order. (Historically the CSI/vc4 pipeline delivered
-        # BGR under the same config name, which we worked around by lying
-        # to PyAV; that workaround now breaks USB cams — symptom is purple
-        # skin / blue oranges. We optimize for USB since that's what
-        # ships on most boards we encounter.)
-        frame = av.VideoFrame.from_ndarray(arr, format="rgb24")
-        self._pts += 1
-        frame.pts = self._pts
-        frame.time_base = self._time_base
-        return frame
 
-    def stop(self) -> None:
-        # close() after stop() releases the CSI allocation; without it, a
-        # re-Start fails with "Camera __init__ sequence did not complete."
-        # until reboot.
-        try: self.camera.stop()
+def _stop_video_dc_pump() -> None:
+    """Idempotent teardown of the encoder + camera. start_recording leaves
+    the camera holding its CSI allocation until close() — without that
+    a subsequent Start fails with "Camera __init__ sequence did not
+    complete." until reboot."""
+    global _cam_jpeg_camera, _cam_jpeg_output
+    if _cam_jpeg_camera is not None:
+        try: _cam_jpeg_camera.stop_recording()
         except Exception: pass
-        try: self.camera.close()
+        try: _cam_jpeg_camera.close()
         except Exception: pass
-        super().stop()
+        _cam_jpeg_camera = None
+    _cam_jpeg_output = None
 
 
 async def _run_install_cmd(label: str, argv: list[str]) -> tuple[int, list[str]]:
@@ -1250,6 +1303,10 @@ async def _telemetry_task() -> None:
             rssi = _read_ble_rssi()
             if rssi is not None:
                 t["rssi_dbm"] = rssi
+            if _enc_l_dev is not None:
+                t["enc_l"] = _enc_l_ticks
+            if _enc_r_dev is not None:
+                t["enc_r"] = _enc_r_ticks
             _publish(TELEMETRY_CHAR_UUID, _json_bytes(t))
         except Exception as e:
             log.warning("telemetry: %s", e)
@@ -1410,7 +1467,7 @@ async def _cam_handle_message(msg: dict) -> None:
         if msg.get("t") != "stop":
             _set_cam_status(st="uninstalled", err="camera stack not installed")
         return
-    global _cam_pc, _cam_track
+    global _cam_pc
     t = msg.get("t")
     d = msg.get("d") or {}
     try:
@@ -1419,8 +1476,31 @@ async def _cam_handle_message(msg: dict) -> None:
                 await _cam_pc.close()
             ice_servers = await _cam_fetch_ice_servers()
             _cam_pc = RTCPeerConnection(RTCConfiguration(iceServers=ice_servers))
-            _cam_track = _open_camera_track()
-            _cam_pc.addTrack(_cam_track)
+
+            # Dashboard creates the data channel as part of the offer
+            # ("video" label); we receive it via the datachannel event
+            # and start the JPEG pump as soon as it opens. No RTP track
+            # is added — aiortc's software VP8 encoder was the bottleneck
+            # the chunked-JPEG path exists to bypass.
+            @_cam_pc.on("datachannel")
+            def _on_dc(channel) -> None:
+                if channel.label != "video":
+                    return
+
+                @channel.on("open")
+                def _on_open() -> None:
+                    try:
+                        _start_video_dc_pump(channel)
+                        _set_cam_status(st="streaming")
+                    except Exception as e:
+                        log.warning("camera pump start failed: %s", e)
+                        _set_cam_status(st="error", err=str(e)[:120])
+                        try: channel.close()
+                        except Exception: pass
+
+                @channel.on("close")
+                def _on_close() -> None:
+                    _stop_video_dc_pump()
 
             @_cam_pc.on("iceconnectionstatechange")
             async def _on_ice_state() -> None:
@@ -1453,11 +1533,8 @@ async def _cam_handle_message(msg: dict) -> None:
 
 
 async def _cam_teardown() -> None:
-    global _cam_pc, _cam_track
-    if _cam_track is not None:
-        try: _cam_track.stop()
-        except Exception: pass
-        _cam_track = None
+    global _cam_pc
+    _stop_video_dc_pump()
     if _cam_pc is not None:
         try: await _cam_pc.close()
         except Exception: pass
