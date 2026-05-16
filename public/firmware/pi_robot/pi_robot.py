@@ -946,10 +946,12 @@ def _open_camera_track():
     if backend == "picamera2":
         return _PiCameraTrack()
     # V4L2 / UVC path. MJPG keeps CPU low on the Pi — the cam encodes in HW,
-    # libav decodes to raw frames for aiortc's VP8/H264 encoder.
+    # libav decodes to raw frames for aiortc's VP8/H264 encoder. 30 fps to
+    # match the CSI path; UVC cams that can't sustain it will negotiate down
+    # via libav.
     player = MediaPlayer(path, format="v4l2", options={
         "video_size": "640x480",
-        "framerate": "15",
+        "framerate": "30",
         "input_format": "mjpeg",
     })
     track = player.video
@@ -960,32 +962,38 @@ def _open_camera_track():
 
 
 class _PiCameraTrack(MediaStreamTrack if _camera_available else object):  # type: ignore
-    """640x480 @ 15fps — CPU-reasonable on a Pi 4, bandwidth-safe for WebRTC
-    over WiFi. UVC cams may center-crop this from their native sensor size;
-    revisit when full-FOV becomes a priority worth burning CPU on."""
+    """640x480 @ 30fps over WebRTC. YUV420 capture matches VP8/H264's native
+    input format, so aiortc skips an RGB→YUV conversion (~3-5 ms/frame on
+    Pi 4) and the buffer is 50% smaller than RGB888 (smaller memcpy from
+    libcamera's DMA fence to user space). The fps cap mirrors the ESP32
+    target so a side-by-side comparison reflects encoder ceiling, not
+    capture pacing.
+    """
     kind = "video"
 
     def __init__(self) -> None:
         super().__init__()
         self.camera = Picamera2()
+        # FrameDurationLimits is libcamera's native fps clamp (microseconds
+        # per frame, min/max). Picamera2's "FrameRate" alias also works but
+        # is a thin wrapper around this; using the native control keeps the
+        # comment honest about what the kernel sees.
         cfg = self.camera.create_video_configuration(
-            main={"size": (640, 480), "format": "RGB888"},
+            main={"size": (640, 480), "format": "YUV420"},
+            controls={"FrameDurationLimits": (33333, 33333)},  # 30 fps
         )
         self.camera.configure(cfg)
         self.camera.start()
         self._pts = 0
-        self._time_base = fractions.Fraction(1, 15)
+        self._time_base = fractions.Fraction(1, 30)
 
     async def recv(self):
+        # picamera2 returns YUV420 as a single ndarray with shape
+        # (height * 3/2, width) — Y plane on top, U+V quarter-planes
+        # stacked below. PyAV's "yuv420p" format takes exactly that
+        # layout, so no per-plane unpacking is needed.
         arr = self.camera.capture_array("main")
-        # libcamera's "RGB888" config name describes the FORMAT, not the
-        # memory order — the uvcvideo pipeline (USB cams) hands back bytes
-        # in true R,G,B order. (Historically the CSI/vc4 pipeline delivered
-        # BGR under the same config name, which we worked around by lying
-        # to PyAV; that workaround now breaks USB cams — symptom is purple
-        # skin / blue oranges. We optimize for USB since that's what
-        # ships on most boards we encounter.)
-        frame = av.VideoFrame.from_ndarray(arr, format="rgb24")
+        frame = av.VideoFrame.from_ndarray(arr, format="yuv420p")
         self._pts += 1
         frame.pts = self._pts
         frame.time_base = self._time_base
