@@ -1605,11 +1605,10 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Pip backend, API keys, GitHub auth, vision, and local-LLM install all
-  // moved to slash commands (/model, /vision, /install) — managed in
-  // assistant.js. /model is contextual: picking a backend that needs
-  // auth or a key prompts inline. Settings keeps only identity + advanced
-  // one-time setup.
+  // Pip backend, API keys, GitHub auth, and vision all moved to slash
+  // commands (/model, /vision) — managed in assistant.js. /model is
+  // contextual: picking a backend that needs auth or a key prompts inline.
+  // Settings keeps only identity + advanced one-time setup.
 
   // Profile — classroom-local identity (no auth, browser-only). Seeded hue from name hash.
   const seedColor = (str) => {

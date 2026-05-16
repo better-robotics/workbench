@@ -1,17 +1,17 @@
 # Notes
 
 Operator-private notes — decisions, competitive analysis, feature design rationale.
-Encrypted at rest via git-crypt; sections inside.
+Encrypted at rest via git-crypt.
 
 ---
 
 # Competitors
 
-External systems that compete for the same user decision as Better Robotics — *"how do I write code for a small robot from a browser tab without installing anything."* Not an encyclopedia; filtered for what would change a decision.
+Systems competing for the same user decision — *"how do I write code for a small robot from a browser tab without installing anything."* Filtered for what would change a decision.
 
 ## schematik.io — not in this lane
 
-[schematik.io](https://schematik.io) bills itself as "Cursor for Hardware": AI code-generation that emits firmware / schematic-adjacent code from natural language for Arduino, ESP32, Raspberry Pi (~$4.6M pre-seed). Not a pairing UI, not a control plane, not a dashboard. The name similarity is the whole story. A *potential input* for authoring firmware like ours, not a competitor to the runtime-control story. No overlap with the seven architectural bets below.
+[schematik.io](https://schematik.io) bills itself as "Cursor for Hardware": AI code-generation emitting firmware/schematic-adjacent code from natural language for Arduino, ESP32, Raspberry Pi (~$4.6M pre-seed). Not a pairing UI, not a control plane, not a dashboard. A *potential input* for authoring firmware like ours, not a competitor to the runtime-control story.
 
 ## The real candidates
 
@@ -32,35 +32,35 @@ External systems that compete for the same user decision as Better Robotics — 
 ### Makeblock (mBlock + mBot family)
 - **Competes for:** same K-12 classroom decision — at the largest scale claim of any vendor in this list (200k+ schools).
 - **Overlap:** mBlock 5 web at [ide.mblock.cc](https://ide.mblock.cc/) runs in Chrome/Edge, connects to mBot/CyberPi/Codey Rocky over Web Bluetooth + WebSerial without a helper app ([Makeblock support](https://support.makeblock.com/hc/en-us/articles/19412317319191-Introduction-to-Direct-Connection-of-mBlock-5-on-the-web)). Block + Python.
-- **Divergence:** account-required walled garden. Programs run on closed proprietary firmware. Hardware lock-in to Makeblock kits. No LLM, no replay, no recovery plane.
+- **Divergence:** account-required walled garden. Programs run on closed proprietary firmware. Hardware lock-in to Makeblock kits. No LLM, no recovery plane.
 - **Better than us today:** scale (200k schools), educator curriculum, hardware breadth (CyberPi has its own screen + sensors), Chinese-market depth, multi-platform (PC/mobile/web).
 - **Decision impact:** confirms Web-Bluetooth-from-browser is the dominant K-12 STEAM pattern, not contrarian. Reinforces the "no account, no proprietary kit" wedge: every major K-12 vendor (LEGO, Sphero, Makeblock) is account-gated and kit-locked. The combination "browser-paired AND user-owned hardware AND no account" remains unoccupied.
 
 ### MicroBlocks (microblocks.fun)
 - **Competes for:** browser IDE to program a BLE/serial-connected microcontroller with blocks.
 - **Overlap:** runs in Chrome/Edge via WebSerial + Web Bluetooth, no install; supports micro:bit, XRP, and others ([wiki.microblocks.fun](https://wiki.microblocks.fun/en/xrp_setup)). Live programming model.
-- **Divergence:** pushes a VM to the device; programs run on-board. No LLM, no phone-human handoff, no replay. Single-device focus.
+- **Divergence:** pushes a VM to the device; programs run on-board. No LLM, no phone-human handoff. Single-device focus.
 - **Better than us today:** live autocomplete / block editing against running firmware; a real educational community.
 - **Decision impact:** closest architectural cousin. Validates "browser-first, no-account, BLE-capable" as a shipped pattern. Has no opinion on browser-as-brain for runtime.
 
 ### XRPCode / WPILib XRP (experientialrobotics.org)
 - **Competes for:** cheap classroom robot + browser IDE — the tightest hardware-class analog.
 - **Overlap:** browser IDE for the XRP (RP2040), Python + Blockly, no install ([WPILib docs](https://docs.wpilib.org/en/stable/docs/xrp-robot/web-ui.html)).
-- **Divergence:** WiFi/WebSocket, not BLE-first — robot must be on the same network, which is exactly the classroom pain our BLE-first bet was designed around. Code runs on-robot. No LLM, no replay, no phone handoff.
+- **Divergence:** WiFi/WebSocket, not BLE-first — robot must be on the same network, which is exactly the classroom pain our BLE-first bet was designed around. Code runs on-robot. No LLM, no phone handoff.
 - **Better than us today:** FRC-backed curriculum, ~$75 hardware, real classroom deployments.
 - **Decision impact:** directly validates bet #1 — WiFi-first classroom stories *do* break.
 
 ### Viam
 - **Competes for:** *closest framing rhyme.* Tagline "build robots like you build software" — same dev-environment-shape pitch, different audience and distribution model.
 - **Overlap:** browser dashboard, camera streaming, live control ([viam.com](https://www.viam.com/product/platform-overview)). gRPC/WebRTC to a device-resident `viam-server`. Modular components, multi-language SDKs.
-- **Divergence:** server-resident B2B cloud SaaS. `viam-server` fetches config from Viam cloud at startup ([docs.viam.com](https://docs.viam.com/operate/reference/viam-server/)). Different buyer (software engineer at an industrial outfit, fleet operator), different distribution shape (account-anchored cloud product vs. fork-and-run static site).
+- **Divergence:** server-resident B2B cloud SaaS. `viam-server` fetches config from Viam cloud at startup ([docs.viam.com](https://docs.viam.com/operate/reference/viam-server/)). Different buyer (software engineer at an industrial outfit, fleet operator), different distribution shape (account-anchored cloud product vs. static-site, no-backend).
 - **Better than us today:** data capture/sync, fleet management, funding, UR partnership.
-- **Decision impact:** **inspiration, not competition.** Same transport stack we ship; treats the same problem space at industrial scale. Watching their feature surface tells us what becomes table-stakes for "robotics dev environment." Our distribution shape (browser-only, no backend, MIT, fork-and-run) is the moat — they can ship features in 18 months; restructuring their cloud-product distribution model to match would be a different company.
+- **Decision impact:** **inspiration, not competition.** Same transport stack we ship; treats the same problem space at industrial scale. Watching their feature surface tells us what becomes table-stakes for "robotics dev environment." Our distribution shape (browser-only, no backend, MIT) is the moat — they can ship features in 18 months; restructuring their cloud-product distribution model to match would be a different company.
 
 ### Freedom Robotics
 - **Competes for:** browser-based teleop and remote operation of fielded robots.
 - **Overlap:** WebRTC video + control via browser; SDK/agent runs on the robot ([freedomrobotics.com](https://www.freedomrobotics.com/)).
-- **Divergence:** server-resident B2B cloud SaaS, TURN-relay-anchored teleop, account + fleet model. No fork-and-run, no offline mode, no LLM/scripting surface.
+- **Divergence:** server-resident B2B cloud SaaS, TURN-relay-anchored teleop, account + fleet model. No standalone deploy, no offline mode, no LLM/scripting surface.
 - **Better than us today:** production teleop UX for industrial deployments, observability tooling, customer base in delivery + service robotics.
 - **Decision impact:** same audience-shape conflict as Viam — enterprise/industrial vs. consumer/education/hobbyist. Worth tracking for transport / observability conventions; not a wedge threat.
 
@@ -96,17 +96,17 @@ External systems that compete for the same user decision as Better Robotics — 
 
 ## Concluding read
 
-**Is there a clean head-on competitor for the actual shape — *write code for a robot in a browser tab, no install, AI assist optional, fork-and-run*?** No. The closest cousins split the problem: **MicroBlocks** and **XRPCode** own browser-IDE-to-hardware but deploy code *to* the device and have no in-browser AI layer; **LEGO SPIKE**, **Sphero EDU**, and **Makeblock mBlock** own classroom-web-app experience but are walled gardens with accounts and proprietary kits; **Viam** and **Freedom Robotics** are the closest framing rhymes (server-resident dev environments for robots) but anchor to industrial cloud, accounts, and fleet ops; **ESP RainMaker** and **Improv Wi-Fi** own the BLE-provisioning primitive but stop there; **LeRobot** owns the VLA/LLM orchestration layer but has no browser runtime or BLE story.
+**Clean head-on competitor for the actual shape — *write code for a robot in a browser tab, no install, AI assist optional, no backend*?** No. Closest cousins split the problem: **MicroBlocks** and **XRPCode** own browser-IDE-to-hardware but deploy code *to* the device and have no in-browser AI layer; **LEGO SPIKE**, **Sphero EDU**, **Makeblock mBlock** own classroom-web-app experience but are walled gardens with accounts and proprietary kits; **Viam** and **Freedom Robotics** are framing rhymes (server-resident dev environments) anchored to industrial cloud, accounts, fleet ops; **ESP RainMaker** and **Improv Wi-Fi** own BLE-provisioning but stop there; **LeRobot** owns VLA/LLM orchestration but has no browser runtime or BLE story.
 
-**Does anything here say change direction?** No. The nearest tactical move is to implement the **Improv Wi-Fi** BLE onboarding characteristic alongside ours so anything Improv-aware (ESPHome Dashboard, WLED config, Home Assistant tools) can provision our robots out of the box. Interop win, not a strategy shift.
+**Anything say change direction?** No. Nearest tactical move: implement **Improv Wi-Fi** BLE onboarding alongside ours so Improv-aware tools (ESPHome Dashboard, WLED config, Home Assistant) can provision our robots. Interop win, not a strategy shift.
 
-**What's the moat, given the landscape?** Ranked by erosion runway (slowest first):
-- **Browser-native dev surface.** Write code in a tab, no install, no SDK download. Every "robotics platform" worth naming requires *some* install — `viam-server`, ESP-IDF, gpiozero on Pi, the Arduino IDE. The fork-and-run static-site distribution model is structurally hard to copy without restructuring a whole company's product surface.
-- **Browser-resident model serving.** Open-vocab detector, ArUco fiducial pose, local LFM2 planner fallback — all client-side. No GPU server, no inference bill, no cloud-API dependency. Viam, Freedom Robotics, and LeRobot all assume server-side or per-device GPU. The combination "browser IDE + browser ML inference" is the shape no one is shipping.
-- **Layered safety.** Firmware-bounded motors that the IDE-level planner (user code or Pip) can't bypass. Ask-human as the terminal cascade rung. Standard practice in driving (openpilot-panda) but rare in hobby/classroom robotics.
-- **Fork-and-run.** GitHub-Pages deployable, no backend, no accounts, no data leaving the browser. MIT-licensed. Sphero, Viam, Particle, RainMaker, Freedom — all account-anchor.
+**Moat, ranked by erosion runway (slowest first):**
+- **Browser-native dev surface.** Every "robotics platform" worth naming requires *some* install — `viam-server`, ESP-IDF, gpiozero on Pi, Arduino IDE. Static-site, no-backend distribution is structurally hard to copy without restructuring a whole company's product surface.
+- **Browser-resident model serving.** Open-vocab detector, ArUco fiducial pose — all client-side. Viam, Freedom Robotics, LeRobot all assume server-side or per-device GPU.
+- **Layered safety.** Firmware-bounded motors the IDE-level planner can't bypass. Ask-human as terminal cascade rung. Standard in driving (openpilot-panda), rare in hobby/classroom.
+- **No backend, no accounts.** Static-site deployable, MIT-licensed. Sphero, Viam, Particle, RainMaker, Freedom — all account-anchor.
 
-Keep the scope lines loud in the README. The market reads "robotics platform" and expects Sphero (closed, accountful, kid-friendly) or Viam (cloud, engineer-facing, fleet-y). The project is neither. Naming what it *isn't* — *not a teleop dashboard, not a fleet manager, not "AI does everything autonomously," not real-time, not spatially aware* — does more positioning work than any feature comparison could.
+Keep the scope lines loud in the README. Market reads "robotics platform" and expects Sphero or Viam. Naming what it *isn't* — *not a teleop dashboard, not a fleet manager, not "AI does everything autonomously," not real-time, not spatially aware* — does more positioning work than any feature comparison.
 
 ## Sources
 
@@ -135,20 +135,19 @@ Keep the scope lines loud in the README. The market reads "robotics platform" an
 
 # Pip's proactive messages come from project state, not external feeds
 
-No scheduled pipeline scraping external robotics sources (X, Reddit, HN, ArXiv, Hackaday RSS) and dripping them into the dashboard as "here's what's new." No notification backend, no content channel.
+No scheduled pipeline scraping external robotics sources (X, Reddit, HN, ArXiv, Hackaday RSS). No notification backend, no content channel.
 
 ## What we do instead
 
-Pip's proactive messages are situational observations from state the dashboard already has. Match a colleague leaning over your desk saying *"hey, I notice X,"* not a newsletter.
+Situational observations from state the dashboard already has. A colleague leaning over your desk saying *"hey, I notice X,"* not a newsletter.
 
-Inputs, all same-origin, all already in the browser:
+Inputs, all same-origin:
 
-- Replay records (`replay.js`) — what Pip has been asked to do lately, what errored, what never completed.
 - Robot telemetry — firmware version drift, last-seen timestamps, which robots are `firmware-down` vs `connected`, which capabilities have never been exercised.
-- User scripts (`scripts.js` + localStorage) — scripts saved but never run, scripts that errored on last run, scripts related to a stalled goal.
-- Project intent — `.claude/CLAUDE.md` (wedge + anti-drift guards) and `.claude/working.md` when present. The user's own statement of what they're trying to build is the highest-signal input.
+- User scripts (`scripts.js` + localStorage) — saved but never run, errored on last run, related to a stalled goal.
+- Project intent — `.claude/CLAUDE.md` and `.claude/working.md` when present.
 
-One short observation at a time, tied to a user-activity boundary (session start, session end, robot reconnect after > 24h), not a wall-clock cron. Dismissable without consequence.
+One short observation, tied to a user-activity boundary (session start, session end, robot reconnect after > 24h), not a wall-clock cron. Dismissable without consequence.
 
 Shape examples:
 
@@ -163,40 +162,38 @@ Firmware on Pi-01 is 4 versions behind. New pulse caps landed in
 between — OTA when convenient?
 ```
 
-Each one names a *specific* thing *this user* did or didn't do. That's the signal a generic feed can't carry.
+Each names a *specific* thing *this user* did or didn't do — signal a generic feed can't carry.
 
-## Why this is the right shape
+## Why this shape
 
-Pip runs in the browser; every input that would meaningfully change what Pip says is also in the browser, or one `fetch()` away in `.claude/*.md`. Putting signal source on a schedule outside the browser separates thinking from data and pays the cost of keeping them in sync.
+Pip runs in the browser; every input that would change what Pip says is also in the browser, or one `fetch()` away in `.claude/*.md`. Putting signal source on a schedule outside the browser separates thinking from data and pays the cost of keeping them in sync.
 
-What you get for free:
+- **Zero new infrastructure.** No cron, scraper, CI job, JSON corpus, filter pipeline. Just `assistant.js` plus a small observation reader.
+- **Zero new trust boundary.** Same-origin reads of the dashboard's own stores.
+- **High signal by construction.** An observation referencing the user's own script by name clears "is this relevant?" before it's written. A trending-reddit link does not.
+- **Dismissal is free.** Observations are ephemeral; ignoring one builds no unread debt.
 
-- **Zero new infrastructure.** No cron, no scraper, no CI job, no JSON corpus, no filter pipeline. Just `assistant.js` plus a small observation reader for existing state.
-- **Zero new trust boundary.** Same-origin reads of the dashboard's own stores. Nothing crosses the network that doesn't already cross it.
-- **High signal by construction.** An observation referencing the user's own script by name clears the "is this relevant?" bar before it's written. A trending-reddit link does not.
-- **Dismissal is free.** Observations are ephemeral; ignoring one costs nothing and doesn't build unread debt.
+## Failure mode this avoids
 
-## The failure mode this avoids
+"Give Pip a feed so messages aren't boring" is the engagement reflex every newsletter SaaS tries: push content on a schedule, hope relevance averages out. Generic feeds get ignored because the user pays a translation cost from *"someone built X"* to *"does this matter for me right now?"* That translation cost kills engagement.
 
-"Give Pip a feed so the messages aren't boring" is the engagement reflex every newsletter SaaS has tried: push content on a schedule, hope relevance averages out. Generic feeds get ignored for the same reason technical notifications get ignored: the user pays a translation cost from *"someone built X"* to *"does this matter for me right now?"* That translation cost kills engagement, not content cost.
-
-Shipping a scheduled content pipeline *before* the state-aware layer exists pays pipeline maintenance for output the state-aware messaging would dominate on relevance anyway. Build the floor first.
+Shipping a scheduled pipeline before the state-aware layer exists pays pipeline maintenance for output state-aware messaging would dominate on relevance anyway.
 
 ## When would an external feed earn its way in?
 
-Only when the state-aware layer saturates — when Pip has mined what the browser knows and the ceiling becomes *"Pip doesn't know about the new ESP32-S3 cam module that would unblock the perception loop."* At that point:
+When the state-aware layer saturates — Pip has mined what the browser knows and the ceiling becomes *"Pip doesn't know about the new ESP32-S3 cam module that would unblock the perception loop."* Then:
 
-1. Add a GitHub Action on the `pulse` pattern — public-API-only, no-auth, committing JSON to `public/feed/`. Sources that fit: Reddit `.json`, HN Algolia, GitHub trending by topic, Hackaday/Adafruit/Sparkfun RSS, ArXiv. **Not X**: free tier died.
-2. Feed is a **secondary input to the same filter** that already reads project state. Filter stays in the browser. The GitHub Action is dumb by design; intelligence stays where iteration is cheap.
-3. Observations referencing external content still have to clear *"and here's why it matters for your current work."* A raw trending item never surfaces on its own.
+1. GitHub Action on the `pulse` pattern — public-API-only, no-auth, committing JSON to `public/feed/`. Sources: Reddit `.json`, HN Algolia, GitHub trending by topic, Hackaday/Adafruit/Sparkfun RSS, ArXiv. **Not X**: free tier died.
+2. Feed is a **secondary input to the same filter** reading project state. Filter stays in the browser; the Action is dumb by design.
+3. Observations referencing external content still clear *"and here's why it matters for your current work."*
 
-Order matters: state-aware layer first, let it saturate, then add the corpus. Skipping to the feed is the classic "we built the pipeline before we knew what we were filtering for."
+State-aware layer first, let it saturate, then add the corpus.
 
 ---
 
 # Wired but unproven — pending real-world validation
 
-Things that exist in the tree and load at runtime but haven't been confirmed end-to-end against actual hardware. Kept out of `README.md`, `DEV.md`, and the GitHub repo About so we don't promise what we can't demo. Promote into user docs only after a real run confirms the path.
+Loads at runtime but not confirmed end-to-end against hardware. Kept out of `README.md`, `DEV.md`, and the GitHub repo About. Promote into user docs only after a real run confirms the path.
 
 ## Overhead ArUco localization (`public/aruco.js`)
 
@@ -207,16 +204,16 @@ Things that exist in the tree and load at runtime but haven't been confirmed end
 - Marker → robot binding: prefers explicit `entry.arucoMarkerId` (persisted in localStorage; set via `window.bindArucoMarker(robotId, markerId)`). Falls back to positional `entries[m.id]` only when NO entry has claimed that id. Hits write `entry.arucoPosition = { x, y, headingDeg, markerSizeMm, updatedAt }`.
 
 **What hasn't been confirmed.**
-- Whether the focal-length heuristic gives metric accuracy within a useful tolerance against a real ruler (anywhere from "perfect" to "off by 30%" is plausible without ground-truth measurement).
-- Whether ARUCO_4X4_50 detection holds reliably on a phone-camera feed via WebRTC (compression, autofocus hunting, rolling-shutter under motion).
-- Multi-robot orchestration end-to-end: two robots, two markers, two bindings, both `arucoPosition`s update on the same scan, motion planner consumes both without drift. This is the wedge demo for the primitive.
+- Focal-length heuristic accuracy against a real ruler ("perfect" to "off by 30%" both plausible without ground truth).
+- ARUCO_4X4_50 detection reliability on a phone-camera feed via WebRTC (compression, autofocus hunting, rolling-shutter under motion).
+- Multi-robot orchestration end-to-end: two robots, two markers, two bindings, both `arucoPosition`s update on the same scan, motion planner consumes both without drift. Wedge demo for the primitive.
 
 **To validate.** Print sheet 0 + sheet 1, tape marker 0 on Pi-01 and marker 1 on Pi-02. Pair a phone, share its camera, set role to "Overhead localization." Bind explicitly: `window.bindArucoMarker("<pi-01-id>", 0)` and `window.bindArucoMarker("<pi-02-id>", 1)`. Confirm both robots' `arucoPosition` update simultaneously on each detection, metric XY within ~20 mm of tape-measured ground truth at ~50 cm camera height. If it holds, promote: line in `README.md` perception section, bullet in `DEV.md` "When to reach for what."
 
-**Why bother.** Sub-pixel deterministic pose for a tagged object is the only primitive on the roadmap that closes the visual-servo loop without a depth sensor — and it's the substrate for the multi-robot-orchestration direction in `.claude/CLAUDE.md`. Drives `entry.arucoPosition` which the motion controller consumes as ground truth (subject to its staleness gate — `aruco.js` does NOT clear stale entries when a robot leaves frame; that's the consumer's job).
+**Why bother.** Sub-pixel deterministic pose for a tagged object is the only roadmap primitive that closes the visual-servo loop without a depth sensor — and the substrate for the multi-robot-orchestration direction in `.claude/CLAUDE.md`. Drives `entry.arucoPosition` which the motion controller consumes as ground truth (subject to its staleness gate — `aruco.js` does NOT clear stale entries when a robot leaves frame; consumer's job).
 
 ## YOLO26n closed-vocab detector (not built)
 
-Considered as a faster sibling to Grounding DINO for reactive-tier use cases (visual servo, gamepad-overlay tracking). No `yolo.js` exists. Don't promise this in any external surface until it ships *and* validates against a real use case that Grounding DINO can't already serve.
+Considered as a faster sibling to Grounding DINO for reactive-tier use cases (visual servo, gamepad-overlay tracking). No `yolo.js` exists. Don't promise externally until it ships *and* validates against a use case Grounding DINO can't serve.
 
-The "detector eval mode" pattern (swap detectors on the same frame, render side-by-side, replay) is genuinely interesting infrastructure — but only earns its way in when there are two backends worth comparing. Right now there is one.
+"Detector eval mode" (swap detectors on the same frame, render side-by-side) is interesting infrastructure but only earns its way in when there are two backends worth comparing.

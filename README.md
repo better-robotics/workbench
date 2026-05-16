@@ -2,8 +2,6 @@
 
 **Open a tab, pair a robot, ship code.**
 
-No install, no servers.
-
 [![Live](https://img.shields.io/badge/live-better--robotics.github.io-blue)](https://better-robotics.github.io/)
 [![Build firmware](https://github.com/jonasneves/better-robotics/actions/workflows/build-firmware.yml/badge.svg)](https://github.com/jonasneves/better-robotics/actions/workflows/build-firmware.yml)
 [![Web Bluetooth](https://img.shields.io/badge/Web%20Bluetooth-Chrome%20%7C%20Edge-orange)](#browser-support)
@@ -23,13 +21,11 @@ for (const r of robots) {
 ```
 
 - **Browser is the IDE.** Scripts panel + capability cards. localStorage is the file system; BLE is the runtime link.
-- **Models run in the browser too.** Open-vocab detector + local LFM2 planner fallback run client-side. No GPU server, no cloud inference bill.
-- **Two authorable surfaces, co-equal:** user code (you write JS) and Pip (a tool-using LLM with replay and ask-human, currently Claude). Both bound by the same firmware safety floor.
-- **Fork the repo, push to your GitHub Pages, you have a robotics platform.** No backend, no accounts, no data leaving the browser.
+- **Models run in the browser too.** Open-vocab detector runs client-side. No GPU server, no cloud inference bill.
+- **Two authorable surfaces, co-equal:** user code (you write JS) and Pip (a tool-using LLM with ask-human, currently Claude). Both bound by the same firmware safety floor.
+- **No backend, no accounts.** Static-site dashboard; no data leaves the browser, nothing to run server-side.
 
 ## Architecture
-
-Three independent planes:
 
 ```
 ┌──────────────────┐         BLE GATT (always on)          ┌──────────────────┐
@@ -54,7 +50,7 @@ Three independent planes:
 
 ## Quickstart
 
-### Use it (no install)
+### Use it
 
 1. Open [better-robotics.github.io](https://better-robotics.github.io/) in Chrome or Edge.
 2. Flash or prepare hardware:
@@ -91,11 +87,11 @@ ESP32 and Pi expose the same service UUID and characteristic UUIDs, so the dashb
 - [**Hardware guide**](HARDWARE.md) — recommended boards, board-specific knobs, driver notes.
 - [**Pi firmware**](firmware/pi_robot/README.md) — BLE service spec, SD-card prep details, Bookworm/Trixie troubleshooting.
 - [**User code**](USER-CODE.md) — how to write scripts in the browser; the `robot` API surface.
-- [**Developer reference**](DEV.md) — URL flags, console handles, replay store, Chrome `chrome://` diagnostic pages.
+- [**Developer reference**](DEV.md) — URL flags, console handles, Chrome `chrome://` diagnostic pages.
 
 ## Browser support
 
-Web Bluetooth: Chrome, Edge, Opera on desktop and Android. Not Safari. Firefox only behind a flag. Deliberate constraint: the laptop is the brain.
+Web Bluetooth: Chrome, Edge, Opera on desktop and Android. Not Safari. Firefox only behind a flag.
 
 ## License
 

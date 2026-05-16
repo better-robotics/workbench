@@ -72,8 +72,8 @@ function scheduleAutoDismiss() {
 }
 
 // Trace row, one per tool_use. .pending in flight, .error on tool error.
-// finishTraceLine fills pendingMs/result/error. Deeper inspection in
-// replay.js (IndexedDB).
+// finishTraceLine fills pendingMs/result/error. Deeper inspection via
+// DevTools.
 function appendTraceLine(turnEl, name) {
   let ul = turnEl.querySelector(".pip-trace");
   if (!ul) {
@@ -176,15 +176,13 @@ async function _loadConnectGitHub() {
   return _connectGitHubFn;
 }
 
-// Bridge / local failure copy. github / anthropic / openai use the
+// Bridge failure copy. github / anthropic / openai use the
 // inline-button + main-input recovery path in actOnFailure, so they
 // don't need text hints anymore.
 function backendFailureHint(backend) {
   const hints = {
     bridge:
       "ai-bridge isn't responding. Check the local service is running, or `/model` to switch backends.",
-    local:
-      "Local LFM2 isn't loaded. `/install local` to download the model (~1.2 GB, one time), or `/model` to switch.",
   };
   return hints[backend] || "Can't think right now — try again?";
 }
@@ -255,7 +253,6 @@ async function onSubmit(text, { turnEl }) {
     tools: getTools(),
     executor,
     maxTokens: 1024,
-    turnEl,                  // local-llm uses this to paint download progress on first load
     onToolStart: ({ name }) => { pendingTraceLi = appendTraceLine(turnEl, name); },
     onToolEnd: ({ name, input, result, error, durationMs }) => {
       finishTraceLine(pendingTraceLi, summarizeTool(name, input, result, error, durationMs), !!error);
@@ -275,8 +272,8 @@ async function onSubmit(text, { turnEl }) {
   // Backend returned nothing usable → surface an actionable recovery
   // (button or repurposed main input) instead of pip-core's generic
   // "try again." See actOnFailure: github → Sign in button; anthropic/
-  // openai → main input becomes the key-paste field; bridge/local fall
-  // back to text hints.
+  // openai → main input becomes the key-paste field; bridge falls back
+  // to a text hint.
   if (reply == null || reply === "") return actOnFailure(settings.pipBackend, turnEl);
   return reply;
 }
@@ -297,7 +294,7 @@ function rehoistPip() {
 
 // Slash commands registered on the pip handle. /clear and /help ship as
 // pip-core built-ins (v1.7.0+); these are the dashboard-specific ones.
-const PIP_BACKENDS = ["github", "bridge", "anthropic", "openai", "local"];
+const PIP_BACKENDS = ["github", "bridge", "anthropic", "openai"];
 
 function registerInitialSlashCommands() {
   _pip.registerSlash({
@@ -320,7 +317,7 @@ function registerInitialSlashCommands() {
   // input via _pip.collectSecret — same input the user's already looking at.
   _pip.registerSlash({
     name: "model",
-    description: "switch Pip's backend (github/bridge/anthropic/openai/local)",
+    description: "switch Pip's backend (github/bridge/anthropic/openai)",
     complete: (partial) => PIP_BACKENDS.filter(b => b.startsWith(partial.toLowerCase())),
     handler: async (argsString) => {
       const arg = argsString.trim().toLowerCase();
@@ -380,11 +377,7 @@ function registerInitialSlashCommands() {
 
       _pip.setModelLabel?.(activeModelForBackend(arg));
 
-      // Local LFM2 still needs a separate install step (large download).
-      const extra = arg === "local" && !settings.pipLocalInstalled
-        ? " `/install local` to download the model (~1.2 GB, one time)."
-        : "";
-      return { reply: `Backend set to \`${arg}\`.${extra}` };
+      return { reply: `Backend set to \`${arg}\`.` };
     },
   });
 

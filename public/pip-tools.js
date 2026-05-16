@@ -31,7 +31,6 @@ function bumpPulseRun(robotId) {
 function resetPulseRun(robotId) { _pulseRun.set(robotId, 0); }
 export function setAskInChatHandler(fn) { _askInChat = fn; }
 import { detectOnce, GROUNDING_ENABLED, isGroundingFailed } from "./grounding.js";
-import { wrapExecutor, getRecentActions } from "./replay.js";
 
 const ALL_TOOLS = [
   {
@@ -192,26 +191,15 @@ const ALL_TOOLS = [
     },
     annotations: { readOnlyHint: false, idempotentHint: false, destructiveHint: false, openWorldHint: true },
   },
-  {
-    name: "get_recent_actions",
-    description: "Recall the last N tool calls this session made. Use when the user asks 'what did you just try' or when you need to avoid repeating something that failed.",
-    input_schema: {
-      type: "object",
-      properties: {
-        limit: { type: "integer", description: "How many recent actions to return (default 5, max 50).", default: 5 },
-      },
-    },
-    annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false },
-  },
 ];
 
 // Hide disabled tools from Pip so it doesn't waste tokens proposing calls
 // that would fail. Keeping the executor case below (unreachable when the
 // tool isn't advertised) means re-enabling is a single flag flip in
 // grounding.js, not a re-plumb.
-// Backends that accept image blocks in tool_result content. Local LFM has
-// no vision; OpenAI's tool-result image support is untested here so gated
-// out until verified end-to-end.
+// Backends that accept image blocks in tool_result content. OpenAI's
+// tool-result image support is untested here so gated out until verified
+// end-to-end.
 const VISION_BACKENDS = new Set(["bridge", "anthropic"]);
 export function isVisionAvailable() {
   return !!settings.pipVisionEnabled && VISION_BACKENDS.has(settings.pipBackend || "bridge");
@@ -429,44 +417,9 @@ async function dispatch(name, input) {
         return { error: String(err.message || err), via: "chat" };
       }
     }
-    case "get_recent_actions": {
-      const limit = Math.min(Math.max(Number(input?.limit) || 5, 1), 50);
-      const session = (typeof window !== "undefined") ? window.replaySession : null;
-      if (!session) return { error: "replay session id unavailable" };
-      const recs = await getRecentActions(session, limit);
-      return { text: formatRecentActions(recs) };
-    }
     default:
       return { error: `unknown tool: ${name}` };
   }
 }
 
-function formatRecentActions(recs) {
-  if (!recs || recs.length === 0) return "0 recent actions.";
-  const lines = recs.map((r) => {
-    const status = r.error ? `err: ${truncate(String(r.error), 80)}` : "ok";
-    const dur = r.durationMs == null ? "?" : `${r.durationMs}ms`;
-    const head = `- ${r.name} (${status}, ${dur})`;
-    const inStr = compactJson(r.input);
-    const outStr = r.error ? "" : compactJson(r.output);
-    const tail = outStr ? `${inStr} -> ${outStr}` : inStr;
-    return `${head}: ${tail}`;
-  });
-  return `${recs.length} recent actions (newest first):\n${lines.join("\n")}`;
-}
-
-function compactJson(v) {
-  if (v === undefined) return "";
-  try {
-    const s = JSON.stringify(v);
-    return truncate(s ?? "", 300);
-  } catch {
-    return truncate(String(v), 300);
-  }
-}
-
-function truncate(s, n) {
-  return s.length > n ? `${s.slice(0, n - 1)}…` : s;
-}
-
-export const executor = wrapExecutor(dispatch);
+export const executor = dispatch;

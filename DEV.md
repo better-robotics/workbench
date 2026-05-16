@@ -30,22 +30,10 @@ Implementation: `public/capabilities/runtime/signed-pair.js`. State key:
 
 Live on both desktop and phone while `pairing.js` is loaded.
 
-- `window.replayDownload()` — downloads every Pip tool call from the current session as JSON. Returns `{count, session}`.
-- `window.replayAll()` — resolves to the full in-memory array of records.
-- `window.replayClear()` — wipes the replay store. Destructive.
-- `window.replaySession` — the current session id (string).
 - `window.lastPairDiagnostic()` — **async**, returns a Promise. Local + remote ICE candidates from this side's most recent pair attempt, plus role/roomId/iceServers, **plus a live `pc.getStats()` snapshot** (candidate-pair states, transport, certificates, dataChannel) and the four pc state strings. Same data `chrome://webrtc-internals/` shows, no privileged-page hop. Resets on each new `hostPairingRoom`/`joinPairingRoom` call. DevTools console auto-awaits the Promise — `await window.lastPairDiagnostic()` from elsewhere.
 - `window.probeNetwork({ timeoutMs })` — runs a unilateral STUN probe on demand and returns `{stunReachable, candidateTypes, publicIp, mdnsObfuscated, candidates, durationMs}`. Stashes the result in `window.lastNetProbe()`.
 - `window.lastNetProbe()` — last `probeNetwork()` result, or `null` if never run.
 - `window.probeIceReachability(iceServers, { timeoutMs })` — per-server reachability + first-hit latency. Returns `[{urls, reachable, latencyMs, types}]`. Pass the array `fetchIceServers()` returns to test the TURN-enabled config a real pair uses.
-
-## What gets recorded in replay
-
-Every Pip tool call is persisted to IndexedDB automatically. Record shape:
-```
-{ id, sessionId, name, input, output, error, startedAt, endedAt, durationMs }
-```
-`imageDataUrl` payloads (e.g. from `ask_human_via_phone`) are kept in-record so a replay can reconstruct what Pip saw. Implementation: `public/replay.js`.
 
 ## Robot endpoints
 
@@ -66,7 +54,6 @@ Every Pip tool call is persisted to IndexedDB automatically. Record shape:
 ## When to reach for what
 
 - Pairing hangs or fails silently → open the Diagnostics dialog (menu) and Refresh — captures STUN probe + last pair attempt's `getStats()` + connected-robot telemetry into one JSON. If even the unilateral probe returns no `srflx`, the network is blocking outbound STUN/UDP — pair will fail before it starts.
-- Understand what Pip did last session → `replayDownload()` from DevTools console, inspect the JSON.
 - Spatial grounding (which way to turn toward a target) → `get_robot_detections` Pip tool. Returns normalized bboxes. Model loads on first call (~30–60s, cached).
 
 ## House rules

@@ -7,15 +7,11 @@
 //               from settings. Browser-stored, "user's responsibility" model.
 //   openai    — direct fetch() to api.openai.com (chat/completions, function-
 //               calling). Different protocol from Anthropic; translated below.
-//   local     — LFM2.5-1.2B-Thinking-ONNX via transformers.js (WebGPU). Lives
-//               in local-llm.js so the dashboard does not import the
-//               transformers runtime until the user opts in.
 //
 // Wire protocol of the bridge (from ai-bridge/bridge-content.js):
 //   page → document.dispatchEvent(new CustomEvent('ai-bridge-request', { detail: {...} }))
 //   page ← document.addEventListener('ai-bridge-response', e => e.detail)
 import { settings } from "./settings.js";
-import { localAsk, localAskWithTools } from "./local-llm.js";
 
 const MODEL = "claude-sonnet-4-6";
 
@@ -27,7 +23,6 @@ export function activeModelForBackend(backend) {
   if (backend === "bridge" || backend === "anthropic") return MODEL;
   if (backend === "openai") return "gpt-4o-mini";
   if (backend === "github") return "gpt-4o-mini";  // strip vendor prefix for display
-  if (backend === "local") return "lfm2";
   return backend;
 }
 // Per-Claude-call ceiling. Tool-using conversations make several
@@ -168,30 +163,16 @@ function logBackendError(label, res) {
   const which = b === "anthropic" ? "anthropic-direct"
               : b === "openai"    ? "openai-direct"
               : b === "github"    ? "github-models"
-              : b === "local"     ? "local-llm"
               :                     "bridge";
   if (!res)           console.info(`[claude/${which}] ${label}: unreachable`);
   else if (res.error) console.warn(`[claude/${which}] ${label}: ${res.error}`);
   else                console.warn(`[claude/${which}] ${label}: HTTP ${res.status}`, res.body?.slice?.(0, 500) ?? res.body);
 }
 
-// Silent local-fallback: if the chosen backend returns null (transport
-// failure, bridge missing, API key rejected) and the local model is installed
-// (weights in IndexedDB), retry via localAsk. Keeps Pip answering on cafe
-// wifi, extension-less tabs, API outages — but only once the user has opted
-// in by installing local at least once.
 export async function ask(userText, opts = {}) {
   if (settings.pipBackend === "openai" || settings.pipBackend === "github")
-    return _withLocalFallback(() => _openaiAsk(userText, opts), () => localAsk(userText, opts));
-  if (settings.pipBackend === "local")  return localAsk(userText, opts);
-  return _withLocalFallback(() => _anthropicAsk(userText, opts), () => localAsk(userText, opts));
-}
-
-async function _withLocalFallback(primary, fallback) {
-  const result = await primary();
-  if (result != null || !settings.pipLocalInstalled) return result;
-  console.info("[claude] primary backend returned null — falling back to local model");
-  return fallback();
+    return _openaiAsk(userText, opts);
+  return _anthropicAsk(userText, opts);
 }
 
 async function _anthropicAsk(userText, { system, maxTokens = 200 } = {}) {
@@ -254,9 +235,8 @@ async function _openaiAsk(userText, { system, maxTokens = 200 } = {}) {
 //                                             "(reached iteration limit)".
 export async function askWithTools(messages, opts = {}) {
   if (settings.pipBackend === "openai" || settings.pipBackend === "github")
-    return _withLocalFallback(() => _openaiAskWithTools(messages, opts), () => localAskWithTools(messages, opts));
-  if (settings.pipBackend === "local")  return localAskWithTools(messages, opts);
-  return _withLocalFallback(() => _anthropicAskWithTools(messages, opts), () => localAskWithTools(messages, opts));
+    return _openaiAskWithTools(messages, opts);
+  return _anthropicAskWithTools(messages, opts);
 }
 
 async function _anthropicAskWithTools(messages, { system, tools, executor, maxIterations = 10, maxTokens = 1024, onToolStart, onToolEnd, shouldAbort, onMaxIterations } = {}) {

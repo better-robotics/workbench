@@ -6,10 +6,8 @@ import { drawFrameToCanvas } from "./camera-frame.js";
 
 export const GROUNDING_ENABLED = true;
 
-// Keep in sync with local-llm.js so a single runtime copy is loaded when
-// multiple pipelines coexist. Unversioned URL tracks the latest v4.x —
-// ships the native WebGPU EP with broader op coverage than onnxruntime-
-// web's old WebGPU backend.
+// Unversioned URL tracks the latest v4.x — ships the native WebGPU EP
+// with broader op coverage than onnxruntime-web's old WebGPU backend.
 const TRANSFORMERS_URL = "https://cdn.jsdelivr.net/npm/@huggingface/transformers";
 // Grounding DINO tiny — officially supported zero-shot-object-detection
 // model in transformers.js (landed in v3.3). q4f16 variant is ~151MB,

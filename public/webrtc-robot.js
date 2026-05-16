@@ -1,8 +1,7 @@
 // All robot WebRTC signaling rides BLE — chunked SDP on the SIGNAL char.
 // ESP32 handles signaling in-firmware; Pi forwards the offer to a local
 // aiortc daemon over a Unix socket and notifies the answer back. Either
-// way, no internet rendezvous — pair = signal. Matches the "fork-and-run,
-// no backend" wedge.
+// way, no internet rendezvous — pair = signal.
 //
 // Wire format on the SIGNAL char (both directions, mirrors OTA/snapshot):
 //   0x01 [u16 BE total]                       offer begin

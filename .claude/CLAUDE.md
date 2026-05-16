@@ -1,19 +1,18 @@
 # Wedge
 
-This project is the **browser-native robotics dev environment** — vibe-code robots in a tab, run them on real hardware over BLE, fork the repo to deploy your own. Pip (any tool-using LLM, with replay and ask-human) is the AI-assist surface inside it. One of multiple authorable surfaces, not the headline.
+The **browser-native robotics dev environment** — vibe-code robots in a tab, run them on real hardware over BLE. Pip (any tool-using LLM, with ask-human) is the AI-assist surface inside it. One of multiple authorable surfaces, not the headline.
 
-**Adjacent platforms.** Viam ("build robots like you build software" — modular components, multi-language SDKs, fleet management) is the closest framing rhyme. Both Viam and Freedom Robotics are server-resident B2B cloud SaaS — same transport stack you ship, different audience and distribution shape. Industrial cloud vs. consumer/education/hobbyist fork-and-run. Treat as inspiration for table-stakes, not competition.
+**Adjacent platforms.** Viam ("build robots like you build software" — modular components, multi-language SDKs, fleet management) is the closest framing rhyme. Viam and Freedom Robotics are server-resident B2B cloud SaaS — same transport stack, different audience and distribution shape. Inspiration for table-stakes, not competition.
 
-**What's defensible here that they don't have.** Browser is the dev surface — write JS in a tab, no install, no SDK download. Browser-resident model serving — perception, detection, fiducial pose all run client-side, no GPU server, no inference bill. Layered safety — firmware-bounded motors that the IDE-level planner (user code or Pip) can't bypass; ask-human is the terminal cascade rung (openpilot-panda pattern). Fork-and-run — GitHub-Pages deployable, no backend, no accounts, no data leaving the browser.
+**What's defensible.** Browser is the dev surface — no install, no SDK download. Browser-resident model serving — perception, detection, fiducial pose all client-side, no GPU server, no inference bill. Layered safety — firmware-bounded motors that the IDE-level planner (user code or Pip) can't bypass; ask-human is the terminal cascade rung (openpilot-panda pattern). Static-site deployable — no backend, no accounts, no data leaving the browser.
 
-**Directions worth pursuing** (when there's a session to dedicate to each):
+**Directions worth pursuing:**
 - **Capability schema** — JSON manifest + chip handler + auto-rendered card. The IDE's plugin system; lets a user or Pip ship a new hardware capability without touching dashboard code.
-- **Opt-in replay → dataset → improvement loop.** Replay is local-only today. Aggregating opted-in sessions builds the only consumer-robot interaction dataset that exists.
-- **Multi-robot orchestration.** Two robots in the same room, scripts or Pip planning across them, no central server. A research demo nobody else can show.
+- **Multi-robot orchestration.** Two robots in the same room, scripts or Pip planning across them, no central server.
 
-**Anti-drift guards.** Three failure modes to refuse:
+**Anti-drift guards.** Failure modes to refuse:
 - *"Yet another teleop dashboard"* — joystick-shaped UI for human pilots. The wedge is planning-shaped.
-- *"Yet another fleet manager"* — server-resident cloud for N robots. Viam's space; ours is one operator forking their own platform.
+- *"Yet another fleet manager"* — server-resident cloud for N robots. Viam's space; ours is one operator running their own.
 - *"The LLM does everything autonomously"* — Pip is one surface inside the IDE. User code is co-equal; both are bounded by the same firmware safety floor.
 
 # Developer reference
@@ -27,12 +26,12 @@ This project is the **browser-native robotics dev environment** — vibe-code ro
 
 # Subsystem map
 
-- **Pair layer** — `pairing.js`, `phones.js` (paired-phones management on desktop), `mobile.js` + `phone.html` (phone-side UI). Desktop ↔ phone WebRTC.
-- **Perception + detection** — `camera-frame.js` (pixel capture helpers), `grounding.js` (open-vocab detector), `aruco.js` (overhead ArUco localization → `entry.arucoPosition`). Overhead aruco is wired but unproven against real hardware — see "Wired but unproven" in `.claude/notes.md`.
-- **Pip / assistant** — `assistant.js`, `claude.js`, `local-llm.js`, `pip-tools.js`, `replay.js`. Tool-using LLM integration (Claude or local fallback), tool schemas, executor, replay logging.
-- **Robot ops** — `ble.js`, `ops-response.js`, `capabilities/`. BLE protocol, ops channel, per-cap cards + runtime.
-- **Robot lifecycle** — `prepare.js`, `recovery.js`, `pinout.js`. SD prep, USB recovery, pinout editor.
-- **User code** — `scripts.js`. Browser-resident IDE for user-authored robot code. Mirrors the BLE capability surface; persisted in localStorage. See `USER-CODE.md`.
+- **Pair layer** — `pairing.js`, `phones.js`, `mobile.js` + `phone.html`. Desktop ↔ phone WebRTC.
+- **Perception + detection** — `camera-frame.js`, `grounding.js`, `aruco.js` (overhead ArUco → `entry.arucoPosition`). Overhead aruco wired but unproven — see "Wired but unproven" in `.claude/notes.md`.
+- **Pip / assistant** — `assistant.js`, `claude.js`, `pip-tools.js`.
+- **Robot ops** — `ble.js`, `ops-response.js`, `capabilities/`.
+- **Robot lifecycle** — `prepare.js`, `recovery.js`, `pinout.js`.
+- **User code** — `scripts.js`. Mirrors the BLE capability surface; persisted in localStorage. See `USER-CODE.md`.
 - **App shell** — `app.js`, `dom.js`, `state.js`, `settings.js`, `log.js`, `auth.js`, `passwords.js`, `index.html`, `styles.css`, `icons.svg`.
 
 # Smoke testing
@@ -68,22 +67,20 @@ The "openpilot panda" pattern: safety enforced *below* the intelligent layer, no
 - Firmware caps motor speed, pulse duration, and watchdog auto-stop. The LLM planner can't bypass them — not even via a malformed tool call.
 - LLM-issued motion is pulse-bounded (`duration_ms` mandatory; firmware auto-stops). Persistent speed is reserved for human joystick control where there's a 20Hz+ decision loop.
 - `ask_human_via_phone` is the terminal rung of the decision cascade — the planner asks to be overridden rather than waits for the operator to step in.
-- Pip has a silent local-LFM fallback when the primary backend returns null AND `settings.pipLocalInstalled` is true. A null Pip reply means BOTH paths returned null.
 
 # Model discipline
 
 Different model shapes are good at different jobs — distinct primitives, not interchangeable "AI". Past planner-layer attempts to paper over capability gaps with prompt-engineering have bitten us.
 
-**Detectors and perception (present-tense backends):**
+**Detectors and perception:**
 
-- **Open-vocab detector** (`grounding.js`, Grounding DINO tiny): "find the red cup" works on a text prompt, no retraining. ~150–300 ms on CPU. Default detector today. For backend-vision-capable Pip turns, `view_robot_frame` passes the raw frame straight to the planner — no caption step.
+- **Open-vocab detector** (`grounding.js`, Grounding DINO tiny): text-prompt detection, no retraining. ~150–300 ms on CPU. For backend-vision-capable Pip turns, `view_robot_frame` passes the raw frame straight to the planner — no caption step.
 
-**Unproven / experimental:** Overhead ArUco localization (`aruco.js`, wired but unvalidated end-to-end) and YOLO26n closed-vocab detector (not built). Full record + validation criteria in `.claude/notes.md` under "Wired but unproven." Keep both out of user docs until validated.
+**Unproven / experimental:** Overhead ArUco localization (`aruco.js`) and YOLO26n closed-vocab detector (not built). See `.claude/notes.md` "Wired but unproven." Keep out of user docs until validated.
 
-**Planners — the IDE's AI-assist surface (Pip):**
+**Planners (Pip):**
 
 - **Tool-using LLM via API** (`claude.js`): seconds-latency, multi-turn, tool-calling. Strong at goal decomposition, weak at closed-loop visual servo (2–5 s round-trip). Currently Claude; any tool-using LLM with the same tool surface fits here.
-- **Local LFM2.5** (`local-llm.js`): offline / API-outage fallback. 512-token output ceiling, retries needed. Pip falls through silently when the primary backend returns null AND `settings.pipLocalInstalled` is true.
 
 # Transport channels
 
@@ -158,8 +155,3 @@ Connection infrastructure (BLE, WiFi, USB-CDC) initializes before capability inf
 
 ESP32 example: NimBLE host init and `wifi_sta_init` run early in `app_main()` so radio drivers pre-allocate their buffers in fresh internal heap. Camera comes after; if it can't fit its 32 KB DMA buffer in what's left, it fails loudly via `camera_init_error()` and `fw_info` hides the cap so the dashboard adapts.
 
-# Replay
-
-Every Pip tool call is persisted to IndexedDB so a session can be re-run offline against a new model (comma.ai's replay-your-drive pattern, scoped to our tool surface). Image data URLs from `ask_human_via_phone` stay in the record so reconstruction is faithful.
-
-Wire-up via `replay.wrapExecutor()` in `pip-tools.js`. Surface in `DEV.md`.

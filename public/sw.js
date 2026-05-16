@@ -23,15 +23,13 @@
 //   commit. For an intentional bump unrelated to assets (e.g. server-side
 //   change in an API contract), edit any cached asset (a comment will do)
 //   and the hook will pick up a new hash.
-const VERSION = "d8c1ca6e";
+const VERSION = "9a1de5d0";
 const CACHE = `dashboard-${VERSION}`;
 
 // Cached at install time so the dashboard can cold-boot offline AND
 // dynamically-imported dialogs (recovery, scripts) are ready before the
-// user opens them. Relative paths so a fork-and-run deployment works at
-// any base URL — apex (better-robotics.github.io/) or subpath (a user's
-// own fork at <user>.github.io/<repo>/). Absolute "/" would resolve to
-// origin root, not SW scope.
+// user opens them. Relative paths so the cache works at any base URL —
+// apex or subpath. Absolute "/" would resolve to origin root, not SW scope.
 const BOOTSTRAP = [
   "./", "./index.html", "./app.js", "./styles.css", "./icons.svg",
   // PWA install assets — home-screen icon + manifest must be cached for
