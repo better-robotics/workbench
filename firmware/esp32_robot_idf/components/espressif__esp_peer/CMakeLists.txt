@@ -1,5 +1,12 @@
 idf_build_get_property(idf_ver_major IDF_VERSION_MAJOR)
 
+# Vendored fork of espressif/esp_peer 1.4.1 — DTLS role-flipped to CLIENT
+# and cert generation patched RSA→ECDSA. Always registers; when
+# BR_WEBRTC_ESP_PEER=n, main drops this from PRIV_REQUIRES and the
+# linker's --gc-sections strips the unreferenced libpeer .a out of the
+# final image. (Kconfig-conditional component registration runs in a
+# phase where CONFIG_* values aren't populated, so the dep stays
+# top-level rather than wrapped here.)
 set(COMPONENT_SRCS src/esp_peer.c src/media_lib_weak.c)
 
 if("${IDF_VERSION_MAJOR}.${IDF_VERSION_MINOR}" VERSION_GREATER_EQUAL "6.0")

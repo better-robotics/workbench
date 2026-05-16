@@ -5,6 +5,12 @@
 # Firmware version comes from esp_app_get_description()->version, which
 # IDF derives from `git describe --always` at build time.
 
+# WebRTC (vendored esp_peer / libpeer) is opt-in via BR_WEBRTC_ESP_PEER.
+# When off, webrtc_peer.c #ifdef's out to an empty TU and the call sites
+# in app_main / gatt_svr disappear too, so the linker's --gc-sections
+# drops the libpeer .a and all WebRTC-only mbedTLS code automatically.
+# The dep stays unconditional here because Kconfig values aren't visible
+# during the component-registration phase that resolves REQUIRES.
 idf_component_register(
     SRCS
         "app_main.c"
@@ -35,7 +41,7 @@ idf_component_register(
         bt
         # Camera (managed component esp32-camera)
         esp32-camera
-        # WebRTC (managed component esp_peer — Espressif's libpeer fork)
+        # WebRTC (vendored esp_peer — gc-stripped when BR_WEBRTC_ESP_PEER=n)
         espressif__esp_peer
         # OTA
         app_update

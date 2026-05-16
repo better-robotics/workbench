@@ -130,6 +130,15 @@ completes" or "camera_acquire fails after WebRTC opens." The full set is
 documented in firmware/esp32_robot_idf/components/espressif__esp_peer/src/
 dtls_srtp.c and sdkconfig.defaults.esp32.
 
+**Opt-in via `CONFIG_BR_WEBRTC_ESP_PEER`** (main/Kconfig.projbuild, default
+y). Set =n to drop all WebRTC code — `select` chain removes the WebRTC-only
+mbedTLS bits, all call sites in webrtc_peer / app_main / gatt_svr / telemetry
+guard out with `#ifdef`, and the linker's `--gc-sections` strips libpeer.a
+from the image (~215 KB smaller binary). Useful for forks that only need
+HTTP MJPEG video. esp_peer always *registers* as a component (Kconfig values
+aren't visible to IDF's component-registration phase), but produces no live
+references when off, so the linker drops it.
+
 # Connection-first init
 
 Connection infrastructure (BLE, WiFi, USB-CDC) initializes before capability infrastructure (camera, perception, motors). When constrained resources force a tradeoff, connection wins. A robot whose BLE stays up with no camera is observable and actionable; the reverse is a brick.

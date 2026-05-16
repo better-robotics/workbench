@@ -18,7 +18,9 @@
 #include "snapshot.h"
 #include "telemetry.h"
 #include "uuids.h"
+#ifdef CONFIG_BR_WEBRTC_ESP_PEER
 #include "webrtc_peer.h"
+#endif
 #include "wifi_sta.h"
 
 static const char *TAG = "gatt_svr";
@@ -37,7 +39,9 @@ static ble_uuid128_t s_snapshot_request_uuid;
 static ble_uuid128_t s_snapshot_data_uuid;
 static ble_uuid128_t s_telemetry_uuid;
 static ble_uuid128_t s_fw_info_uuid;
+#ifdef CONFIG_BR_WEBRTC_ESP_PEER
 static ble_uuid128_t s_signal_uuid;
+#endif
 
 static uint16_t s_led_handle;
 static uint16_t s_flash_handle;
@@ -48,7 +52,9 @@ static uint16_t s_ota_status_handle;
 static uint16_t s_snapshot_data_handle;
 static uint16_t s_telemetry_handle;
 static uint16_t s_fw_info_handle;
+#ifdef CONFIG_BR_WEBRTC_ESP_PEER
 static uint16_t s_signal_handle;
+#endif
 
 const ble_uuid128_t *gatt_svr_service_uuid(void) { return &s_service_uuid; }
 
@@ -232,6 +238,7 @@ static int fw_info_access(uint16_t conn, uint16_t attr,
     return BLE_ATT_ERR_UNLIKELY;
 }
 
+#ifdef CONFIG_BR_WEBRTC_ESP_PEER
 // SIGNAL: chunked SDP offer (write) and chunked SDP answer (notify via
 // gatt_svr_signal_send). Buffer holds one chunk; chunks bounded at ~100 +
 // 1 op byte by webrtc_peer.c's BLE_SIG_CHUNK.
@@ -250,6 +257,7 @@ static int signal_access(uint16_t conn, uint16_t attr,
     }
     return BLE_ATT_ERR_UNLIKELY;
 }
+#endif
 
 static const struct ble_gatt_chr_def s_chars[] = {
     {
@@ -328,12 +336,14 @@ static const struct ble_gatt_chr_def s_chars[] = {
         .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
         .val_handle = &s_fw_info_handle,
     },
+#ifdef CONFIG_BR_WEBRTC_ESP_PEER
     {
         .uuid = &s_signal_uuid.u,
         .access_cb = signal_access,
         .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_NOTIFY,
         .val_handle = &s_signal_handle,
     },
+#endif
     { 0 },
 };
 
@@ -361,7 +371,9 @@ void gatt_svr_init(void) {
     parse_uuid128(SNAPSHOT_DATA_CHAR_UUID,    &s_snapshot_data_uuid);
     parse_uuid128(TELEMETRY_CHAR_UUID,        &s_telemetry_uuid);
     parse_uuid128(FW_INFO_CHAR_UUID,          &s_fw_info_uuid);
+#ifdef CONFIG_BR_WEBRTC_ESP_PEER
     parse_uuid128(SIGNAL_CHAR_UUID,           &s_signal_uuid);
+#endif
 
     int rc = ble_gatts_count_cfg(s_svcs);
     if (rc != 0) { ESP_LOGE(TAG, "count_cfg rc=%d", rc); return; }
@@ -390,6 +402,7 @@ void gatt_svr_snapshot_send(const uint8_t *buf, size_t len) {
     ble_gatts_notify_custom(conn, s_snapshot_data_handle, om);
 }
 
+#ifdef CONFIG_BR_WEBRTC_ESP_PEER
 void gatt_svr_signal_send(uint16_t conn, const uint8_t *buf, size_t len) {
     if (conn == BLE_HS_CONN_HANDLE_NONE) return;
     if (!s_signal_handle) return;
@@ -397,3 +410,4 @@ void gatt_svr_signal_send(uint16_t conn, const uint8_t *buf, size_t len) {
     if (!om) return;
     ble_gatts_notify_custom(conn, s_signal_handle, om);
 }
+#endif

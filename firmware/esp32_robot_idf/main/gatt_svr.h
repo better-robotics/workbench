@@ -28,6 +28,7 @@ void gatt_svr_notify_fw_info(void);
 // the begin/chunk/commit/error envelope.
 void gatt_svr_snapshot_send(const uint8_t *buf, size_t len);
 
+#ifdef CONFIG_BR_WEBRTC_ESP_PEER
 // Same shape as gatt_svr_snapshot_send but on the SIGNAL char — wraps
 // the chunked WebRTC SDP answer (and error frames) on the way back to
 // the dashboard during BLE-signaled handshakes. `conn` is the central
@@ -35,3 +36,4 @@ void gatt_svr_snapshot_send(const uint8_t *buf, size_t len);
 // offer so the right window receives the response when multiple
 // browsers are simultaneously connected.
 void gatt_svr_signal_send(uint16_t conn, const uint8_t *buf, size_t len);
+#endif

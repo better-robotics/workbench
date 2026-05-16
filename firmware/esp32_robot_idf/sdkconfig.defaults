@@ -58,46 +58,21 @@ CONFIG_LWIP_IPV6_AUTOCONFIG=y
 # server. Phones get global v6 because Apple stacks do DHCPv6 by default.
 CONFIG_LWIP_IPV6_DHCP6=y
 
-# mbedTLS — esp_peer needs DTLS for the WebRTC handshake; HTTPS / cert
-# bundle are no longer needed since the chip pulls ICE creds from the
-# dashboard over BLE instead of fetching them itself.
-CONFIG_MBEDTLS_SSL_PROTO_DTLS=y
+# mbedTLS — hardware AES/SHA always on (free on this chip, used by both
+# WiFi WPA and any future TLS). WebRTC-specific mbedTLS knobs
+# (DTLS-SRTP, ECDSA, GCM, X509_CREATE, HKDF, SHA1, CIPHER_MODE_CTR…)
+# are pulled in via `select` from main/Kconfig.projbuild's
+# BR_WEBRTC_ESP_PEER, so a no-WebRTC build drops them automatically.
 CONFIG_MBEDTLS_HARDWARE_AES=y
 CONFIG_MBEDTLS_HARDWARE_SHA=y
 
-# WebRTC DTLS-SRTP needs ECDHE-ECDSA + AEAD ciphers. mbedTLS returns
-# -0x7080 (FEATURE_UNAVAILABLE) at handshake without these enabled —
-# IDF defaults are tuned for HTTPS-client and don't include the
-# WebRTC-required ECDSA cert + GCM cipher + DTLS-SRTP extension combo.
-CONFIG_MBEDTLS_SSL_DTLS_SRTP=y
-# X.509 cert CREATION (vs parsing). Our self-signed ECDSA cert relies
-# on mbedtls_x509write_crt_* which are gated by this flag. Espressif's
-# own peer_demo example lists this as a required minimum.
-CONFIG_MBEDTLS_X509_CREATE_C=y
-CONFIG_MBEDTLS_KEY_EXCHANGE_ECDHE_ECDSA=y
-CONFIG_MBEDTLS_ECDH_C=y
-CONFIG_MBEDTLS_ECDSA_C=y
-CONFIG_MBEDTLS_ECP_DP_SECP256R1_ENABLED=y
-CONFIG_MBEDTLS_GCM_C=y
-# DTLS-SRTP profiles esp_peer requests use AES-CTR + HMAC-SHA1.
-# Modern mbedTLS disables SHA1 by default; without these, the SRTP
-# extension has no usable profile and the handshake fails with
-# FEATURE_UNAVAILABLE before key exchange even runs.
-CONFIG_MBEDTLS_SHA1_C=y
-CONFIG_MBEDTLS_CIPHER_MODE_CTR=y
-CONFIG_MBEDTLS_HKDF_C=y
-
-# Once DTLS-as-client is working, no longer need mbedTLS internal debug
-# spew or error-string tables. Each saves a few KB of internal heap that
-# the camera's 32KB DMA buffer competes for.
-# CONFIG_MBEDTLS_ERROR_STRINGS=n  (default)
-# CONFIG_MBEDTLS_DEBUG=n          (default)
-
-# As DTLS client the chip *sends* the ClientHello (small) and only
-# *receives* server-side handshake messages, which are individually
-# smaller than ServerHello+Cert+ServerKeyExchange combined (~1.5-2 KiB).
-# 2 KiB IN buffer is enough; OUT can shrink to 1500 since chip's TLS
-# records are all tiny.
+# Trim mbedTLS record buffers from the 16 KiB default to fit the chip's
+# actual handshake. As DTLS client the chip *sends* the ClientHello
+# (small) and only *receives* server-side handshake messages, which are
+# individually smaller than ServerHello+Cert+ServerKeyExchange combined
+# (~1.5–2 KiB). 2 KiB IN buffer is enough; OUT can shrink to 1500 since
+# chip's TLS records are all tiny. Saves ~28 KiB internal heap per
+# session — feeds the camera DMA's 32 KiB contiguous request.
 CONFIG_MBEDTLS_ASYMMETRIC_CONTENT_LEN=y
 CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=2048
 CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=1500

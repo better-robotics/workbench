@@ -14,7 +14,9 @@
 #include "ota.h"
 #include "pin_config.h"
 #include "telemetry.h"
+#ifdef CONFIG_BR_WEBRTC_ESP_PEER
 #include "webrtc_peer.h"
+#endif
 #include "wifi_sta.h"
 
 static const char *TAG = "esp32_robot";
@@ -71,12 +73,13 @@ void app_main(void) {
     ota_init();
     telemetry_init();
     wifi_sta_init(hostname);
+#ifdef CONFIG_BR_WEBRTC_ESP_PEER
     // ICE servers (TURN creds + STUN/TURN URLs) come pre-resolved from the
     // dashboard via BLE — chip no longer fetches proxy.neevs.io itself,
     // freeing flash + dropping the multi-second mbedTLS-during-coex stall.
     webrtc_peer_init(ble_name);
-    // Side-by-side HTTP MJPEG for benchmarking against WebRTC. Always-on
-    // (one listen socket idle cost); dashboard "Try HTTP" opens
-    // http://<ip>:81/stream.
+#endif
+    // HTTP MJPEG (port 81). With WebRTC compiled in, this is the
+    // benchmark/fallback path; without WebRTC it's the only video transport.
     http_stream_init();
 }

@@ -5,6 +5,12 @@ IDF_DIR     := firmware/esp32_robot_idf
 IDF_BUILD   := $(IDF_DIR)/build
 PUBLISH_DIR := public/firmware/bins
 
+# Source the IDF environment only if idf.py isn't already on PATH. Lets a
+# user who pre-sourced (`get_idf`) keep their warm shell without paying
+# the ~1 s export-script tax on every make invocation; everyone else gets
+# auto-sourcing so `make flash` works in a vanilla terminal.
+IDF_EXPORT  := command -v idf.py >/dev/null 2>&1 || . ~/esp/esp-idf/export.sh >/dev/null
+
 .PHONY: help setup compile flash monitor monitor-noreset flash-monitor install-pi-os preview publish publish-firmware publish-pi-firmware smoke gen-uuids install-hooks push
 
 help:
@@ -44,8 +50,9 @@ setup:
 	fi
 	~/esp/esp-idf/install.sh esp32,esp32s3
 	@echo ""
-	@echo "Add to your shell rc: alias get_idf='. ~/esp/esp-idf/export.sh'"
-	@echo "Then run 'get_idf' before make compile / flash / monitor."
+	@echo "make compile/flash/monitor auto-source IDF — you can stop here."
+	@echo "Optional: 'alias get_idf=\". ~/esp/esp-idf/export.sh\"' in your shell rc"
+	@echo "to run idf.py directly (faster than make's per-invocation source)."
 
 gen-uuids:
 	@# Single source of truth for BLE UUIDs lives in protocol/uuids.json.
@@ -56,15 +63,15 @@ gen-uuids:
 	@python3 tools/gen-uuids.py
 
 compile: gen-uuids
-	cd $(IDF_DIR) && idf.py build
+	$(IDF_EXPORT); cd $(IDF_DIR) && idf.py build
 
 flash: compile
 	@test -n "$(PORT)" || (echo "No ESP32 detected on /dev/cu.usbserial-* or /dev/cu.usbmodem*. Is it plugged in?" && exit 1)
-	cd $(IDF_DIR) && idf.py -p "$(PORT)" flash
+	$(IDF_EXPORT); cd $(IDF_DIR) && idf.py -p "$(PORT)" flash
 
 monitor:
 	@test -n "$(PORT)" || (echo "No ESP32 detected on /dev/cu.usbserial-* or /dev/cu.usbmodem*" && exit 1)
-	cd $(IDF_DIR) && idf.py -p "$(PORT)" monitor
+	$(IDF_EXPORT); cd $(IDF_DIR) && idf.py -p "$(PORT)" monitor
 
 # Live serial tail that does NOT reset the chip on connect. idf.py monitor
 # pulses DTR/RTS as part of opening the port, which the USB-UART chip

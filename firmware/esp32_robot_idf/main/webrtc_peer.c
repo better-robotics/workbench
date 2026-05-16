@@ -1,3 +1,6 @@
+#include "sdkconfig.h"
+#ifdef CONFIG_BR_WEBRTC_ESP_PEER
+
 #include "webrtc_peer.h"
 
 #include <stdio.h>
@@ -782,3 +785,5 @@ void webrtc_peer_init(const char *robot_name) {
     xTaskCreate(loop_task_fn, "rtc_loop", 12288, NULL, 5, &s_loop_task);
     ESP_LOGI(TAG, "rtc init: BLE-signaled WebRTC ready (esp_peer)");
 }
+
+#endif // CONFIG_BR_WEBRTC_ESP_PEER
