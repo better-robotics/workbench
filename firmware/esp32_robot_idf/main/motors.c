@@ -4,6 +4,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 
+#include "encoders.h"
 #include "gatt_svr.h"
 
 static const char *TAG = "motors";
@@ -21,6 +22,16 @@ static const char *TAG = "motors";
 #define LLM_MAX_SPEED        40
 #define LLM_MAX_DURATION_MS  2000
 
+// Stall rung: a commanded side that hasn't ticked for STALL_THRESHOLD_MS
+// is jammed (wall, gear bind, broken motor wire). Cut power before the
+// H-bridge cooks. Rolling per-side baseline — any tick advances the
+// clock for that side. STALL_MIN_SPEED suppresses false trips at low
+// joystick magnitudes where low-PPR encoders legitimately won't tick
+// inside the window. No-op when encoders aren't wired.
+#define STALL_CHECK_MS       50
+#define STALL_THRESHOLD_MS   200
+#define STALL_MIN_SPEED      10
+
 static int s_pin[4] = { -1, -1, -1, -1 };
 static const ledc_channel_t s_chan[4] = {
     LEDC_CHANNEL_0, LEDC_CHANNEL_1, LEDC_CHANNEL_2, LEDC_CHANNEL_3,
@@ -36,6 +47,9 @@ static uint32_t s_active_pulse_id = 0;
 
 static esp_timer_handle_t s_watchdog_timer;
 static esp_timer_handle_t s_pulse_timer;
+static esp_timer_handle_t s_stall_timer;
+static uint32_t s_stall_base_l, s_stall_base_r;
+static int64_t  s_stall_base_us_l, s_stall_base_us_r;
 
 static void drive_half_bridge(ledc_channel_t fwd, ledc_channel_t bwd, int8_t signed_speed) {
     if (!s_attached) return;
@@ -68,7 +82,39 @@ static void pulse_fire(void *arg) {
     s_right = 0;
     drive_half_bridge(s_chan[0], s_chan[1], 0);
     drive_half_bridge(s_chan[2], s_chan[3], 0);
+    esp_timer_stop(s_stall_timer);
     gatt_svr_notify_motor();
+}
+
+static void stall_check(void *arg) {
+    if (!encoders_enabled()) return;
+    uint32_t cur_l, cur_r;
+    encoders_get(&cur_l, &cur_r);
+    int64_t now = esp_timer_get_time();
+    int8_t abs_l = s_left < 0 ? -s_left : s_left;
+    int8_t abs_r = s_right < 0 ? -s_right : s_right;
+    bool stalled = false;
+
+    if (abs_l >= STALL_MIN_SPEED) {
+        if (cur_l != s_stall_base_l) {
+            s_stall_base_l = cur_l;
+            s_stall_base_us_l = now;
+        } else if (now - s_stall_base_us_l > (int64_t)STALL_THRESHOLD_MS * 1000) {
+            stalled = true;
+        }
+    }
+    if (abs_r >= STALL_MIN_SPEED) {
+        if (cur_r != s_stall_base_r) {
+            s_stall_base_r = cur_r;
+            s_stall_base_us_r = now;
+        } else if (now - s_stall_base_us_r > (int64_t)STALL_THRESHOLD_MS * 1000) {
+            stalled = true;
+        }
+    }
+    if (stalled) {
+        ESP_LOGW(TAG, "stall, stopping");
+        motors_apply(0, 0);
+    }
 }
 
 void motors_init(const pin_config_t *cfg) {
@@ -113,6 +159,8 @@ void motors_init(const pin_config_t *cfg) {
     esp_timer_create(&wargs, &s_watchdog_timer);
     esp_timer_create_args_t pargs = { .callback = pulse_fire, .name = "motor_pulse" };
     esp_timer_create(&pargs, &s_pulse_timer);
+    esp_timer_create_args_t sargs = { .callback = stall_check, .name = "motor_stall" };
+    esp_timer_create(&sargs, &s_stall_timer);
 }
 
 void motors_apply(int8_t left, int8_t right) {
@@ -123,8 +171,14 @@ void motors_apply(int8_t left, int8_t right) {
     drive_half_bridge(s_chan[2], s_chan[3], right);
 
     esp_timer_stop(s_watchdog_timer);
+    esp_timer_stop(s_stall_timer);
     if (left != 0 || right != 0) {
         esp_timer_start_once(s_watchdog_timer, (uint64_t)MOTOR_WATCHDOG_MS * 1000);
+        if (encoders_enabled()) {
+            encoders_get(&s_stall_base_l, &s_stall_base_r);
+            s_stall_base_us_l = s_stall_base_us_r = esp_timer_get_time();
+            esp_timer_start_periodic(s_stall_timer, (uint64_t)STALL_CHECK_MS * 1000);
+        }
     }
     gatt_svr_notify_motor();
     ESP_LOGI(TAG, "→ (%+d, %+d)", left, right);

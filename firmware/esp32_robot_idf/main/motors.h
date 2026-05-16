@@ -11,7 +11,8 @@
 // forward = fwd-pin PWM, bwd-pin LOW; backward = fwd-pin LOW, bwd-pin PWM.
 // signedSpeed range is [-100, 100]; magnitude > 100 clamps to 100.
 //
-// Two safety rungs match firmware/pi_robot/pi_robot.py:
+// Safety rungs (watchdog + pulse match firmware/pi_robot/pi_robot.py;
+// the stall rung is ESP32-only — Pi has no encoder path yet):
 //   - Watchdog: any non-zero apply arms a 500ms one-shot. Re-armed on
 //     each apply; fires if the operator stops sending updates (BLE drop,
 //     dashboard tab closed, etc.).
@@ -19,6 +20,9 @@
 //     duration. Speed clamped to LLM_MAX_SPEED, dur to LLM_MAX_DURATION_MS,
 //     and a one-shot timer auto-stops at the end. A newer apply (joystick,
 //     newer pulse) wins via pulse_id check inside the timer fire.
+//   - Stall:    when encoders are wired, a commanded side that hasn't
+//     ticked inside ~200ms is jammed. Auto-stop both sides before the
+//     H-bridge cooks. No-op when encoders aren't configured.
 void motors_init(const pin_config_t *cfg);
 
 // Persistent apply (joystick). Speed in [-100, 100].
