@@ -119,9 +119,14 @@ needs to see them as one shape:
    mbedtls x509write_crt_* + ecp_gen_key). WebRTC standardized on ECDSA;
    current Chrome rejects RSA in DTLS-SRTP, so the dashboard cert is built
    ECDSA-only too.
-3. **Answer SDP rewrite**: `setup:passive` → `setup:active`. libpeer's
-   binary always emits passive; we override to match the actual on-wire
-   role.
+3. **All chip-quirk SDP rewriting lives in the dashboard** (webrtc-robot.js).
+   The browser pre-strips TCP candidates from the offer (chip is UDP-only),
+   pins offer MID to "0" so libpeer's hardcoded "0" in the answer matches,
+   and flips `setup:passive`→`setup:active` on the incoming answer (libpeer
+   always emits passive even though chip is actually CLIENT). Used to be
+   three string-walking functions in webrtc_peer.c (`filter_sdp_for_chip`,
+   `capture_offer_mid`, `rewrite_answer_mid`); centralizing made the chip
+   an SDP-agnostic byte pipe.
 4. **mbedTLS Kconfig** must enable the WebRTC cipher set explicitly
    (DTLS_SRTP, ECDHE_ECDSA, ECDH_C, ECDSA_C, SECP256R1, GCM_C, SHA1_C,
    HKDF_C). IDF defaults are tuned for HTTPS-client and lack what DTLS-SRTP
@@ -132,9 +137,11 @@ needs to see them as one shape:
    contiguous internal block is always available mid-session.
 
 Removing any one of these reverts the chip to "DTLS handshake never
-completes" or "camera_acquire fails after WebRTC opens." The full set is
-documented in firmware/esp32_robot_idf/components/espressif__esp_peer/src/
-dtls_srtp.c and sdkconfig.defaults.esp32.
+completes" or "camera_acquire fails after WebRTC opens." Firmware-side
+constraints (DTLS role, mbedTLS Kconfig, PSRAM malloc) are documented in
+firmware/esp32_robot_idf/components/espressif__esp_peer/src/dtls_srtp.c
+and sdkconfig.defaults.esp32; dashboard-side constraints (cert push, SDP
+rewriting) in public/webrtc-cert.js and public/webrtc-robot.js.
 
 **Opt-in via `CONFIG_BR_WEBRTC_ESP_PEER`** (main/Kconfig.projbuild, default
 y). Set =n to drop all WebRTC code — `select` chain removes the WebRTC-only

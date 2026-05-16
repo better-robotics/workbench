@@ -36,11 +36,14 @@ static const char *TAG = "rtc";
 
 static esp_peer_handle_t s_peer;
 static uint16_t s_active_offer_conn = 0;
-// MID captured from the offer's a=group:BUNDLE line. esp_peer's answer
-// hardcodes mid="0" / BUNDLE "0" but Chrome strictly requires the
-// answer's BUNDLE/mid values to match the offer's (e.g. "datachannel").
-// We rewrite the answer SDP in on_peer_msg before forwarding over BLE.
-static char s_offer_mid[32] = "0";
+// SDP MID matching: the dashboard pins MID="0" in its offer
+// (offerStripTcpAndPinMid in webrtc-robot.js) so libpeer's hardcoded
+// "0" in the answer matches without any chip-side rewrite. Same place
+// also pre-strips TCP candidates (chip is UDP-only) and the dashboard
+// flips setup:passive→active on the incoming answer
+// (answerSetupActive in webrtc-robot.js). Centralizing all chip-quirk
+// SDP knowledge in the dashboard removes ~140 LOC of string-walking
+// from this TU.
 
 // Channel-id cache. esp_peer notifies us via on_channel_open with the
 // label and the SCTP stream id; we look up by label later when we
@@ -56,7 +59,6 @@ static QueueHandle_t s_events;
 static TaskHandle_t  s_loop_task;
 
 static void stop_video_streaming(void);
-static char *rewrite_answer_mid(const char *answer, const char *target_mid);
 
 // ── BLE signaling ────────────────────────────────────────────────────────
 //
@@ -497,14 +499,7 @@ static int on_peer_msg(esp_peer_msg_t *msg, void *ctx) {
         memcpy(sdp, msg->data, msg->size);
         sdp[msg->size] = 0;
         log_sdp_mlines("answer", sdp);
-        char *fixed = rewrite_answer_mid(sdp, s_offer_mid);
-        if (fixed) {
-            log_sdp_mlines("answer-fixed", fixed);
-            send_answer_via_ble(fixed);
-            free(fixed);
-        } else {
-            send_answer_via_ble(sdp);  // fallback if alloc failed
-        }
+        send_answer_via_ble(sdp);
         free(sdp);
     } else if (msg->type == ESP_PEER_MSG_TYPE_CANDIDATE) {
         ESP_LOGD(TAG, "esp_peer emitted ICE candidate (ignored — no trickle over BLE)");
@@ -543,115 +538,9 @@ static int on_peer_data(esp_peer_data_frame_t *frame, void *ctx) {
 
 // ── peer connection lifecycle ────────────────────────────────────────────
 
-// Strip TCP candidates from the offer SDP — libpeer's ICE agent is UDP-only
-// and TCP candidates trip its parser (LoadProhibited crash observed
-// pre-3228975). Setup attribute is left alone because libpeer's binary
-// blob doesn't parse it (always passes ROLE_SERVER to dtls_srtp_init);
-// the actual role flip happens in our patched dtls_srtp.c (forced CLIENT)
-// + the answer-side rewrite_answer_mid which also flips setup:passive →
-// setup:active so Chrome sees the role we actually run on the wire.
-static char *filter_sdp_for_chip(const char *sdp) {
-    size_t in_len = strlen(sdp);
-    char *out = malloc(in_len + 1);
-    if (!out) return NULL;
-    size_t o = 0;
-    const char *p = sdp;
-    int dropped = 0;
-    while (*p) {
-        const char *eol = strchr(p, '\n');
-        size_t line_len = eol ? (size_t)(eol - p + 1) : strlen(p);
-        bool drop = false;
-        if (strncmp(p, "a=candidate:", 12) == 0) {
-            const char *q = p + 12;
-            int tok = 0;
-            while (q < p + line_len && tok < 2) {
-                while (q < p + line_len && *q != ' ') q++;
-                while (q < p + line_len && *q == ' ') q++;
-                tok++;
-            }
-            if (q < p + line_len && (q[0] == 't' || q[0] == 'T')
-                                  && (q[1] == 'c' || q[1] == 'C')
-                                  && (q[2] == 'p' || q[2] == 'P')) {
-                drop = true;
-            }
-        }
-        if (drop) dropped++;
-        else { memcpy(out + o, p, line_len); o += line_len; }
-        if (!eol) break;
-        p = eol + 1;
-    }
-    out[o] = 0;
-    if (dropped) ESP_LOGI(TAG, "filtered SDP: dropped %d TCP candidate(s)", dropped);
-    return out;
-}
-
-// Pull the first MID out of "a=group:BUNDLE <mid>[ <mid>...]" so we can
-// substitute it into esp_peer's answer (which always uses "0").
-static void capture_offer_mid(const char *sdp) {
-    const char *gb = strstr(sdp, "a=group:BUNDLE ");
-    if (!gb) return;
-    gb += 15;
-    const char *eol = strchr(gb, '\r');
-    if (!eol) eol = strchr(gb, '\n');
-    if (!eol || eol <= gb) return;
-    size_t len = (size_t)(eol - gb);
-    const char *space = memchr(gb, ' ', len);
-    if (space) len = (size_t)(space - gb);
-    if (len == 0 || len >= sizeof(s_offer_mid)) return;
-    memcpy(s_offer_mid, gb, len);
-    s_offer_mid[len] = 0;
-    ESP_LOGI(TAG, "captured offer MID: %s", s_offer_mid);
-}
-
-// Rewrite esp_peer's answer SDP for two reasons:
-//   1. "a=group:BUNDLE 0" and "a=mid:0" → use the offer's MID (Chrome rejects
-//      mismatched MIDs).
-//   2. "a=setup:passive" → "a=setup:active". libpeer's binary blob always
-//      emits passive (it doesn't parse the offer's setup attr), but we
-//      force CLIENT internally in our patched dtls_srtp_init. Chrome
-//      needs the SDP to match what we actually do on the wire.
-// Returns malloc'd buffer; caller frees. NULL on OOM.
-static char *rewrite_answer_mid(const char *answer, const char *target_mid) {
-    size_t old_len = strlen(answer);
-    size_t target_len = strlen(target_mid);
-    char *out = malloc(old_len + 64);
-    if (!out) return NULL;
-    size_t o = 0;
-    const char *p = answer;
-    while (*p) {
-        const char *eol = strchr(p, '\n');
-        size_t line_len = eol ? (size_t)(eol - p + 1) : strlen(p);
-        const char *prefix = NULL;
-        size_t prefix_len = 0;
-        if (strncmp(p, "a=group:BUNDLE ", 15) == 0) { prefix = "a=group:BUNDLE "; prefix_len = 15; }
-        else if (strncmp(p, "a=mid:", 6) == 0)       { prefix = "a=mid:";          prefix_len = 6;  }
-        if (prefix) {
-            memcpy(out + o, prefix, prefix_len);  o += prefix_len;
-            memcpy(out + o, target_mid, target_len); o += target_len;
-            if (eol && eol > p && *(eol - 1) == '\r') out[o++] = '\r';
-            out[o++] = '\n';
-        } else if (strncmp(p, "a=setup:passive", 15) == 0) {
-            // setup:passive (server) → setup:active (client). Both 6 chars
-            // after "a=setup:". 6→6 — same total length.
-            memcpy(out + o, "a=setup:active", 14); o += 14;
-            // Copy whatever trails "passive" (CR/LF).
-            memcpy(out + o, p + 15, line_len - 15);
-            o += line_len - 15;
-        } else {
-            memcpy(out + o, p, line_len);
-            o += line_len;
-        }
-        if (!eol) break;
-        p = eol + 1;
-    }
-    out[o] = 0;
-    return out;
-}
-
 static void handle_offer(const char *sdp) {
     ESP_LOGI(TAG, "handle_offer: sdp len=%u", (unsigned)strlen(sdp));
     log_sdp_mlines("offer", sdp);
-    capture_offer_mid(sdp);
     if (s_peer) {
         stop_video_streaming();
         esp_peer_close(s_peer);
@@ -773,16 +662,15 @@ static void handle_offer(const char *sdp) {
     }
 
     // Inject the remote offer. esp_peer will gather candidates and emit
-    // the local SDP via on_peer_msg → send_answer_via_ble (async).
-    char *filtered = filter_sdp_for_chip(sdp);
-    const char *sdp_in = filtered ? filtered : sdp;
+    // the local SDP via on_peer_msg → send_answer_via_ble (async). The
+    // offer arrives pre-filtered from the dashboard (TCP candidates
+    // already stripped, MID pinned to "0").
     esp_peer_msg_t msg = {
         .type = ESP_PEER_MSG_TYPE_SDP,
-        .data = (uint8_t *)sdp_in,
-        .size = (int)strlen(sdp_in),
+        .data = (uint8_t *)sdp,
+        .size = (int)strlen(sdp),
     };
     rc = esp_peer_send_msg(s_peer, &msg);
-    free(filtered);
     if (rc != ESP_PEER_ERR_NONE) {
         ESP_LOGE(TAG, "esp_peer_send_msg(SDP) failed: %d", rc);
         send_ble_signal_error("send_msg failed");

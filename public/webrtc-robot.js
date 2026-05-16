@@ -122,7 +122,15 @@ async function openChannelViaBLE(robotId, label, signalChar, opts) {
       const merged = new Uint8Array(total);
       let off = 0;
       for (const c of chunks) { merged.set(c, off); off += c.length; }
-      answerResolve(new TextDecoder().decode(merged));
+      const raw = new TextDecoder().decode(merged);
+      // ESP32 quirk-rewrite: libpeer's binary blob always emits
+      // a=setup:passive even though we forced DTLS_SRTP_ROLE_CLIENT
+      // in dtls_srtp_init. Chrome needs the SDP setup attr to match
+      // what's actually on the wire, so flip it here before
+      // setRemoteDescription. Used to live in chip-side
+      // rewrite_answer_mid; moved to dashboard to keep all chip-quirk
+      // knowledge in one place (here) instead of split across firmware.
+      answerResolve(robotType === "esp32" ? answerSetupActive(raw) : raw);
     } else if (op === 0xFF) {
       signalChar.removeEventListener("characteristicvaluechanged", onSignal);
       const msg = new TextDecoder().decode(data.subarray(1));
@@ -134,9 +142,6 @@ async function openChannelViaBLE(robotId, label, signalChar, opts) {
   try {
     onStatus("Generating offer…");
     const offer = await pc.createOffer();
-    // No MID rewrite here — esp_peer always emits MID="0" in its answer,
-    // and chip-side webrtc_peer.c rewrites the answer's BUNDLE/mid back
-    // to the offer's MID before forwarding over BLE.
     await pc.setLocalDescription(offer);
 
     // Non-trickle ICE: wait for gathering to complete so the SDP carries
@@ -164,7 +169,15 @@ async function openChannelViaBLE(robotId, label, signalChar, opts) {
     }
 
     onStatus("Writing offer over BLE…");
-    const sdpBytes = new TextEncoder().encode(pc.localDescription.sdp);
+    // ESP32 quirk-rewrite: strip TCP candidates (chip is UDP-only) and
+    // pin MID to "0" so libpeer's hardcoded "0" in the answer matches
+    // without a chip-side rewrite. Both used to live in chip-side
+    // filter_sdp_for_chip + capture_offer_mid + rewrite_answer_mid;
+    // now centralized here.
+    const chipSdp = robotType === "esp32"
+      ? offerStripTcpAndPinMid(pc.localDescription.sdp)
+      : pc.localDescription.sdp;
+    const sdpBytes = new TextEncoder().encode(chipSdp);
     await sendChunked(signalChar, sdpBytes);
 
     onStatus("Waiting for answer…");
@@ -182,6 +195,37 @@ async function openChannelViaBLE(robotId, label, signalChar, opts) {
     signalChar.removeEventListener("characteristicvaluechanged", onSignal);
     throw err;
   }
+}
+
+// Strip a=candidate lines with transport=tcp (chip's UDP-only ICE
+// stack would reject TCP cands anyway, no point burning chunks shipping
+// them), and force MID="0" on both the BUNDLE group and m-line so
+// libpeer's hardcoded answer MID matches without a chip-side rewrite.
+// Returns the rewritten SDP. Chip-only; the Pi path takes raw SDP.
+function offerStripTcpAndPinMid(sdp) {
+  const lines = sdp.split(/\r?\n/);
+  const out = [];
+  let dropped = 0;
+  for (const line of lines) {
+    if (line.startsWith("a=candidate:")) {
+      // candidate-attribute fields: candidate:foundation component
+      // transport priority address port type ... — transport is field 3.
+      const parts = line.slice(12).split(" ");
+      if (parts[2] && parts[2].toLowerCase() === "tcp") { dropped++; continue; }
+    }
+    if (line.startsWith("a=group:BUNDLE ")) { out.push("a=group:BUNDLE 0"); continue; }
+    if (line.startsWith("a=mid:"))           { out.push("a=mid:0"); continue; }
+    out.push(line);
+  }
+  return out.join("\r\n");
+}
+
+// libpeer's binary blob emits setup:passive regardless of the chip's
+// actual on-wire role. The chip is DTLS_SRTP_ROLE_CLIENT (forced in
+// dtls_srtp_init), so the answer must say setup:active or Chrome's
+// DTLS state machine rejects with role mismatch.
+function answerSetupActive(sdp) {
+  return sdp.replace(/a=setup:passive/g, "a=setup:active");
 }
 
 async function sendChunked(char, bytes) {
