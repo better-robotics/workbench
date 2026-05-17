@@ -18,11 +18,19 @@ const SSH_KEY_STORE   = "better-robotics:ssh-pub";
 // (ECM ethernet + ACM serial) is configured via configfs at boot by
 // usb-gadget.service. Replaces the old `g_ether` one-function gadget.
 const CMDLINE_USB     = " modules-load=dwc2,libcomposite";
-const CONFIG_USB_MARKER = "# Better Robotics: USB gadget mode";
-const CONFIG_USB_LINES  = `\n${CONFIG_USB_MARKER}\n[all]\ndtoverlay=dwc2\n`;
+const CONFIG_USB_MARKER = "# Better Robotics: USB gadget mode + boot speedups";
+// Boot speedups stacked alongside the dtoverlay so they share the marker:
+//   disable_splash — skip the rainbow boot splash (~1 s saved)
+//   boot_delay=0  — skip the firmware's 1 s post-rainbow delay
+const CONFIG_USB_LINES  = `\n${CONFIG_USB_MARKER}\n[all]\ndtoverlay=dwc2\ndisable_splash=1\nboot_delay=0\n`;
+// systemd.run_success_action=none — when firstrun.sh exits successfully,
+// systemd does NOT reboot. firstrun itself triggers the transition into
+// multi-user.target from inside the script, skipping the ~25-30 s
+// firmware-POST + kernel-reload + service-restart cycle that the old
+// reboot-on-success convention cost on every first boot.
 const SYSTEMD_RUN =
   " systemd.run=/boot/firmware/firstrun.sh" +
-  " systemd.run_success_action=reboot" +
+  " systemd.run_success_action=none" +
   " systemd.unit=kernel-command-line.target";
 
 let dirHandle = null;
