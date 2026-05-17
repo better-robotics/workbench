@@ -207,10 +207,11 @@ const BOARDS = [
     chip: "esp32",
     label: "AI-Thinker ESP32-CAM",
     sub: "Camera + PSRAM. The headline board.",
-    // CAM-MB programmer ships with FT232 (0x403); some standalone setups
-    // use a CP210x adapter (0x10c4). Hints are best-effort — both boards
-    // can ship with either bridge depending on the seller.
-    usbHints: [0x0403, 0x10c4],
+    // AI-Thinker CAM-MB ships with FT232 (0x0403). Standalone setups
+    // using a CP210x adapter are rare enough that we don't list CP210x
+    // here — otherwise the hint is ambiguous with DevKitV1 (CP210x is
+    // canonical there) and the picker can't auto-select either way.
+    usbHints: [0x0403],
     webrtc: { capable: true, on: "aithinker_cam_webrtc", off: "aithinker_cam" },
   },
   {
@@ -218,7 +219,7 @@ const BOARDS = [
     chip: "esp32",
     label: "ESP32 DevKitV1 / WROOM-32",
     sub: "Classic ESP32 module. No camera, ~25 usable GPIOs.",
-    // CH340 is the typical cheap-clone bridge; better DevKits use CP210x.
+    // CH340 on cheap clones, CP210x on better DevKits.
     usbHints: [0x1a86, 0x10c4],
     webrtc: { capable: false },
   },
