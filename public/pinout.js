@@ -1379,10 +1379,21 @@ function esp32PinsFromFwInfo(entry) {
 
 // Camera-reserved set on AI-Thinker ESP32-CAM. These can't be reassigned
 // from the dashboard — they're physically wired to the camera socket.
-const ESP32_CAMERA_RESERVED = new Set([0, 5, 18, 19, 21, 22, 23, 25, 26, 27, 32, 34, 35, 36, 39]);
+// Empty on DevKit / C3 — those boards have no camera socket, so the
+// "camera-reserved" guard would false-positive flag perfectly-valid
+// motor / LED assignments.
+const ESP32_CAMERA_RESERVED_AITHINKER = new Set([0, 5, 18, 19, 21, 22, 23, 25, 26, 27, 32, 34, 35, 36, 39]);
+const EMPTY_SET = new Set();
+function cameraReservedFor(entry) {
+  const board = entry?.fwInfo?.board || "aithinker_cam";
+  return board === "aithinker_cam" ? ESP32_CAMERA_RESERVED_AITHINKER : EMPTY_SET;
+}
 
 function esp32PinNote(pin) {
-  if (ESP32_CAMERA_RESERVED.has(pin)) return "camera";
+  // Pin notes in the read-only view still reference AI-Thinker's camera
+  // pins — the most common board context. DevKit / C3 don't fall through
+  // here because the editor flagging path uses cameraReservedFor(entry).
+  if (ESP32_CAMERA_RESERVED_AITHINKER.has(pin)) return "camera";
   if (pin === 1 || pin === 3) return "UART (sacrifices serial)";
   if (pin === 2)  return "strap (must be HIGH/floating at boot)";
   if (pin === 12) return "strap (must be LOW at boot — most blue L298N boards work; some need a 10k pull-down)";
@@ -1457,9 +1468,10 @@ function renderEsp32Edit(entry) {
     (usedBy[c[k]] ||= []).push(k);
   }
   const dup = Object.entries(usedBy).filter(([, v]) => v.length > 1);
+  const cameraReserved = cameraReservedFor(entry);
   const cameraHits = ALL_KEYS.flatMap(k => {
     const p = c[k];
-    return (p >= 0 && ESP32_CAMERA_RESERVED.has(p)) ? [[k, p]] : [];
+    return (p >= 0 && cameraReserved.has(p)) ? [[k, p]] : [];
   });
 
   // GPIOs to flag inline (red border on input). Hard conflicts + camera
@@ -1480,8 +1492,11 @@ function renderEsp32Edit(entry) {
   const blocked = dup.length > 0 || cameraHits.length > 0;
   // Synthesize a transient entry-shaped object so renderEsp32BoardWithDriver
   // can derive claims from the in-progress edit (mirrors the Pi side's
-  // editConfig flow, which feeds claimsFromConfig).
+  // editConfig flow, which feeds claimsFromConfig). fwInfo carries over
+  // from the live entry so the board-aware layout dispatch keeps using
+  // the right pin map (DevKit / C3 / AI-Thinker) during edit.
   const previewEntry = {
+    fwInfo: entry?.fwInfo,
     capSchema: [
       ...(c.m_l_fwd >= 0 ? [{
         name: "motors",
