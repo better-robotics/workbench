@@ -10,6 +10,7 @@
 import { $ } from "./dom.js";
 import { sendCommand } from "./capabilities/runtime/command.js";
 import { uploadFile } from "./capabilities/ota.js";
+import { logFor } from "./log.js";
 
 // Map a per-step user answer (one of five buttons) to the bits that the
 // answer implies for that motor.
@@ -45,8 +46,15 @@ function deriveOrientation(a, b) {
   return { swap, invert_a, invert_b, consistent };
 }
 
+// Returns true if the pulse command actually reached the chip. The wizard
+// uses this to show a clear message instead of leaving the button dead
+// when the firmware predates the OPS char.
 async function pulseRaw(entry, motor) {
-  await sendCommand(entry, "ops", {
+  if (!entry?.opsChar) {
+    logFor(entry, "calibration: this firmware doesn't expose the ops channel — re-flash to use the wizard, or swap the forward/backward pin numbers manually");
+    return false;
+  }
+  return await sendCommand(entry, "ops", {
     op: "motors-pulse-raw",
     args: { motor, direction: "forward", duration_ms: 300, speed: 30 },
   });
@@ -75,10 +83,26 @@ export function beginMotorsCalibration({ entry, editConfig, onCancel, onDone }) 
 
     let body;
     if (state.step === "intro") {
+      // If opsChar isn't there, the firmware predates the calibration
+      // ops verbs. The wizard would click silently. Tell the user up front
+      // and point them at the manual workaround (swap forward/backward
+      // pin numbers in the pin editor — same effect for the
+      // common "wheels spin the wrong way" case).
+      const noOps = entry && !entry.opsChar;
+      const opsWarn = noOps ? `
+        <div class="cal-warn">
+          <strong>Calibration unavailable.</strong> This robot's firmware
+          doesn't expose the calibration ops channel — re-flash to the
+          latest firmware to use the wizard. In the meantime, if your
+          wheels spin the wrong way, swap forward ↔ backward pin numbers
+          in the editor (e.g., Left forward = 17 + Left backward = 16
+          instead of 16/17).
+        </div>` : "";
       body = `
+        ${opsWarn}
         <p>I'll pulse each motor for a moment so you can see which wheel it drives and in which direction. From your two answers, I'll figure out how your robot is wired — no math, no swapping wires.</p>
         <p class="meta">Make sure the robot is on a surface where the wheels can turn freely.</p>
-        <button class="sm" id="cal-start">Start calibration</button>
+        <button class="sm" id="cal-start"${noOps ? " disabled" : ""}>Start calibration</button>
       `;
     } else if (state.step === "pulse-a" || state.step === "pulse-b") {
       const side = state.step === "pulse-a" ? "a" : "b";
