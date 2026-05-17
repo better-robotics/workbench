@@ -37,10 +37,14 @@ const GPIO_TO_PHYS = new Map(
       .map(([phys, lbl]) => [parseInt(lbl.slice(4), 10), phys]),
 );
 
-// ESP32-CAM (AI-Thinker, OV3660 variants) header pins. Two 8-pin edges;
-// the chip has ~34 GPIOs but everything off-header is permanently wired
-// to camera, µSD, or PSRAM. Status: "free" | "sd-shared" | "reserved"
-// (bootstrap, UART program, camera XCLK). Notes surface on hover.
+// Per-board header pin layouts. Each board gets a `top` and `bot` row
+// (matching the AI-Thinker layout direction). The render path picks the
+// layout via entry.fwInfo.board; aithinker_cam is the legacy default
+// for any unknown board so older firmware that pre-dates the field
+// keeps working.
+//
+// Status vocabulary: "free" | "sd-shared" | "reserved" | "warn" |
+// "input-only" | "forbidden". Notes surface on hover.
 const ESP32_PINS_TOP = [
   { label: "IO4",  gpio: 4,  kind: "gpio", status: "sd-shared", note: "SD DATA1 + onboard flash LED on most AI-Thinker boards — free only if SD unmounted and LED unused" },
   { label: "IO2",  gpio: 2,  kind: "gpio", status: "sd-shared", note: "SD DATA0; also a bootstrap pin (must float high at boot)" },
@@ -64,6 +68,92 @@ const ESP32_PINS_BOT = [
   { label: "IO16", gpio: 16, kind: "gpio", status: "free",     note: "Free on ESP32 modules without PSRAM. WROVER modules with PSRAM use IO16 internally — check your module first." },
   { label: "3V3",  kind: "3v3" },
 ];
+
+// ESP32 DevKitV1 (WROOM-32, 30-pin DOIT/LOLIN-style). USB at the bottom;
+// top of the SVG is the top of the board. Pins 6–11 (SPI flash) aren't
+// exposed on the header on 30-pin variants — listed as forbidden anyway
+// because the firmware's PINS_FORBIDDEN set blocks them.
+const DEVKIT_PINS_TOP = [
+  { label: "3V3",  kind: "3v3" },
+  { label: "EN",   kind: "reserved", note: "Chip enable / reset. Tied to RTS via the USB bridge; don't repurpose." },
+  { label: "IO36", gpio: 36, kind: "gpio", status: "input-only", note: "GPIO36 (VP, ADC1_0) — input-only, no internal pull-up/down." },
+  { label: "IO39", gpio: 39, kind: "gpio", status: "input-only", note: "GPIO39 (VN, ADC1_3) — input-only." },
+  { label: "IO34", gpio: 34, kind: "gpio", status: "input-only", note: "GPIO34 — input-only." },
+  { label: "IO35", gpio: 35, kind: "gpio", status: "input-only", note: "GPIO35 — input-only." },
+  { label: "IO32", gpio: 32, kind: "gpio", status: "free" },
+  { label: "IO33", gpio: 33, kind: "gpio", status: "free" },
+  { label: "IO25", gpio: 25, kind: "gpio", status: "free" },
+  { label: "IO26", gpio: 26, kind: "gpio", status: "free" },
+  { label: "IO27", gpio: 27, kind: "gpio", status: "free" },
+  { label: "IO14", gpio: 14, kind: "gpio", status: "free" },
+  { label: "IO12", gpio: 12, kind: "gpio", status: "warn", note: "Strapping pin (MTDI) — must be LOW at reset for 3.3V flash. Safe as GPIO after boot; avoid hard pull-up." },
+  { label: "GND",  kind: "gnd" },
+  { label: "IO13", gpio: 13, kind: "gpio", status: "free" },
+];
+const DEVKIT_PINS_BOT = [
+  { label: "VIN",  kind: "5v",   note: "5V input from USB or external supply." },
+  { label: "GND",  kind: "gnd" },
+  { label: "IO23", gpio: 23, kind: "gpio", status: "free" },
+  { label: "IO22", gpio: 22, kind: "gpio", status: "free" },
+  { label: "TX0",  gpio: 1,  kind: "gpio", status: "reserved", note: "GPIO1 — UART0 TX. Used for USB-serial programming and console logs." },
+  { label: "RX0",  gpio: 3,  kind: "gpio", status: "reserved", note: "GPIO3 — UART0 RX. Reassigning loses the serial console." },
+  { label: "IO21", gpio: 21, kind: "gpio", status: "free" },
+  { label: "GND",  kind: "gnd" },
+  { label: "IO19", gpio: 19, kind: "gpio", status: "free" },
+  { label: "IO18", gpio: 18, kind: "gpio", status: "free" },
+  { label: "IO5",  gpio: 5,  kind: "gpio", status: "free" },
+  { label: "IO17", gpio: 17, kind: "gpio", status: "free" },
+  { label: "IO16", gpio: 16, kind: "gpio", status: "free" },
+  { label: "IO4",  gpio: 4,  kind: "gpio", status: "free" },
+  { label: "IO0",  gpio: 0,  kind: "gpio", status: "warn", note: "BOOT button + strapping pin (hold LOW at reset to enter download mode). Safe as GPIO after boot; avoid asserting LOW during reset." },
+];
+
+// ESP32-C3 SuperMini (RISC-V, 24-pin board). Native USB on GPIO 18/19,
+// onboard LED on GPIO 8 (also strapping). Flash pins 11–17 are
+// internal-flash on the FH4 package — not on the header at all but
+// listed as forbidden in firmware for safety.
+const C3_PINS_TOP = [
+  { label: "5V",   kind: "5v" },
+  { label: "GND",  kind: "gnd" },
+  { label: "3V3",  kind: "3v3" },
+  { label: "IO4",  gpio: 4,  kind: "gpio", status: "free" },
+  { label: "IO3",  gpio: 3,  kind: "gpio", status: "free" },
+  { label: "IO2",  gpio: 2,  kind: "gpio", status: "warn", note: "Strapping pin (boot-mode select). Safe as GPIO after boot." },
+  { label: "IO1",  gpio: 1,  kind: "gpio", status: "free" },
+  { label: "IO0",  gpio: 0,  kind: "gpio", status: "free" },
+];
+const C3_PINS_BOT = [
+  { label: "IO5",  gpio: 5,  kind: "gpio", status: "free" },
+  { label: "IO6",  gpio: 6,  kind: "gpio", status: "free" },
+  { label: "IO7",  gpio: 7,  kind: "gpio", status: "free" },
+  { label: "IO8",  gpio: 8,  kind: "gpio", status: "warn", note: "Onboard LED + strapping pin. Used as LED by default; safe as GPIO after boot." },
+  { label: "IO9",  gpio: 9,  kind: "gpio", status: "warn", note: "BOOT button + strapping. Driving LOW at reset forces download mode." },
+  { label: "IO10", gpio: 10, kind: "gpio", status: "free" },
+  { label: "IO20", gpio: 20, kind: "gpio", status: "reserved", note: "UART0 TX. Reassigning loses the serial console (USB-CDC console stays available)." },
+  { label: "IO21", gpio: 21, kind: "gpio", status: "reserved", note: "UART0 RX. Reassigning loses the serial console (USB-CDC console stays available)." },
+];
+
+const BOARD_PINS = {
+  aithinker_cam: { top: ESP32_PINS_TOP, bot: ESP32_PINS_BOT, label: "ESP32 · camera · µSD" },
+  devkit:        { top: DEVKIT_PINS_TOP, bot: DEVKIT_PINS_BOT, label: "ESP32 DevKitV1 · WROOM-32" },
+  c3_supermini:  { top: C3_PINS_TOP,    bot: C3_PINS_BOT,    label: "ESP32-C3 SuperMini" },
+};
+
+function boardPins(entry) {
+  const board = entry?.fwInfo?.board || "aithinker_cam";
+  return BOARD_PINS[board] || BOARD_PINS.aithinker_cam;
+}
+
+function esp32FooterNote(entry) {
+  const board = entry?.fwInfo?.board || "aithinker_cam";
+  if (board === "aithinker_cam")
+    return "Camera pins are fixed by the AI-Thinker board layout (15 GPIOs) and can't be reassigned.";
+  if (board === "devkit")
+    return "DevKitV1 exposes ~25 usable GPIOs. Strapping pins (IO0, IO12) work fine as outputs after boot; SPI flash pins (IO6–IO11) are forbidden.";
+  if (board === "c3_supermini")
+    return "C3 SuperMini has ~11 usable GPIOs. IO8 doubles as the onboard LED, IO9 as the BOOT button; IO18–IO21 are the USB-CDC and UART0 console lines.";
+  return "";
+}
 
 // ESP32-CAM canvas layout — top-to-bottom matches signal flow:
 //   encoders (sensors / inputs)
@@ -101,30 +191,43 @@ const ESP_TERMINAL_XS  = [50, 134, 218, 302, 386, 470];
 const ESP_TERM_CY      = ESP_DRIVER_Y + 85;                                  // 480
 const ESP_TOTAL_H      = ESP_DRIVER_Y + ESP_DRIVER_H + 40;                   // 610
 
-// GPIO → (cx, cy) lookup for routing wires to ESP32 pins. Only labeled
-// GPIO pins make it in; power/ground pins are looked up separately by
-// kind when an encoder needs a 3V3 / GND destination.
-const ESP_GPIO_TO_POS = new Map();
-ESP32_PINS_TOP.forEach((p, i) => {
-  if (p.gpio != null) ESP_GPIO_TO_POS.set(p.gpio, {
-    cx: ESP_FIRST_PIN_X + i * ESP_PIN_SPACING,
-    cy: ESP_TOP_ROW_Y,
-    row: "top",
+// GPIO → (cx, cy) lookup for routing wires to ESP32 pins. Rebuilt per
+// render via gpioToPosMap(layout) since pin arrays differ across boards.
+// Pin spacing tightens automatically when there are more pins per row so
+// the SVG stays within ESP_W. Only labeled GPIO pins make it in;
+// power/ground pins are looked up separately by kind.
+function pinSpacingForLayout(layout) {
+  const n = Math.max(layout.top.length, layout.bot.length);
+  // Available width = ESP_W minus 2× ESP_FIRST_PIN_X margin. Pin spacing
+  // shrinks for wider rows so the rightmost pin still fits.
+  const usable = ESP_W - 2 * ESP_FIRST_PIN_X;
+  return n > 1 ? usable / (n - 1) : ESP_PIN_SPACING;
+}
+function gpioToPosMap(layout) {
+  const spacing = pinSpacingForLayout(layout);
+  const m = new Map();
+  layout.top.forEach((p, i) => {
+    if (p.gpio != null) m.set(p.gpio, {
+      cx: ESP_FIRST_PIN_X + i * spacing,
+      cy: ESP_TOP_ROW_Y,
+      row: "top",
+    });
   });
-});
-ESP32_PINS_BOT.forEach((p, i) => {
-  if (p.gpio != null) ESP_GPIO_TO_POS.set(p.gpio, {
-    cx: ESP_FIRST_PIN_X + i * ESP_PIN_SPACING,
-    cy: ESP_BOT_ROW_Y,
-    row: "bot",
+  layout.bot.forEach((p, i) => {
+    if (p.gpio != null) m.set(p.gpio, {
+      cx: ESP_FIRST_PIN_X + i * spacing,
+      cy: ESP_BOT_ROW_Y,
+      row: "bot",
+    });
   });
-});
+  return m;
+}
 
 // Power/ground destinations for encoder VCC + GND fan-in on ESP32.
-function espPinPosByKind(rowArr, rowY, kind) {
+function espPinPosByKind(rowArr, rowY, kind, spacing) {
   for (let i = 0; i < rowArr.length; i++) {
     if (rowArr[i].kind === kind) {
-      return { cx: ESP_FIRST_PIN_X + i * ESP_PIN_SPACING, cy: rowY };
+      return { cx: ESP_FIRST_PIN_X + i * spacing, cy: rowY };
     }
   }
   return null;
@@ -566,12 +669,14 @@ function espPinFragment(pin, cx, cy, labelAbove, claimed) {
   `;
 }
 
-function renderEsp32Board() {
-  const topPins = ESP32_PINS_TOP.map((p, i) =>
-    espPinFragment(p, ESP_FIRST_PIN_X + i * ESP_PIN_SPACING, ESP_TOP_ROW_Y, true),
+function renderEsp32Board(entry) {
+  const layout = boardPins(entry);
+  const spacing = pinSpacingForLayout(layout);
+  const topPins = layout.top.map((p, i) =>
+    espPinFragment(p, ESP_FIRST_PIN_X + i * spacing, ESP_TOP_ROW_Y, true),
   ).join("");
-  const botPins = ESP32_PINS_BOT.map((p, i) =>
-    espPinFragment(p, ESP_FIRST_PIN_X + i * ESP_PIN_SPACING, ESP_BOT_ROW_Y, false),
+  const botPins = layout.bot.map((p, i) =>
+    espPinFragment(p, ESP_FIRST_PIN_X + i * spacing, ESP_BOT_ROW_Y, false),
   ).join("");
   const pcbY = ESP_TOP_ROW_Y + 18;
   const pcbH = ESP_BOT_ROW_Y - ESP_TOP_ROW_Y - 36;
@@ -579,9 +684,9 @@ function renderEsp32Board() {
     <div class="pinout-svg-wrap esp32">
       <svg class="pinout-svg esp32" viewBox="0 0 ${ESP_W} ${ESP_H}" preserveAspectRatio="xMidYMid meet"
            xmlns="http://www.w3.org/2000/svg" role="img"
-           aria-label="ESP32-CAM header pins and GPIO availability">
+           aria-label="ESP32 header pins and GPIO availability">
         <rect class="esp-pcb" x="20" y="${pcbY}" width="${ESP_W - 40}" height="${pcbH}" rx="6"/>
-        <text class="esp-chip-label" x="${ESP_W / 2}" y="${(ESP_TOP_ROW_Y + ESP_BOT_ROW_Y) / 2}" text-anchor="middle" dominant-baseline="middle">ESP32 · camera · µSD</text>
+        <text class="esp-chip-label" x="${ESP_W / 2}" y="${(ESP_TOP_ROW_Y + ESP_BOT_ROW_Y) / 2}" text-anchor="middle" dominant-baseline="middle">${escapeHtml(layout.label)}</text>
         ${topPins}
         ${botPins}
       </svg>
@@ -589,14 +694,21 @@ function renderEsp32Board() {
   `;
 }
 
-// ESP32-side encoder VCC + GND destinations. With encoders ABOVE the
-// ESP32 board, the closest power/ground pin is the top-row GND (right
-// end of the top row, x=386); VCC still has to reach the bottom-row
-// 3V3 (the only 3V3 on the AI-Thinker board) and crosses the chip
-// area faintly. OUT wires terminate at whichever GPIO the user picks.
-const ESP_VCC_POS       = espPinPosByKind(ESP32_PINS_BOT, ESP_BOT_ROW_Y, "3v3");
-const ESP_GND_LEFT_POS  = espPinPosByKind(ESP32_PINS_TOP, ESP_TOP_ROW_Y, "gnd");
-const ESP_GND_RIGHT_POS = espPinPosByKind(ESP32_PINS_TOP, ESP_TOP_ROW_Y, "gnd");
+// Encoder VCC + GND destinations are derived per-board from the active
+// layout (boards differ in where 3V3 / GND pins sit on the header).
+// AI-Thinker: top-row GND, bot-row 3V3. DevKit/C3 mirror or differ;
+// boardKindPositions() returns the first-matching position per kind.
+function boardKindPositions(layout) {
+  const spacing = pinSpacingForLayout(layout);
+  return {
+    vcc:      espPinPosByKind(layout.bot, ESP_BOT_ROW_Y, "3v3", spacing)
+           || espPinPosByKind(layout.top, ESP_TOP_ROW_Y, "3v3", spacing),
+    gndLeft:  espPinPosByKind(layout.top, ESP_TOP_ROW_Y, "gnd", spacing)
+           || espPinPosByKind(layout.bot, ESP_BOT_ROW_Y, "gnd", spacing),
+    gndRight: espPinPosByKind(layout.top, ESP_TOP_ROW_Y, "gnd", spacing)
+           || espPinPosByKind(layout.bot, ESP_BOT_ROW_Y, "gnd", spacing),
+  };
+}
 
 // Maps the motors_pins.* paths the fw advertises into L298N terminal
 // roles. Same mapping as the Pi side because the schema is shared.
@@ -623,13 +735,13 @@ function esp32ClaimsFromEntry(entry) {
   return claims;
 }
 
-function espMotorWiresFragment(claims) {
+function espMotorWiresFragment(claims, gpioMap) {
   const wires = [];
   for (const [gpioStr, info] of Object.entries(claims)) {
     if (info?.cap !== "motors") continue;
     const term = ESP_ROLE_TO_TERMINAL[info.role];
     if (!term) continue;
-    const pos = ESP_GPIO_TO_POS.get(parseInt(gpioStr, 10));
+    const pos = gpioMap.get(parseInt(gpioStr, 10));
     if (!pos) continue;
     const termIdx = ["ena", "in1", "in2", "in3", "in4", "enb"].indexOf(term);
     const termCx = ESP_TERMINAL_XS[termIdx];
@@ -681,12 +793,13 @@ function espEncoderModuleFragment(side, cx, opts) {
   `;
 }
 
-function espEncoderWiresFragment(side, claims) {
+function espEncoderWiresFragment(side, claims, gpioMap, kindPos) {
   const cx   = side === "left" ? ESP_ENC_LEFT_CX : ESP_ENC_RIGHT_CX;
   const vccX = side === "left" ? cx + ESP_ENC_PIN_DX : cx - ESP_ENC_PIN_DX;
   const outX = cx;
   const gndX = side === "left" ? cx - ESP_ENC_PIN_DX : cx + ESP_ENC_PIN_DX;
-  const gndPos = side === "left" ? ESP_GND_LEFT_POS : ESP_GND_RIGHT_POS;
+  const gndPos = side === "left" ? kindPos.gndLeft : kindPos.gndRight;
+  const vccPos = kindPos.vcc;
   const out = [];
 
   // Encoder pin BOTTOMS face DOWN toward the ESP32 (encoders sit above
@@ -701,15 +814,15 @@ function espEncoderWiresFragment(side, claims) {
   const encY = ESP_ENC_DOT_Y + ESP_ENC_DOT_R;             // bottom of encoder dot
   const targetY = (pos) => pos.cy - ESP_PIN_R;            // top of ESP32 pin dot
 
-  if (ESP_VCC_POS) out.push(path(vccX, encY, ESP_VCC_POS.cx, targetY(ESP_VCC_POS), "wire-vcc"));
-  if (gndPos)      out.push(path(gndX, encY, gndPos.cx,      targetY(gndPos),      "wire-gnd"));
+  if (vccPos) out.push(path(vccX, encY, vccPos.cx, targetY(vccPos), "wire-vcc"));
+  if (gndPos) out.push(path(gndX, encY, gndPos.cx, targetY(gndPos), "wire-gnd"));
 
   let outGpio = null;
   for (const [g, info] of Object.entries(claims)) {
     if (info?.cap === "encoders" && info?.role === side) { outGpio = parseInt(g, 10); break; }
   }
   if (outGpio != null) {
-    const pos = ESP_GPIO_TO_POS.get(outGpio);
+    const pos = gpioMap.get(outGpio);
     if (pos) out.push(path(outX, encY, pos.cx, targetY(pos), "wire-out", `encoders.${side}`));
   }
   return out.join("");
@@ -728,15 +841,19 @@ const ESP_TERMINAL_TO_KEY = {
 
 function renderEsp32BoardWithDriver(entry, opts = {}) {
   const { editable = false, editConfig = null, flagged = new Set() } = opts;
+  const layout = boardPins(entry);
+  const spacing = pinSpacingForLayout(layout);
+  const gpioMap = gpioToPosMap(layout);
+  const kindPos = boardKindPositions(layout);
   const claims = esp32ClaimsFromEntry(entry);
   // Mark a top/bot pin as "claimed" if any cap currently uses its GPIO
   // — gives the same blue-ring affordance the Pi pin dots have.
   const renderRow = (arr, y, labelAbove) => arr.map((p, i) =>
-    espPinFragment(p, ESP_FIRST_PIN_X + i * ESP_PIN_SPACING, y, labelAbove,
+    espPinFragment(p, ESP_FIRST_PIN_X + i * spacing, y, labelAbove,
                    p.gpio != null && claims[p.gpio] != null),
   ).join("");
-  const topPins = renderRow(ESP32_PINS_TOP, ESP_TOP_ROW_Y, true);
-  const botPins = renderRow(ESP32_PINS_BOT, ESP_BOT_ROW_Y, false);
+  const topPins = renderRow(layout.top, ESP_TOP_ROW_Y, true);
+  const botPins = renderRow(layout.bot, ESP_BOT_ROW_Y, false);
   const pcbY = ESP_TOP_ROW_Y + 18;
   const pcbH = ESP_BOT_ROW_Y - ESP_TOP_ROW_Y - 36;
 
@@ -774,10 +891,10 @@ function renderEsp32BoardWithDriver(entry, opts = {}) {
     ${espEncoderModuleFragment("right", ESP_ENC_RIGHT_CX, { editable, editConfig, flagged })}
   `;
   const encoderWires = `
-    ${espEncoderWiresFragment("left",  claims)}
-    ${espEncoderWiresFragment("right", claims)}
+    ${espEncoderWiresFragment("left",  claims, gpioMap, kindPos)}
+    ${espEncoderWiresFragment("right", claims, gpioMap, kindPos)}
   `;
-  const motorWires = espMotorWiresFragment(claims);
+  const motorWires = espMotorWiresFragment(claims, gpioMap);
 
   const supplyNote = `
     <text class="driver-supply" x="${ESP_W / 2}" y="${ESP_TOTAL_H - 18}" text-anchor="middle">
@@ -791,7 +908,7 @@ function renderEsp32BoardWithDriver(entry, opts = {}) {
            xmlns="http://www.w3.org/2000/svg" role="img"
            aria-label="ESP32-CAM header with encoder modules and H-bridge driver wiring">
         <rect class="esp-pcb" x="20" y="${pcbY}" width="${ESP_W - 40}" height="${pcbH}" rx="6"/>
-        <text class="esp-chip-label" x="${ESP_W / 2}" y="${(ESP_TOP_ROW_Y + ESP_BOT_ROW_Y) / 2}" text-anchor="middle" dominant-baseline="middle">ESP32 · camera · µSD</text>
+        <text class="esp-chip-label" x="${ESP_W / 2}" y="${(ESP_TOP_ROW_Y + ESP_BOT_ROW_Y) / 2}" text-anchor="middle" dominant-baseline="middle">${escapeHtml(layout.label)}</text>
         ${topPins}
         ${botPins}
         ${encoderModules}
@@ -1306,7 +1423,7 @@ function renderEsp32View(entry) {
       </div>
     </div>
     <div class="row" style="margin-top: 12px;">
-      <div class="meta">Camera pins are fixed by the AI-Thinker board layout (15 GPIOs) and can't be reassigned.</div>
+      <div class="meta">${esp32FooterNote(entry)}</div>
       ${editBtn}
     </div>
   `;
