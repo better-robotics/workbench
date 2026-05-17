@@ -37,14 +37,14 @@ void pin_config_load(pin_config_t *out) {
 #elif CONFIG_BR_BOARD_DEVKIT
     // DevKitV1: onboard LED on GPIO 2, no flash LED. Motors picked from
     // four general-purpose pins on the left header edge. Numerical order
-    // 17 → 16 → 18 → 19 matches the silkscreen's physical top-to-bottom
-    // layout (TX2 = IO17 sits one pin above RX2 = IO16; IO5 is between
-    // RX2 and IO18 and is skipped), so the pinout dashboard's IN1..IN4
+    // 16 → 17 → 18 → 19 matches the silkscreen's physical top-to-bottom
+    // layout (RX2 = IO16 sits one pin above TX2 = IO17, then IO5 is
+    // skipped, then IO18, IO19), so the pinout dashboard's IN1..IN4
     // wires run parallel.
     out->led         = 2;
     out->flash       = -1;
-    out->motor_l_fwd = 17;
-    out->motor_l_bwd = 16;
+    out->motor_l_fwd = 16;
+    out->motor_l_bwd = 17;
     out->motor_r_fwd = 18;
     out->motor_r_bwd = 19;
 #elif CONFIG_BR_BOARD_C3_SUPERMINI

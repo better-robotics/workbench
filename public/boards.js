@@ -68,22 +68,23 @@ const DEVKIT_PINS_TOP = [
   { label: "VN",   gpio: 39, kind: "gpio", status: "input-only", note: "GPIO39 (VN, ADC1_3) — input-only." },
   { label: "VP",   gpio: 36, kind: "gpio", status: "input-only", note: "GPIO36 (VP, ADC1_0) — input-only." },
 ];
+// Order matches the DOIT V1 30-pin USB-C silkscreen exactly. Read
+// top-to-bottom on the physical board (USB at top): 3V3, GND, IO15,
+// IO2, IO4, RX2, TX2, IO5, IO18, IO19, IO21, RX0, TX0, IO22, IO23.
+// Cross-checked against a user's physical sample; earlier guesses
+// missed IO21 entirely and had RX2/TX2 transposed.
 const DEVKIT_PINS_BOT = [
   { label: "3V3",  kind: "3v3" },
   { label: "GND",  kind: "gnd" },
   { label: "IO15", gpio: 15, kind: "gpio", status: "warn", note: "Strapping pin (MTDO) — pulling LOW at reset silences boot messages on UART0. Safe as GPIO after boot." },
   { label: "IO2",  gpio: 2,  kind: "gpio", status: "warn", note: "Strapping pin + onboard blue LED. Must not be HIGH at boot when the internal pull-down is disabled; usable as output safely once running." },
   { label: "IO4",  gpio: 4,  kind: "gpio", status: "free" },
-  // TX2 (IO17) sits before RX2 (IO16) on the standard DOIT 30-pin DevKitV1
-  // header — i.e., the silkscreen-TX2 pin is closer to IO4 than silkscreen-RX2.
-  // Confirmed against a user's USB-C / CP210x variant; if a future clone
-  // mirrors them, add a board-specific entry to BOARDS instead of swapping
-  // these in place.
-  { label: "TX2",  gpio: 17, kind: "gpio", status: "free", note: "GPIO17, default UART2 TX. Silkscreen TX2." },
   { label: "RX2",  gpio: 16, kind: "gpio", status: "free", note: "GPIO16, default UART2 RX. Silkscreen RX2." },
+  { label: "TX2",  gpio: 17, kind: "gpio", status: "free", note: "GPIO17, default UART2 TX. Silkscreen TX2." },
   { label: "IO5",  gpio: 5,  kind: "gpio", status: "free" },
   { label: "IO18", gpio: 18, kind: "gpio", status: "free" },
   { label: "IO19", gpio: 19, kind: "gpio", status: "free" },
+  { label: "IO21", gpio: 21, kind: "gpio", status: "free" },
   { label: "RX0",  gpio: 3,  kind: "gpio", status: "reserved", note: "GPIO3 — UART0 RX. Used for USB-serial programming and console logs." },
   { label: "TX0",  gpio: 1,  kind: "gpio", status: "reserved", note: "GPIO1 — UART0 TX. Reassigning loses the serial console." },
   { label: "IO22", gpio: 22, kind: "gpio", status: "free" },
