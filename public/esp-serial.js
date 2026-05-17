@@ -44,8 +44,8 @@ function isEspPort(port) {
     return ESP_FILTERS.some(f => f.usbVendorId === usbVendorId);
   } catch { return false; }
 }
-function pickKnownEsp(ports) {
-  return ports.find(isEspPort) || null;
+function knownEspPorts(ports) {
+  return ports.filter(isEspPort);
 }
 async function pickOrRequestPort({ unfiltered = false, forcePrompt = false } = {}) {
   if (unfiltered) {
@@ -60,15 +60,17 @@ async function pickOrRequestPort({ unfiltered = false, forcePrompt = false } = {
     }
     return port;
   }
-  // forcePrompt skips the getPorts() shortcut. Install uses this so a
-  // user with two ESPs plugged in can pick which one to flash — the
-  // shortcut otherwise auto-returns whichever was authorized first,
-  // and the second board is never visible.
+  // Multi-board awareness: skip the shortcut when there are two or more
+  // authorized ESP ports — Chrome's chooser shows them all so the user
+  // can pick which board to connect/install on. Exactly one authorized
+  // port keeps the auto-reconnect ergonomics (the common single-board
+  // case). forcePrompt forces the chooser regardless (install always
+  // uses it; the console keeps the count-based shortcut).
   if (!forcePrompt) {
     let known = [];
     try { known = await navigator.serial.getPorts(); } catch {}
-    const picked = pickKnownEsp(known);
-    if (picked) return picked;
+    const espPorts = knownEspPorts(known);
+    if (espPorts.length === 1) return espPorts[0];
   }
   return await navigator.serial.requestPort({ filters: ESP_FILTERS });
 }
@@ -164,7 +166,26 @@ async function connect({ unfiltered = false } = {}) {
   })();
 
   $("esp-serial-connect").textContent = "Disconnect";
-  setStatus("connected");
+  // Show which board this port belongs to in the status row — when two
+  // ESPs are plugged in, the operator otherwise can't tell which console
+  // they're looking at. VID/PID → board hint via the BOARDS catalog;
+  // fall back to the bridge name when a single VID maps to multiple
+  // boards (CP210x is on DevKit but could also be on a standalone CAM).
+  const info = (() => { try { return _port.getInfo(); } catch { return {}; } })();
+  setStatus("connected", portLabel(info));
+}
+
+function portLabel(info) {
+  const vid = info.usbVendorId;
+  if (vid === undefined) return "";
+  const matches = BOARDS.filter(b => b.usbHints.includes(vid));
+  const bridge = vid === 0x0403 ? "FT232"
+              : vid === 0x10c4 ? "CP210x"
+              : vid === 0x1a86 ? "CH340"
+              : vid === 0x303a ? "USB-CDC"
+              : `vid=0x${vid.toString(16).padStart(4, "0")}`;
+  if (matches.length === 1) return `${matches[0].label} (${bridge})`;
+  return bridge;
 }
 
 async function disconnect() {
