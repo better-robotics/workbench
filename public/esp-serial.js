@@ -3,6 +3,7 @@
 import { $ } from "./dom.js";
 import { log } from "./log.js";
 import { mountTerminal } from "./xterm-host.js";
+import { BOARDS, boardsForChip } from "./boards.js";
 
 let _wired = false;
 let _port = null;
@@ -197,41 +198,10 @@ async function disconnect() {
   setStatus("");
 }
 
-// Catalog drives the picker UI. Each entry maps a board to the chip it
-// runs on, the USB VID/PID hint that suggests it (best-effort — both
-// bridges ship with both boards depending on batch), and the resolver
-// for the WebRTC toggle (camera-capable boards have two bundle variants).
-const BOARDS = [
-  {
-    id: "aithinker_cam",
-    chip: "esp32",
-    label: "AI-Thinker ESP32-CAM",
-    sub: "Camera + PSRAM. The headline board.",
-    // AI-Thinker CAM-MB ships with FT232 (0x0403). Standalone setups
-    // using a CP210x adapter are rare enough that we don't list CP210x
-    // here — otherwise the hint is ambiguous with DevKitV1 (CP210x is
-    // canonical there) and the picker can't auto-select either way.
-    usbHints: [0x0403],
-    webrtc: { capable: true, on: "aithinker_cam_webrtc", off: "aithinker_cam" },
-  },
-  {
-    id: "devkit",
-    chip: "esp32",
-    label: "ESP32 DevKitV1 / WROOM-32",
-    sub: "Classic ESP32 module. No camera, ~25 usable GPIOs.",
-    // CH340 on cheap clones, CP210x on better DevKits.
-    usbHints: [0x1a86, 0x10c4],
-    webrtc: { capable: false },
-  },
-  {
-    id: "c3_supermini",
-    chip: "esp32c3",
-    label: "ESP32-C3 SuperMini",
-    sub: "RISC-V single core, native USB. No camera.",
-    usbHints: [0x303a],  // Espressif native USB-CDC-JTAG
-    webrtc: { capable: false },
-  },
-];
+// BOARDS catalog is imported from boards.js — single source of truth
+// shared with pinout.js. The picker UI here consumes id, chip, label,
+// sub, usbHints, webrtc; pinout.js consumes pinsTop/pinsBot/pcbLabel/
+// footerNote/cameraReservedGpios from the same entries.
 
 const LAST_BOARD_KEY = "esp-flash:last-board";
 
@@ -343,7 +313,7 @@ function pickBoardInDialog({ chip, chipName, portInfo = {} }) {
   return new Promise((resolve) => {
     _pickerResolve = (val) => { _pickerResolve = null; resolve(val); };
 
-    const compatible = BOARDS.filter(b => b.chip === chip);
+    const compatible = boardsForChip(chip);
     setFlashStatus(`Detected: ${chipName || chip}`);
     setFlashSubtitle(chipName || chip);
 

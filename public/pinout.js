@@ -5,6 +5,7 @@ import { onOpsResponse } from "./ops-response.js";
 import { uploadFile } from "./capabilities/ota.js";
 import { SERVICE_UUID, PIN_CONFIG_CHAR_UUID, encodeJson } from "./ble.js";
 import { beginMotorsCalibration } from "./motors-calibrate.js";
+import { boardById, cameraReservedSet } from "./boards.js";
 
 // BCM GPIO is what config + firmware use; physical pin is what the header
 // silkscreen shows. Users wire against physical, so lead with those.
@@ -37,122 +38,16 @@ const GPIO_TO_PHYS = new Map(
       .map(([phys, lbl]) => [parseInt(lbl.slice(4), 10), phys]),
 );
 
-// Per-board header pin layouts. Each board gets a `top` and `bot` row
-// (matching the AI-Thinker layout direction). The render path picks the
-// layout via entry.fwInfo.board; aithinker_cam is the legacy default
-// for any unknown board so older firmware that pre-dates the field
-// keeps working.
-//
-// Status vocabulary: "free" | "sd-shared" | "reserved" | "warn" |
-// "input-only" | "forbidden". Notes surface on hover.
-const ESP32_PINS_TOP = [
-  { label: "IO4",  gpio: 4,  kind: "gpio", status: "sd-shared", note: "SD DATA1 + onboard flash LED on most AI-Thinker boards — free only if SD unmounted and LED unused" },
-  { label: "IO2",  gpio: 2,  kind: "gpio", status: "sd-shared", note: "SD DATA0; also a bootstrap pin (must float high at boot)" },
-  { label: "IO14", gpio: 14, kind: "gpio", status: "sd-shared", note: "SD CLK — free only if µSD is unused" },
-  { label: "IO15", gpio: 15, kind: "gpio", status: "sd-shared", note: "SD CMD; also bootstrap — free only if µSD is unused" },
-  { label: "IO13", gpio: 13, kind: "gpio", status: "sd-shared", note: "SD DATA3 — free only if µSD is unused" },
-  { label: "IO12", gpio: 12, kind: "gpio", status: "sd-shared", note: "SD DATA2; bootstrap pin (must be LOW at boot or flash voltage mis-detects) — use only with pull-down" },
-  { label: "GND",  kind: "gnd" },
-  { label: "5V",   kind: "5v" },
-];
-// Order mirrors top row's spatial layout: header positions are across
-// from each other on the PCB (5V ↔ 3V3, IO4 ↔ GND); reversing the bottom
-// in header-order matches what the user sees on the board.
-const ESP32_PINS_BOT = [
-  { label: "GND",  kind: "gnd" },
-  { label: "U0T",  gpio: 1,  kind: "gpio", status: "reserved", note: "GPIO1 — UART0 TX, used for USB-serial programming. Usable as GPIO only if you give up serial." },
-  { label: "U0R",  gpio: 3,  kind: "gpio", status: "reserved", note: "GPIO3 — UART0 RX, used for USB-serial programming. Usable as GPIO only if you give up serial." },
-  { label: "VCC",  kind: "5v",  note: "Jumper-selectable 3V3 or 5V on some boards" },
-  { label: "GND",  kind: "gnd" },
-  { label: "IO0",  gpio: 0,  kind: "gpio", status: "reserved", note: "Camera XCLK + boot-mode strap (hold LOW to enter flash mode). Do not reassign." },
-  { label: "IO16", gpio: 16, kind: "gpio", status: "free",     note: "Free on ESP32 modules without PSRAM. WROVER modules with PSRAM use IO16 internally — check your module first." },
-  { label: "3V3",  kind: "3v3" },
-];
-
-// ESP32 DevKitV1 (WROOM-32, 30-pin DOIT/LOLIN-style). USB at the bottom;
-// top of the SVG is the top of the board. Pins 6–11 (SPI flash) aren't
-// exposed on the header on 30-pin variants — listed as forbidden anyway
-// because the firmware's PINS_FORBIDDEN set blocks them.
-const DEVKIT_PINS_TOP = [
-  { label: "3V3",  kind: "3v3" },
-  { label: "EN",   kind: "reserved", note: "Chip enable / reset. Tied to RTS via the USB bridge; don't repurpose." },
-  { label: "IO36", gpio: 36, kind: "gpio", status: "input-only", note: "GPIO36 (VP, ADC1_0) — input-only, no internal pull-up/down." },
-  { label: "IO39", gpio: 39, kind: "gpio", status: "input-only", note: "GPIO39 (VN, ADC1_3) — input-only." },
-  { label: "IO34", gpio: 34, kind: "gpio", status: "input-only", note: "GPIO34 — input-only." },
-  { label: "IO35", gpio: 35, kind: "gpio", status: "input-only", note: "GPIO35 — input-only." },
-  { label: "IO32", gpio: 32, kind: "gpio", status: "free" },
-  { label: "IO33", gpio: 33, kind: "gpio", status: "free" },
-  { label: "IO25", gpio: 25, kind: "gpio", status: "free" },
-  { label: "IO26", gpio: 26, kind: "gpio", status: "free" },
-  { label: "IO27", gpio: 27, kind: "gpio", status: "free" },
-  { label: "IO14", gpio: 14, kind: "gpio", status: "free" },
-  { label: "IO12", gpio: 12, kind: "gpio", status: "warn", note: "Strapping pin (MTDI) — must be LOW at reset for 3.3V flash. Safe as GPIO after boot; avoid hard pull-up." },
-  { label: "GND",  kind: "gnd" },
-  { label: "IO13", gpio: 13, kind: "gpio", status: "free" },
-];
-const DEVKIT_PINS_BOT = [
-  { label: "VIN",  kind: "5v",   note: "5V input from USB or external supply." },
-  { label: "GND",  kind: "gnd" },
-  { label: "IO23", gpio: 23, kind: "gpio", status: "free" },
-  { label: "IO22", gpio: 22, kind: "gpio", status: "free" },
-  { label: "TX0",  gpio: 1,  kind: "gpio", status: "reserved", note: "GPIO1 — UART0 TX. Used for USB-serial programming and console logs." },
-  { label: "RX0",  gpio: 3,  kind: "gpio", status: "reserved", note: "GPIO3 — UART0 RX. Reassigning loses the serial console." },
-  { label: "IO21", gpio: 21, kind: "gpio", status: "free" },
-  { label: "GND",  kind: "gnd" },
-  { label: "IO19", gpio: 19, kind: "gpio", status: "free" },
-  { label: "IO18", gpio: 18, kind: "gpio", status: "free" },
-  { label: "IO5",  gpio: 5,  kind: "gpio", status: "free" },
-  { label: "IO17", gpio: 17, kind: "gpio", status: "free" },
-  { label: "IO16", gpio: 16, kind: "gpio", status: "free" },
-  { label: "IO4",  gpio: 4,  kind: "gpio", status: "free" },
-  { label: "IO0",  gpio: 0,  kind: "gpio", status: "warn", note: "BOOT button + strapping pin (hold LOW at reset to enter download mode). Safe as GPIO after boot; avoid asserting LOW during reset." },
-];
-
-// ESP32-C3 SuperMini (RISC-V, 24-pin board). Native USB on GPIO 18/19,
-// onboard LED on GPIO 8 (also strapping). Flash pins 11–17 are
-// internal-flash on the FH4 package — not on the header at all but
-// listed as forbidden in firmware for safety.
-const C3_PINS_TOP = [
-  { label: "5V",   kind: "5v" },
-  { label: "GND",  kind: "gnd" },
-  { label: "3V3",  kind: "3v3" },
-  { label: "IO4",  gpio: 4,  kind: "gpio", status: "free" },
-  { label: "IO3",  gpio: 3,  kind: "gpio", status: "free" },
-  { label: "IO2",  gpio: 2,  kind: "gpio", status: "warn", note: "Strapping pin (boot-mode select). Safe as GPIO after boot." },
-  { label: "IO1",  gpio: 1,  kind: "gpio", status: "free" },
-  { label: "IO0",  gpio: 0,  kind: "gpio", status: "free" },
-];
-const C3_PINS_BOT = [
-  { label: "IO5",  gpio: 5,  kind: "gpio", status: "free" },
-  { label: "IO6",  gpio: 6,  kind: "gpio", status: "free" },
-  { label: "IO7",  gpio: 7,  kind: "gpio", status: "free" },
-  { label: "IO8",  gpio: 8,  kind: "gpio", status: "warn", note: "Onboard LED + strapping pin. Used as LED by default; safe as GPIO after boot." },
-  { label: "IO9",  gpio: 9,  kind: "gpio", status: "warn", note: "BOOT button + strapping. Driving LOW at reset forces download mode." },
-  { label: "IO10", gpio: 10, kind: "gpio", status: "free" },
-  { label: "IO20", gpio: 20, kind: "gpio", status: "reserved", note: "UART0 TX. Reassigning loses the serial console (USB-CDC console stays available)." },
-  { label: "IO21", gpio: 21, kind: "gpio", status: "reserved", note: "UART0 RX. Reassigning loses the serial console (USB-CDC console stays available)." },
-];
-
-const BOARD_PINS = {
-  aithinker_cam: { top: ESP32_PINS_TOP, bot: ESP32_PINS_BOT, label: "ESP32 · camera · µSD" },
-  devkit:        { top: DEVKIT_PINS_TOP, bot: DEVKIT_PINS_BOT, label: "ESP32 DevKitV1 · WROOM-32" },
-  c3_supermini:  { top: C3_PINS_TOP,    bot: C3_PINS_BOT,    label: "ESP32-C3 SuperMini" },
-};
-
+// Pin layouts, labels, footer notes, and camera-reserved sets come from
+// boards.js — single source of truth shared with esp-serial.js. boardPins
+// adapts the shape (pinsTop/pinsBot/pcbLabel) to the {top, bot, label}
+// triple the renderers below expect.
 function boardPins(entry) {
-  const board = entry?.fwInfo?.board || "aithinker_cam";
-  return BOARD_PINS[board] || BOARD_PINS.aithinker_cam;
+  const b = boardById(entry?.fwInfo?.board);
+  return { top: b.pinsTop, bot: b.pinsBot, label: b.pcbLabel };
 }
-
 function esp32FooterNote(entry) {
-  const board = entry?.fwInfo?.board || "aithinker_cam";
-  if (board === "aithinker_cam")
-    return "Camera pins are fixed by the AI-Thinker board layout (15 GPIOs) and can't be reassigned.";
-  if (board === "devkit")
-    return "DevKitV1 exposes ~25 usable GPIOs. Strapping pins (IO0, IO12) work fine as outputs after boot; SPI flash pins (IO6–IO11) are forbidden.";
-  if (board === "c3_supermini")
-    return "C3 SuperMini has ~11 usable GPIOs. IO8 doubles as the onboard LED, IO9 as the BOOT button; IO18–IO21 are the USB-CDC and UART0 console lines.";
-  return "";
+  return boardById(entry?.fwInfo?.board).footerNote || "";
 }
 
 // ESP32-CAM canvas layout — top-to-bottom matches signal flow:
@@ -1377,22 +1272,20 @@ function esp32PinsFromFwInfo(entry) {
   };
 }
 
-// Camera-reserved set on AI-Thinker ESP32-CAM. These can't be reassigned
-// from the dashboard — they're physically wired to the camera socket.
-// Empty on DevKit / C3 — those boards have no camera socket, so the
-// "camera-reserved" guard would false-positive flag perfectly-valid
-// motor / LED assignments.
-const ESP32_CAMERA_RESERVED_AITHINKER = new Set([0, 5, 18, 19, 21, 22, 23, 25, 26, 27, 32, 34, 35, 36, 39]);
-const EMPTY_SET = new Set();
+// Camera-reserved lookups live in boards.js — empty Set on no-camera
+// boards by design so the editor's conflict guard doesn't false-positive
+// on DevKit / C3 motor assignments.
 function cameraReservedFor(entry) {
-  const board = entry?.fwInfo?.board || "aithinker_cam";
-  return board === "aithinker_cam" ? ESP32_CAMERA_RESERVED_AITHINKER : EMPTY_SET;
+  return cameraReservedSet(entry?.fwInfo?.board);
 }
+// Static AI-Thinker camera set for esp32PinNote — the read-only pin
+// notes default to the AI-Thinker context where the camera surface is
+// the most common confusion. DevKit/C3 don't render notes through this
+// function for those pins because their pin entries already carry
+// board-specific notes via boards.js.
+const ESP32_CAMERA_RESERVED_AITHINKER = cameraReservedSet("aithinker_cam");
 
 function esp32PinNote(pin) {
-  // Pin notes in the read-only view still reference AI-Thinker's camera
-  // pins — the most common board context. DevKit / C3 don't fall through
-  // here because the editor flagging path uses cameraReservedFor(entry).
   if (ESP32_CAMERA_RESERVED_AITHINKER.has(pin)) return "camera";
   if (pin === 1 || pin === 3) return "UART (sacrifices serial)";
   if (pin === 2)  return "strap (must be HIGH/floating at boot)";
