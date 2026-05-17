@@ -40,6 +40,13 @@ Live on both desktop and phone while `pairing.js` is loaded.
 - `:81/health` (per-Pi HTTP) — wifi-presence probe. JSON `{ok, type, robotId, ip, uptime_s, pi_robot_service}`. Implementation: `firmware/pi_robot/pi_robot_health.py`. PNA preflight supported.
 - **WebRTC peer** (per-Pi). The dashboard writes a chunked SDP offer to the BLE `SIGNAL` characteristic; `pi_robot.py` (root) reassembles and forwards to a local aiortc daemon (`pi_robot_rtc.py`, non-root) over `/run/pi-robot-rtc.sock`. The daemon answers non-trickle (all candidates inline); pi_robot.py chunks the answer back via BLE notify. Used by `public/webrtc-robot.js` for the Shell dialog, OTA bundle staging, and log tail. No internet rendezvous — BLE pair is the signal substrate.
 
+## Pi serial console
+
+When BLE pairing won't go through and SSH isn't reachable (firmware crash-looping, no WiFi joined, fresh prepare not yet booted), the USB-C cable to the Pi exposes a CDC-ACM serial console with autologin.
+
+- `tools/pi-serial.py "<cmd>"` — runs a single shell command on the Pi over USB-CDC and prints the response. Auto-detects `/dev/cu.usbmodem*` (macOS) or `/dev/ttyACM*` (Linux); override with `--dev` or `BR_PI_SERIAL`. Auto-escapes the `[Mac]>` wrapper REPL (dotfiles lander) into the bash shell. Use for service status, journal reads, in-place file edits when the dashboard's OTA path is dead.
+- For longer-running commands pass `--wait 12` (default 6 s) so the end-of-output marker has time to print.
+
 ## Chrome internal pages
 
 `chrome://` dashboards that surface state the page can't see:
