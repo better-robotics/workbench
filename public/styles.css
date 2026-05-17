@@ -1532,6 +1532,10 @@ details.tray.has-alert > summary::after {
   font: 600 11px ui-monospace, "SF Mono", Menlo, monospace;
   fill: #e5e5e5;
 }
+.pinout-svg .driver-sublabel {
+  font: 500 9px ui-monospace, "SF Mono", Menlo, monospace;
+  fill: #999;
+}
 /* Inline GPIO inputs sitting below each driver terminal in edit mode.
    Embedded via <foreignObject>. Dark, semi-transparent so they read as
    silkscreen labels you can type into — keeps the PCB metaphor intact. */

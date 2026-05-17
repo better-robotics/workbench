@@ -774,10 +774,19 @@ function renderEsp32BoardWithDriver(entry, opts = {}) {
         </foreignObject>
       `;
     }
+    // ENA/ENB on ESP32 builds aren't wired to the chip — firmware uses
+    // LEDC PWM directly on IN1..IN4 for speed control. Tie ENA/ENB HIGH
+    // (3.3V) externally — most L298N modules come with the jumpers in
+    // place by default. Small "tied 3V3" sublabel below the terminal
+    // makes this visible without needing a separate explainer.
+    const subFrag = role.startsWith("en")
+      ? `<text class="driver-sublabel" x="${cx}" y="${ESP_TERM_CY + 22}" text-anchor="middle">tied 3V3</text>`
+      : "";
     return `
       <text class="driver-label" x="${cx}" y="${ESP_TERM_CY - 14}" text-anchor="middle">${label}</text>
       <circle class="driver-pin ${kind}" cx="${cx}" cy="${ESP_TERM_CY}" r="${ESP_TERM_R}" data-role="${role}"/>
       ${inputFrag}
+      ${subFrag}
     `;
   }).join("");
 

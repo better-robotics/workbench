@@ -36,17 +36,16 @@ void pin_config_load(pin_config_t *out) {
     out->motor_r_bwd = 12;
 #elif CONFIG_BR_BOARD_DEVKIT
     // DevKitV1: onboard LED on GPIO 2, no flash LED. Motors picked from
-    // pins with no strapping/UART/USB role on classic ESP32. Ordered
-    // 19→18→17→16 to match the DevKit header's physical left-to-right
-    // layout (IO19 sits leftmost of these four on the bottom row), so
-    // the pinout dashboard's wires to the H-bridge IN1..IN4 terminals
-    // run parallel rather than crossing — same pins, cleaner diagram.
+    // four contiguous general-purpose pins between IO4 and IO22 on the
+    // left header edge. The 16/17/18/19 numerical order also matches
+    // the header's physical top-to-bottom layout for these four, so
+    // the pinout dashboard's IN1..IN4 wires run parallel.
     out->led         = 2;
     out->flash       = -1;
-    out->motor_l_fwd = 19;
-    out->motor_l_bwd = 18;
-    out->motor_r_fwd = 17;
-    out->motor_r_bwd = 16;
+    out->motor_l_fwd = 16;
+    out->motor_l_bwd = 17;
+    out->motor_r_fwd = 18;
+    out->motor_r_bwd = 19;
 #elif CONFIG_BR_BOARD_C3_SUPERMINI
     // SuperMini onboard LED on GPIO 8 (also a strapping pin, but its
     // purpose on this board is the LED — leaving the LED unwired won't

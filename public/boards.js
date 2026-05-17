@@ -41,43 +41,48 @@ const AITHINKER_PINS_BOT = [
   { label: "3V3",  kind: "3v3" },
 ];
 
-// ESP32 DevKitV1 (WROOM-32, 30-pin DOIT/LOLIN-style). USB at the bottom;
-// top of the SVG is the top of the board. Pins 6–11 (SPI flash) aren't
-// exposed on the header on 30-pin variants — firmware's PINS_FORBIDDEN
-// blocks them anyway.
+// ESP32 DevKitV1 (WROOM-32, 30-pin DOIT/LOLIN-style — USB-C variant
+// with CP210x bridge). Orientation: USB at the top of the silkscreen.
+// In the SVG, `top` is the right-edge column of the physical board and
+// `bot` is the left-edge column, each rendered as a horizontal row of
+// dots. Pin order in each array reads top-to-bottom on the physical
+// board, left-to-right in the SVG.
+//
+// SPI flash pins (IO6–IO11) and the BOOT button (IO0) aren't exposed
+// on this variant's header; firmware's PINS_FORBIDDEN blocks IO6–IO11
+// anyway in case someone wires to them directly via the PCB pads.
 const DEVKIT_PINS_TOP = [
-  { label: "3V3",  kind: "3v3" },
   { label: "EN",   kind: "reserved", note: "Chip enable / reset. Tied to RTS via the USB bridge; don't repurpose." },
-  { label: "IO36", gpio: 36, kind: "gpio", status: "input-only", note: "GPIO36 (VP, ADC1_0) — input-only, no internal pull-up/down." },
-  { label: "IO39", gpio: 39, kind: "gpio", status: "input-only", note: "GPIO39 (VN, ADC1_3) — input-only." },
-  { label: "IO34", gpio: 34, kind: "gpio", status: "input-only", note: "GPIO34 — input-only." },
-  { label: "IO35", gpio: 35, kind: "gpio", status: "input-only", note: "GPIO35 — input-only." },
-  { label: "IO32", gpio: 32, kind: "gpio", status: "free" },
-  { label: "IO33", gpio: 33, kind: "gpio", status: "free" },
-  { label: "IO25", gpio: 25, kind: "gpio", status: "free" },
-  { label: "IO26", gpio: 26, kind: "gpio", status: "free" },
-  { label: "IO27", gpio: 27, kind: "gpio", status: "free" },
-  { label: "IO14", gpio: 14, kind: "gpio", status: "free" },
-  { label: "IO12", gpio: 12, kind: "gpio", status: "warn", note: "Strapping pin (MTDI) — must be LOW at reset for 3.3V flash. Safe as GPIO after boot; avoid hard pull-up." },
-  { label: "GND",  kind: "gnd" },
-  { label: "IO13", gpio: 13, kind: "gpio", status: "free" },
-];
-const DEVKIT_PINS_BOT = [
   { label: "VIN",  kind: "5v",   note: "5V input from USB or external supply." },
   { label: "GND",  kind: "gnd" },
-  { label: "IO23", gpio: 23, kind: "gpio", status: "free" },
-  { label: "IO22", gpio: 22, kind: "gpio", status: "free" },
-  { label: "TX0",  gpio: 1,  kind: "gpio", status: "reserved", note: "GPIO1 — UART0 TX. Used for USB-serial programming and console logs." },
-  { label: "RX0",  gpio: 3,  kind: "gpio", status: "reserved", note: "GPIO3 — UART0 RX. Reassigning loses the serial console." },
-  { label: "IO21", gpio: 21, kind: "gpio", status: "free" },
+  { label: "IO13", gpio: 13, kind: "gpio", status: "free" },
+  { label: "IO12", gpio: 12, kind: "gpio", status: "warn", note: "Strapping pin (MTDI) — must be LOW at reset for 3.3V flash. Safe as GPIO after boot; avoid hard pull-up at reset." },
+  { label: "IO14", gpio: 14, kind: "gpio", status: "free" },
+  { label: "IO27", gpio: 27, kind: "gpio", status: "free" },
+  { label: "IO26", gpio: 26, kind: "gpio", status: "free" },
+  { label: "IO25", gpio: 25, kind: "gpio", status: "free" },
+  { label: "IO33", gpio: 33, kind: "gpio", status: "free" },
+  { label: "IO32", gpio: 32, kind: "gpio", status: "free" },
+  { label: "IO35", gpio: 35, kind: "gpio", status: "input-only", note: "GPIO35 — input-only, no internal pull-up/down." },
+  { label: "IO34", gpio: 34, kind: "gpio", status: "input-only", note: "GPIO34 — input-only." },
+  { label: "VN",   gpio: 39, kind: "gpio", status: "input-only", note: "GPIO39 (VN, ADC1_3) — input-only." },
+  { label: "VP",   gpio: 36, kind: "gpio", status: "input-only", note: "GPIO36 (VP, ADC1_0) — input-only." },
+];
+const DEVKIT_PINS_BOT = [
+  { label: "3V3",  kind: "3v3" },
   { label: "GND",  kind: "gnd" },
-  { label: "IO19", gpio: 19, kind: "gpio", status: "free" },
-  { label: "IO18", gpio: 18, kind: "gpio", status: "free" },
-  { label: "IO5",  gpio: 5,  kind: "gpio", status: "free" },
-  { label: "IO17", gpio: 17, kind: "gpio", status: "free" },
-  { label: "IO16", gpio: 16, kind: "gpio", status: "free" },
+  { label: "IO15", gpio: 15, kind: "gpio", status: "warn", note: "Strapping pin (MTDO) — pulling LOW at reset silences boot messages on UART0. Safe as GPIO after boot." },
+  { label: "IO2",  gpio: 2,  kind: "gpio", status: "warn", note: "Strapping pin + onboard blue LED. Must not be HIGH at boot when the internal pull-down is disabled; usable as output safely once running." },
   { label: "IO4",  gpio: 4,  kind: "gpio", status: "free" },
-  { label: "IO0",  gpio: 0,  kind: "gpio", status: "warn", note: "BOOT button + strapping pin (hold LOW at reset to enter download mode). Safe as GPIO after boot; avoid asserting LOW during reset." },
+  { label: "IO16", gpio: 16, kind: "gpio", status: "free", note: "Doubles as UART2 RX (silkscreen RX2)." },
+  { label: "IO17", gpio: 17, kind: "gpio", status: "free", note: "Doubles as UART2 TX (silkscreen TX2)." },
+  { label: "IO5",  gpio: 5,  kind: "gpio", status: "free" },
+  { label: "IO18", gpio: 18, kind: "gpio", status: "free" },
+  { label: "IO19", gpio: 19, kind: "gpio", status: "free" },
+  { label: "RX0",  gpio: 3,  kind: "gpio", status: "reserved", note: "GPIO3 — UART0 RX. Used for USB-serial programming and console logs." },
+  { label: "TX0",  gpio: 1,  kind: "gpio", status: "reserved", note: "GPIO1 — UART0 TX. Reassigning loses the serial console." },
+  { label: "IO22", gpio: 22, kind: "gpio", status: "free" },
+  { label: "IO23", gpio: 23, kind: "gpio", status: "free" },
 ];
 
 // ESP32-C3 SuperMini (RISC-V, 24-pin board). Native USB on GPIO 18/19;
@@ -150,7 +155,7 @@ export const BOARDS = [
     pcbLabel: "ESP32 DevKitV1 · WROOM-32",
     pinsTop: DEVKIT_PINS_TOP,
     pinsBot: DEVKIT_PINS_BOT,
-    footerNote: "DevKitV1 exposes ~25 usable GPIOs. Strapping pins (IO0, IO12) work fine as outputs after boot; SPI flash pins (IO6–IO11) are forbidden.",
+    footerNote: "DevKitV1 exposes ~25 usable GPIOs across both edges. Strapping pins (IO2, IO12, IO15) work fine as outputs after boot; IO34–IO39 are input-only; SPI flash pins (IO6–IO11) are forbidden.",
     cameraReservedGpios: [],
   },
   {
