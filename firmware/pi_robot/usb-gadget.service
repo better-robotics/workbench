@@ -2,14 +2,26 @@
 Description=USB composite gadget (ECM + ACM) for recovery access
 # Must run before NetworkManager so usb0 is present for NM to configure.
 # Must NOT depend on pi-robot — the whole point is being independent of it.
+#
+# Drop `ConditionPathExists=/sys/class/udc`: that fires once at unit-start
+# time and skips the unit if the dir is empty. systemd-modules-load returns
+# the moment modprobe completes, but dwc2's UDC registration is async on
+# top of that — on a fast boot we race past it and the gadget never gets
+# assembled. usb-gadget-setup.sh now waits up to 10s for a UDC to appear,
+# so we want the unit to run unconditionally and let the script handle
+# timing.
 After=systemd-modules-load.service
 Before=NetworkManager.service
-ConditionPathExists=/sys/class/udc
 
 [Service]
 Type=oneshot
 ExecStart=/usr/local/bin/usb-gadget-setup.sh
 RemainAfterExit=yes
+# If the post-install OTA path enabled the unit on an existing host with
+# no UDC, one transient failure shouldn't keep recovery dead until reboot.
+Restart=on-failure
+RestartSec=5
+StartLimitBurst=3
 
 [Install]
 WantedBy=multi-user.target
