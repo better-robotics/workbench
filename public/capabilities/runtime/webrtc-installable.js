@@ -19,6 +19,13 @@ const OP_COMMIT  = 0x03;
 const OP_STOP    = 0x04;
 const CHUNK_BYTES = 180;
 
+// Same window the ESP32 path uses. If no JPEG frame paints within this
+// budget after pc connects, treat the path as broken (ICE "connected"
+// over an IPv6 host pair that's actually routed through a carrier
+// backbone, hotspot stateful firewall dropping inbound media, etc.) and
+// restart once with iceTransportPolicy='relay'.
+const VIDEO_FIRST_FRAME_MS = 3000;
+
 // Chunked JPEG reassembly + decode → canvas. Wire format matches the ESP32
 // firmware (and now the Pi firmware): [frame_id u16 BE][chunk_idx u8]
 // [total_chunks u8][jpeg]. Decode via WebCodecs ImageDecoder when present
@@ -104,9 +111,16 @@ export function makeWebrtcInstallableCap(schema) {
   const bufField     = `${name}RecvBuf`;
   const statusState  = `${name}Status`;
   const decoderField = `${name}Decoder`;
-  const actionStart   = `${name}-start`;
-  const actionStop    = `${name}-stop`;
-  const actionInstall = `${name}-install`;
+  // Force-relay state mirrors the ESP32 cap: a user-visible toggle that
+  // skips the direct attempt entirely (when known-hostile network), plus
+  // an internal flag set by the auto-watchdog to cap fallbacks at one per
+  // Start click.
+  const forceRelayField = `${name}ForceRelay`;
+  const relayUsedField  = `_${name}RelayUsed`;
+  const actionStart      = `${name}-start`;
+  const actionStop       = `${name}-stop`;
+  const actionInstall    = `${name}-install`;
+  const actionForceRelay = `${name}-force-relay`;
   const label = name[0].toUpperCase() + name.slice(1);
 
   async function sendSignal(entry, msg) {
@@ -164,12 +178,15 @@ export function makeWebrtcInstallableCap(schema) {
     }
   }
 
-  async function start(entry) {
+  async function start(entry, opts = {}) {
     if (!entry[signalField] || entry[pcField]) return;
+    const { iceTransportPolicy } = opts;
     entry[statusState] = { st: "starting" };
     renderEntry(entry);
     const iceServers = await fetchIceServers();
-    const pc = new RTCPeerConnection({ iceServers });
+    const pcConfig = { iceServers };
+    if (iceTransportPolicy) pcConfig.iceTransportPolicy = iceTransportPolicy;
+    const pc = new RTCPeerConnection(pcConfig);
     entry[pcField] = pc;
     registerExternalPc(entry.id, name, pc);
     // Re-render with pcField set so the <canvas> appears in the DOM
@@ -186,9 +203,13 @@ export function makeWebrtcInstallableCap(schema) {
     // line stall.
     const channel = pc.createDataChannel("video", { ordered: false, maxRetransmits: 0 });
     channel.binaryType = "arraybuffer";
+    let firstFrameSeen = false;
+    let watchdog = null;
     const canvas = entry.node?.querySelector(`canvas[data-${name}-id="${entry.id}"]`);
     if (canvas) {
       entry[decoderField] = attachChunkedJpegDecoder(channel, canvas, () => {
+        firstFrameSeen = true;
+        if (watchdog) { clearTimeout(watchdog); watchdog = null; }
         // Canvas exposes a synthetic MediaStream via captureStream —
         // phone mirroring picks this up the same way it does for the
         // ESP32 path.
@@ -199,6 +220,20 @@ export function makeWebrtcInstallableCap(schema) {
           } catch {}
         }
       });
+    }
+
+    // Auto-fallback watchdog. Skipped when we're already on the relay
+    // attempt or when the user pre-checked Force Relay (handled at click).
+    if (!iceTransportPolicy && !entry[relayUsedField]) {
+      watchdog = setTimeout(async () => {
+        watchdog = null;
+        if (entry[pcField] !== pc) return;       // user hit Stop, or already swapped
+        if (firstFrameSeen) return;              // direct path delivered
+        entry[relayUsedField] = true;
+        logFor(entry, `${name} webrtc: no frames in 3s — switching to relay (Cloudflare TURN)`);
+        await stop(entry);
+        await start(entry, { iceTransportPolicy: "relay" });
+      }, VIDEO_FIRST_FRAME_MS);
     }
     pc.onicecandidate = async (e) => {
       if (!e.candidate) return;
@@ -263,7 +298,7 @@ export function makeWebrtcInstallableCap(schema) {
       [signalField]: null, [statusField]: null,
       [pcField]: null, [streamField]: null,
       [bufField]: null, [statusState]: null,
-      [decoderField]: null,
+      [decoderField]: null, [forceRelayField]: false,
     }),
 
     async probe(entry, service) {
@@ -294,9 +329,16 @@ export function makeWebrtcInstallableCap(schema) {
     renderSection(entry) {
       if (entry.status !== "connected" || !entry[signalField]) return "";
       const s = entry[statusState] || { st: "idle" };
-      const meta = s.step
+      // Append a relay-source badge while streaming. Forced beats auto in
+      // the labeling because the user's choice deserves precedence over
+      // the watchdog's recovery (they're both true when forced; the auto
+      // flag only ever flips on direct attempts).
+      let relayBadge = "";
+      if (entry[pcField] && entry[forceRelayField])      relayBadge = " · relay (forced)";
+      else if (entry[pcField] && entry[relayUsedField])  relayBadge = " · relay (auto)";
+      const meta = (s.step
         ? `${s.st} — ${s.step}`
-        : (s.err ? `${s.st} — ${s.err}` : s.st);
+        : (s.err ? `${s.st} — ${s.err}` : s.st)) + relayBadge;
       // Install needs network (apt-get + pip) but don't gate the button —
       // user may be on Ethernet, about to join WiFi. Surface the dependency
       // as a hint so failure isn't a surprise.
@@ -314,18 +356,43 @@ export function makeWebrtcInstallableCap(schema) {
       } else {
         action = `<button class="secondary sm" data-action="${actionStart}">Start</button>`;
       }
+      // Force-relay toggle only shown when streaming is offered (Start
+       // button visible, no install gate). Hidden while running because the
+       // restart-required semantics would mislead — the badge in the status
+       // meta is the right surface mid-stream.
+      const showForceRelay = !entry[pcField]
+        && s.st !== "uninstalled" && s.st !== "installing"
+        && s.st !== "installed" && s.st !== "install_failed";
+      const forceRelayRow = showForceRelay
+        ? `<label class="meta" style="display:flex; gap:6px; align-items:center; cursor:pointer;">
+             <input type="checkbox" data-action="${actionForceRelay}" ${entry[forceRelayField] ? "checked" : ""}>
+             Force relay <span class="meta">— slower, but works on phone hotspots & locked-down WiFi</span>
+           </label>`
+        : "";
       const body = `
         ${installHint}
         ${s.log ? `<div class="meta install-log">${escapeHtml(s.log)}</div>` : ""}
         ${entry[pcField] ? `<canvas class="robot-camera" data-${name}-id="${entry.id}" width="640" height="480" aria-label="webrtc video"></canvas>` : ""}
+        ${forceRelayRow}
       `;
       return capSection({ name, label, state: meta, action, body, transport: "wifi" });
     },
 
     wireActions(entry, node) {
-      node.querySelector(`[data-action="${actionStart}"]`)?.addEventListener("click",   () => start(entry));
+      node.querySelector(`[data-action="${actionStart}"]`)?.addEventListener("click", () => {
+        // Fresh Start = fresh transport attempt: reset the auto-fallback
+        // flag so a network change later (e.g., off the hotspot) gives
+        // direct another shot. Forced toggle stays as-is — it's the
+        // user's persistent preference, not an auto-recovery state.
+        entry[relayUsedField] = false;
+        start(entry, { iceTransportPolicy: entry[forceRelayField] ? "relay" : undefined });
+      });
       node.querySelector(`[data-action="${actionStop}"]`)?.addEventListener("click",    () => stop(entry));
       node.querySelector(`[data-action="${actionInstall}"]`)?.addEventListener("click", () => install(entry));
+      node.querySelector(`[data-action="${actionForceRelay}"]`)?.addEventListener("change", (e) => {
+        entry[forceRelayField] = e.target.checked;
+        logFor(entry, `${name} force-relay → ${e.target.checked ? "on" : "off"}`);
+      });
     },
 
     // After an innerHTML rebuild the canvas we were painting into may

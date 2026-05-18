@@ -25,7 +25,13 @@ function hasWifi(entry) { return !!entry.wifiStatus?.ip; }
 // that previously capped throughput around 30 fps even when the network
 // delivered more. Falls back to createImageBitmap (one fewer step than
 // blob URL but still off the layout path) on older browsers.
-async function startEsp32WebRTCVideo(entry, canvas) {
+// Watchdog window for the relay fallback. 3 s is comfortably past the
+// chip's first-frame budget (~33 ms at 30 fps after the start command)
+// while staying short enough that the user sees recovery, not a stall.
+const VIDEO_FIRST_FRAME_MS = 3000;
+
+async function startEsp32WebRTCVideo(entry, canvas, opts = {}) {
+  const { iceTransportPolicy, isRunning = () => true } = opts;
   const { openChannel, closePeer } = await import("../../webrtc-robot.js");
   let channel;
   try {
@@ -33,6 +39,7 @@ async function startEsp32WebRTCVideo(entry, canvas) {
       onStatus: (s) => logFor(entry, `video webrtc: ${s}`),
       robotType: entry.fwType,
       signalChar: entry.signalChar,
+      iceTransportPolicy,
     });
   } catch (err) {
     logFor(entry, `video webrtc open failed: ${err.message}`);
@@ -122,9 +129,37 @@ async function startEsp32WebRTCVideo(entry, canvas) {
   };
   channel.addEventListener("message", onMsg);
   try { channel.send(JSON.stringify({ type: "start", fps: 30 })); } catch {}
-  logFor(entry, `video webrtc: streaming (${useDecoder ? "ImageDecoder" : "createImageBitmap"})`);
+  logFor(entry, `video webrtc: streaming (${useDecoder ? "ImageDecoder" : "createImageBitmap"}${iceTransportPolicy === "relay" ? ", relay" : ""})`);
+
+  // Watchdog: ICE can report "connected" on a path that drops media
+  // (hotspot client isolation, peer-blocking firewalls). If no frames
+  // paint within VIDEO_FIRST_FRAME_MS, restart once via TURN-only.
+  // Skipped when we're already on the relay attempt.
+  let watchdog = null;
+  if (!iceTransportPolicy && !entry._webrtcRelayUsed) {
+    watchdog = setTimeout(async () => {
+      watchdog = null;
+      if (entry._webrtcVideo !== ctrl) return;        // user stopped, or already swapped
+      if (paintTimes.length > 0) return;              // direct path delivered
+      entry._webrtcRelayUsed = true;
+      logFor(entry, "video webrtc: no frames in 3s — switching to relay (Cloudflare TURN)");
+      ctrl.dispose();
+      entry._webrtcVideo = null;
+      const savedCanvas = ctrl.canvas;
+      const next = await startEsp32WebRTCVideo(entry, savedCanvas, { iceTransportPolicy: "relay", isRunning });
+      // BLE renegotiation takes seconds; user may have hit Stop while we
+      // waited. Honor that intent — don't resurrect a torn-down stream.
+      if (!isRunning()) { next?.dispose(); return; }
+      if (next) {
+        entry._webrtcVideo = next;
+        renderEntry(entry);
+      }
+    }, VIDEO_FIRST_FRAME_MS);
+  }
+
   ctrl.attachCanvas = (next) => { ctrl.canvas = next; ctrl.ctx = next.getContext("2d"); };
   ctrl.dispose = () => {
+    if (watchdog) { clearTimeout(watchdog); watchdog = null; }
     channel.removeEventListener("message", onMsg);
     try { channel.send(JSON.stringify({ type: "stop" })); } catch {}
     try { channel.close(); } catch {}
@@ -142,12 +177,22 @@ export function makeMjpegStreamCap(schema) {
 
   const transportField = `${name}Transport`;
   const actionTransport = `${name}-transport`;
+  // Manual override for the WebRTC path: when true, the PC is built with
+  // iceTransportPolicy='relay' from the start, skipping the direct attempt
+  // entirely. Two reasons it earns a user-facing toggle even with the
+  // auto-fallback in place: (1) the auto-fallback only catches "zero
+  // bytes," not "slow bytes" — on a phone hotspot ICE often picks an IPv6
+  // "host" pair that actually routes through the carrier backbone, which
+  // delivers bytes but at single-digit fps. (2) lets the user skip the
+  // 3 s direct-path probe when they already know their network is hostile.
+  const forceRelayField = `${name}ForceRelay`;
+  const actionForceRelay = `${name}-force-relay`;
   return {
     name,
     schema,
     // Default to webrtc — most boards support it. The render path below
     // downgrades to http when fw_info.webrtc === false.
-    initEntry: () => ({ [runningField]: false, [transportField]: "webrtc" }),
+    initEntry: () => ({ [runningField]: false, [transportField]: "webrtc", [forceRelayField]: false }),
     cleanup(entry)  {
       entry[runningField] = false;
       stopMjpegForward(entry);
@@ -204,7 +249,19 @@ export function makeMjpegStreamCap(schema) {
       let transportRow = "";
       if (wifi && entry.fwType === "esp32") {
         if (running) {
-          transportRow = `<div class="meta">via ${transport === "http" ? "HTTP MJPEG" : "WebRTC"}</div>`;
+          // Relay suffix tells the user their video is routing through
+          // Cloudflare TURN (extra latency, encrypted off-LAN) instead of
+          // a direct peer path — the auto-fallback engaged because the
+          // direct path silently dropped media. Silent recovery hides the
+          // cost; the badge makes it legible.
+          // Three states worth distinguishing while streaming:
+          //   webrtc + neither flag                → "via WebRTC"
+          //   webrtc + auto-fallback engaged       → "via WebRTC · relay (auto)"
+          //   webrtc + user forced relay           → "via WebRTC · relay (forced)"
+          let relayHint = "";
+          if (transport === "webrtc" && entry[forceRelayField]) relayHint = " · relay (forced)";
+          else if (transport === "webrtc" && entry._webrtcRelayUsed) relayHint = " · relay (auto)";
+          transportRow = `<div class="meta">via ${transport === "http" ? "HTTP MJPEG" : "WebRTC"}${relayHint}</div>`;
         } else if (!webrtcSupported) {
           // Only one option; render as a fixed label, not a dropdown — a
           // single-choice select is dead UI weight.
@@ -212,6 +269,16 @@ export function makeMjpegStreamCap(schema) {
              <span class="meta">Transport: HTTP MJPEG — ${transportHint}${showNewTabLink ? ` · <a href="${httpStreamUrl}" target="_blank" rel="noreferrer">open in new tab ↗</a>` : ""}</span>
            </div>`;
         } else {
+          // Force-relay row only shown when WebRTC is the chosen transport.
+          // Hidden under HTTP MJPEG because it has no effect there, and a
+          // disabled-but-visible control is just noise on a beginner panel.
+          const forceRelayChecked = entry[forceRelayField] ? "checked" : "";
+          const forceRelayRow = transport === "webrtc"
+            ? `<label class="meta" style="display:flex; gap:6px; align-items:center; cursor:pointer;">
+                 <input type="checkbox" data-action="${actionForceRelay}" ${forceRelayChecked}>
+                 Force relay <span class="meta">— slower, but works on phone hotspots & locked-down WiFi</span>
+               </label>`
+            : "";
           transportRow = `<div class="cap-profile">
              <label>Transport
                <select data-action="${actionTransport}">
@@ -220,6 +287,7 @@ export function makeMjpegStreamCap(schema) {
                </select>
              </label>
              <span class="meta">${transportHint}${showNewTabLink ? ` — <a href="${httpStreamUrl}" target="_blank" rel="noreferrer">open in new tab ↗</a> (HTTPS blocks inline)` : ""}</span>
+             ${forceRelayRow}
            </div>`;
         }
       }
@@ -242,6 +310,10 @@ export function makeMjpegStreamCap(schema) {
       );
       node.querySelector(`[data-action="${actionStart}"]`)?.addEventListener("click", async () => {
         entry[runningField] = true;
+        // Fresh Start = fresh transport attempt: try direct first even if a
+        // prior session fell back. Network may have changed (different WiFi,
+        // off the hotspot, etc.) and relay is the worse path when avoidable.
+        entry._webrtcRelayUsed = false;
         renderEntry(entry);
         const el = findEl();
         if (!el) return;
@@ -271,8 +343,13 @@ export function makeMjpegStreamCap(schema) {
           }
           // WebRTC — firmware/webrtc_peer.c routes a `video` data channel
           // into an esp_camera_fb_get loop, sending each JPEG as binary.
-          // WebCodecs decodes each JPEG straight to the canvas.
-          const ctrl = await startEsp32WebRTCVideo(entry, el);
+          // WebCodecs decodes each JPEG straight to the canvas. Honor the
+          // user's Force Relay toggle by passing iceTransportPolicy from
+          // the first attempt — skips the 3 s direct probe entirely.
+          const ctrl = await startEsp32WebRTCVideo(entry, el, {
+            isRunning: () => entry[runningField],
+            iceTransportPolicy: entry[forceRelayField] ? "relay" : undefined,
+          });
           if (ctrl) {
             entry._webrtcVideo = ctrl;
             if (!entry[runningField]) { ctrl.dispose(); entry._webrtcVideo = null; return; }
@@ -312,6 +389,14 @@ export function makeMjpegStreamCap(schema) {
       if (transportSel) transportSel.addEventListener("change", () => {
         entry[transportField] = transportSel.value;
         logFor(entry, `video transport → ${transportSel.value}`);
+        // Re-render so the Force Relay row appears/disappears with the
+        // transport choice — it's only meaningful for WebRTC.
+        renderEntry(entry);
+      });
+      const forceRelayBox = node.querySelector(`[data-action="${actionForceRelay}"]`);
+      if (forceRelayBox) forceRelayBox.addEventListener("change", () => {
+        entry[forceRelayField] = forceRelayBox.checked;
+        logFor(entry, `video force-relay → ${forceRelayBox.checked ? "on" : "off"}`);
       });
     },
   };
