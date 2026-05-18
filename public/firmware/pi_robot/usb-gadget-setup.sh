@@ -4,9 +4,23 @@
 # `ssh pi@10.55.0.1` (ECM) and a serial console at /dev/ttyGS0 (ACM).
 set -euo pipefail
 
+# Append every boot's outcome to a log on the boot partition. The whole
+# point of USB-CDC is being reachable when SSH/BLE/journal aren't — so
+# the log goes somewhere recoverable WITHOUT the Pi (pop the SD into any
+# host). Append, not overwrite, so multi-boot failure patterns stay
+# visible.
+LOG=/boot/firmware/usb-gadget.log
+exec >> "$LOG" 2>&1
+echo "=== usb-gadget-setup $(date -Iseconds) ==="
+echo "kernel: $(uname -r)"
+echo "cmdline: $(cat /proc/cmdline 2>/dev/null)"
+echo "dtoverlay/dwc2 + modules:"
+lsmod 2>/dev/null | grep -E "^(dwc2|libcomposite|usb_f_)" || echo "  (none loaded yet)"
+
 GADGET=/sys/kernel/config/usb_gadget/g1
 if [ -d "$GADGET" ]; then
-  exit 0  # already configured (reboot-safe idempotency)
+  echo "gadget already configured (idempotent exit)"
+  exit 0
 fi
 
 # Wait for dwc2 to register a UDC on /sys/class/udc. systemd-modules-load
@@ -15,14 +29,17 @@ fi
 # with an empty /sys/class/udc and a silent skip (ConditionPathExists
 # previously masked this; we dropped it so the unit actually runs).
 # 10s is generous: dwc2 publishes within ~200 ms on a healthy boot.
-for _ in $(seq 1 50); do
+for i in $(seq 1 50); do
   if ls /sys/class/udc 2>/dev/null | grep -q .; then
+    echo "UDC appeared after $((i * 200))ms: $(ls /sys/class/udc)"
     break
   fi
   sleep 0.2
 done
 if ! ls /sys/class/udc 2>/dev/null | grep -q .; then
-  echo "usb-gadget: no UDC after 10s — dwc2 not loaded or in host mode" >&2
+  echo "FAIL: no UDC after 10s — dwc2 not loaded or in host mode"
+  echo "Likely fix: ensure config.txt has \`dtoverlay=dwc2,dr_mode=peripheral\`"
+  echo "and cmdline.txt has \`modules-load=dwc2,libcomposite\`."
   exit 1
 fi
 
@@ -58,4 +75,6 @@ ln -s functions/acm.usb0 configs/c.1/
 
 # Bind to the first available USB Device Controller.
 UDC=$(ls /sys/class/udc | head -n 1)
+echo "binding gadget to UDC: $UDC"
 echo "$UDC" > UDC
+echo "bind OK — gadget live at $GADGET, UDC=$UDC"
