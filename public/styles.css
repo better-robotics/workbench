@@ -1646,6 +1646,7 @@ details.tray.has-alert > summary::after {
 .pinout-svg.esp32 .pin-dot.esp-free     { fill: #22c55e; stroke: #14532d; }
 .pinout-svg.esp32 .pin-dot.esp-sd-shared { fill: #eab308; stroke: #713f12; }
 .pinout-svg.esp32 .pin-dot.esp-reserved  { fill: #6b7280; stroke: #1f2937; }
+.pinout-svg.esp32 .pin-dot.esp-forbidden { fill: #b91c1c; stroke: #450a0a; }
 
 /* Console (Pi USB-C + ESP32 USB serial unified) — sized for ~110-col
    terminal at 13px (iTerm2-shape), flex-column so the active section's

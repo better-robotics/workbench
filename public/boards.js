@@ -37,7 +37,7 @@ const AITHINKER_PINS_BOT = [
   { label: "VCC",  kind: "5v",  note: "Jumper-selectable 3V3 or 5V on some boards" },
   { label: "GND",  kind: "gnd" },
   { label: "IO0",  gpio: 0,  kind: "gpio", status: "reserved", note: "Camera XCLK + boot-mode strap (hold LOW to enter flash mode). Do not reassign." },
-  { label: "IO16", gpio: 16, kind: "gpio", status: "free",     note: "Free on ESP32 modules without PSRAM. WROVER modules with PSRAM use IO16 internally — check your module first." },
+  { label: "IO16", gpio: 16, kind: "gpio", status: "forbidden", note: "PSRAM #CS — the AI-Thinker ESP32-CAM always ships with PSRAM (required for camera frame buffers), so IO16 is never free. Driving it via LEDC crashes the chip mid-boot." },
   { label: "3V3",  kind: "3v3" },
 ];
 
@@ -130,8 +130,13 @@ const C3_PINS_BOT = [
 //   pcbLabel           — text rendered inside the SVG board outline
 //   pinsTop / pinsBot  — header rows (see status vocabulary above)
 //   footerNote         — read-only note below the pinout editor rows
-//   cameraReservedGpios — pins the editor flags as "camera-reserved"
-//                        when assigned (AI-Thinker only; empty elsewhere)
+//   cameraReservedGpios — camera signal pins (AI-Thinker only). Editor
+//                        flags as "camera-reserved"; subset of forbidden.
+//   forbiddenGpios     — full firmware-side PINS_FORBIDDEN mirror (camera
+//                        + SPI flash + PSRAM CS/CLK on AI-Thinker, SPI
+//                        flash on DevKit, flash + SPI on C3). The editor
+//                        blocks save on any assignment to these — must
+//                        stay in lock-step with pin_config.c.
 export const BOARDS = [
   {
     id: "aithinker_cam",
@@ -147,8 +152,9 @@ export const BOARDS = [
     pcbLabel: "ESP32 · camera · µSD",
     pinsTop: AITHINKER_PINS_TOP,
     pinsBot: AITHINKER_PINS_BOT,
-    footerNote: "Camera pins are fixed by the AI-Thinker board layout (15 GPIOs) and can't be reassigned.",
+    footerNote: "Camera pins are fixed by the AI-Thinker board layout (15 GPIOs) and can't be reassigned. PSRAM CS/CLK (IO16/IO17) and SPI flash (IO6–IO11) are also off-limits.",
     cameraReservedGpios: [0, 5, 18, 19, 21, 22, 23, 25, 26, 27, 32, 34, 35, 36, 39],
+    forbiddenGpios: [0, 5, 6, 7, 8, 9, 10, 11, 16, 17, 18, 19, 21, 22, 23, 25, 26, 27, 32, 34, 35, 36, 39],
   },
   {
     id: "devkit",
@@ -163,6 +169,7 @@ export const BOARDS = [
     pinsBot: DEVKIT_PINS_BOT,
     footerNote: "DevKitV1 exposes ~25 usable GPIOs across both edges. Strapping pins (IO2, IO12, IO15) work fine as outputs after boot; IO34–IO39 are input-only; SPI flash pins (IO6–IO11) are forbidden.",
     cameraReservedGpios: [],
+    forbiddenGpios: [6, 7, 8, 9, 10, 11],
   },
   {
     id: "c3_supermini",
@@ -176,6 +183,7 @@ export const BOARDS = [
     pinsBot: C3_PINS_BOT,
     footerNote: "C3 SuperMini has ~11 usable GPIOs. IO8 doubles as the onboard LED, IO9 as the BOOT button; IO18–IO21 are the USB-CDC and UART0 console lines.",
     cameraReservedGpios: [],
+    forbiddenGpios: [11, 12, 13, 14, 15, 16, 17],
   },
 ];
 
@@ -197,4 +205,13 @@ export function boardsForChip(chip) {
 export function cameraReservedSet(boardId) {
   const b = boardById(boardId);
   return new Set(b ? b.cameraReservedGpios : []);
+}
+
+// Full hardware-forbidden set — mirrors firmware-side PINS_FORBIDDEN in
+// pin_config.c. The editor blocks save on any assignment to these pins;
+// firmware also rejects (and reverts to default on NVS read) so a stale
+// dashboard can't poison the board. Keep in lock-step with the firmware.
+export function boardForbiddenSet(boardId) {
+  const b = boardById(boardId);
+  return new Set(b ? b.forbiddenGpios : []);
 }

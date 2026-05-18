@@ -5,7 +5,7 @@ import { onOpsResponse } from "./ops-response.js";
 import { uploadFile } from "./capabilities/ota.js";
 import { SERVICE_UUID, PIN_CONFIG_CHAR_UUID, encodeJson } from "./ble.js";
 import { beginMotorsCalibration } from "./motors-calibrate.js";
-import { boardById, cameraReservedSet } from "./boards.js";
+import { boardById, cameraReservedSet, boardForbiddenSet } from "./boards.js";
 
 // BCM GPIO is what config + firmware use; physical pin is what the header
 // silkscreen shows. Users wire against physical, so lead with those.
@@ -1294,6 +1294,11 @@ function esp32PinsFromFwInfo(entry) {
 function cameraReservedFor(entry) {
   return cameraReservedSet(entry?.fwInfo?.board);
 }
+// Full hardware-forbidden set (superset of camera-reserved). Mirrors
+// firmware-side PINS_FORBIDDEN in pin_config.c.
+function forbiddenFor(entry) {
+  return boardForbiddenSet(entry?.fwInfo?.board);
+}
 // Static AI-Thinker camera set for esp32PinNote — the read-only pin
 // notes default to the AI-Thinker context where the camera surface is
 // the most common confusion. DevKit/C3 don't render notes through this
@@ -1306,7 +1311,7 @@ function esp32PinNote(pin) {
   if (pin === 1 || pin === 3) return "UART (sacrifices serial)";
   if (pin === 2)  return "strap (must be HIGH/floating at boot)";
   if (pin === 12) return "strap (must be LOW at boot — most blue L298N boards work; some need a 10k pull-down)";
-  if (pin === 16 || pin === 17) return "PSRAM on some AI-Thinker revisions — risky";
+  if (pin === 16 || pin === 17) return "PSRAM CS/CLK — every AI-Thinker ESP32-CAM ships with PSRAM; off-limits";
   if (pin === 4)  return "white flash LED";
   if (pin === 33) return "red status LED";
   if (pin >= 13 && pin <= 15) return "safe (SD pins, free when SD unused)";
@@ -1384,16 +1389,27 @@ function renderEsp32Edit(entry) {
   }
   const dup = Object.entries(usedBy).filter(([, v]) => v.length > 1);
   const cameraReserved = cameraReservedFor(entry);
+  const forbidden = forbiddenFor(entry);
   const cameraHits = ALL_KEYS.flatMap(k => {
     const p = c[k];
     return (p >= 0 && cameraReserved.has(p)) ? [[k, p]] : [];
   });
+  // Hardware-forbidden minus camera (PSRAM CS/CLK + SPI flash on AI-Thinker,
+  // SPI flash on DevKit/C3). Surfaced as a distinct warning because the
+  // "why" differs from the camera case — the firmware would otherwise
+  // accept and crash on first use of the pin.
+  const hardwareHits = ALL_KEYS.flatMap(k => {
+    const p = c[k];
+    return (p >= 0 && forbidden.has(p) && !cameraReserved.has(p)) ? [[k, p]] : [];
+  });
 
   // GPIOs to flag inline (red border on input). Hard conflicts + camera
-  // hits earn the flag; the warning bar names the offenders in prose.
+  // hits + hardware-forbidden hits earn the flag; the warning bar names
+  // the offenders in prose.
   const flagged = new Set();
   for (const [, v] of dup) for (const k of v) if (c[k] >= 0) flagged.add(c[k]);
   for (const [, p] of cameraHits) flagged.add(p);
+  for (const [, p] of hardwareHits) flagged.add(p);
 
   const warn = [
     dup.length
@@ -1402,9 +1418,12 @@ function renderEsp32Edit(entry) {
     cameraHits.length
       ? `<div class="pinout-warn">Camera-reserved: ${cameraHits.map(([k, p]) => `GPIO ${p} (${k})`).join("; ")} — must be reassigned before saving.</div>`
       : "",
+    hardwareHits.length
+      ? `<div class="pinout-warn">Hardware-reserved: ${hardwareHits.map(([k, p]) => `GPIO ${p} (${k})`).join("; ")} — PSRAM CS/CLK or internal SPI flash; firmware refuses these.</div>`
+      : "",
   ].filter(Boolean).join("");
 
-  const blocked = dup.length > 0 || cameraHits.length > 0;
+  const blocked = dup.length > 0 || cameraHits.length > 0 || hardwareHits.length > 0;
   // Synthesize a transient entry-shaped object so renderEsp32BoardWithDriver
   // can derive claims from the in-progress edit (mirrors the Pi side's
   // editConfig flow, which feeds claimsFromConfig). fwInfo carries over
@@ -1459,7 +1478,7 @@ function renderEsp32Edit(entry) {
     ${warn}
     <div class="meta pinout-helper">
       Numbers are ESP32 GPIO IDs. Blank input = capability disabled.
-      Camera-reserved pins (15 GPIOs) are off-limits; hover any pin for its constraint.
+      Hardware-reserved pins (camera, PSRAM, SPI flash) are off-limits; hover any pin for its constraint.
     </div>
     <div class="modal-footer">
       <button class="secondary sm" id="pinout-cancel-btn">Cancel</button>

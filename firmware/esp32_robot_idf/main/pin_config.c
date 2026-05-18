@@ -18,9 +18,68 @@ bool pin_motors_configured(const pin_config_t *cfg) {
         && pin_valid(cfg->motor_r_fwd) && pin_valid(cfg->motor_r_bwd);
 }
 
-static int nvs_get_int_default(nvs_handle_t h, const char *key, int dflt) {
+// Forbidden set: pins where wiring something else physically prevents
+// the firmware from running (camera signal lines on AI-Thinker, SPI flash
+// on all boards, PSRAM CS/CLK on AI-Thinker's WROVER-like module).
+// Strapping pins, UART, USB pins are recoverable — they live in a
+// dashboard-side warning tier, not here. See CLAUDE.md's panda pattern:
+// firmware enforces the irreversible floor, dashboard handles the
+// educational layer.
+//
+// AI-Thinker rationale:
+//   { 0, 5, 18, 19, 21, 22, 23, 25, 26, 27, 32, 34, 35, 36, 39 } — camera
+//     signal lines per espressif/arduino-esp32 CAMERA_MODEL_AI_THINKER.
+//   { 6, 7, 8, 9, 10, 11 } — internal SPI flash pins on every WROOM/WROVER
+//     module; not exposed on the AI-Thinker header but blocked defensively.
+//   { 16, 17 } — PSRAM CS / CLK on the WROVER-style module the AI-Thinker
+//     board ships with. Driving LEDC on either crashes mid-boot
+//     (`LEDC: GPIO N is not usable` then LoadProhibited inside
+//     `motors_init`). AI-Thinker boards always ship with PSRAM — the
+//     "free if no PSRAM" caveat from generic ESP32 pinout guides doesn't
+//     apply here.
+#if CONFIG_BR_BOARD_AITHINKER_CAM
+static const int PINS_FORBIDDEN[] = {
+    0, 5, 6, 7, 8, 9, 10, 11, 16, 17, 18, 19, 21, 22, 23, 25, 26, 27, 32, 34, 35, 36, 39
+};
+#elif CONFIG_BR_BOARD_DEVKIT
+static const int PINS_FORBIDDEN[] = { 6, 7, 8, 9, 10, 11 };
+#elif CONFIG_BR_BOARD_C3_SUPERMINI
+static const int PINS_FORBIDDEN[] = { 11, 12, 13, 14, 15, 16, 17 };
+#endif
+
+#if CONFIG_IDF_TARGET_ESP32
+#define PIN_MAX 39
+#elif CONFIG_IDF_TARGET_ESP32C3
+#define PIN_MAX 21
+#else
+#error "pin_config: unknown IDF target — add PIN_MAX"
+#endif
+
+static bool pin_is_forbidden(int p) {
+    for (size_t i = 0; i < sizeof(PINS_FORBIDDEN) / sizeof(PINS_FORBIDDEN[0]); i++) {
+        if (p == PINS_FORBIDDEN[i]) return true;
+    }
+    return false;
+}
+
+// Read a pin assignment from NVS, falling back to `dflt` if the key is
+// missing OR if the persisted value is forbidden on this board. The
+// forbidden-fallback is the second line of defense: pin_config_handle_write
+// rejects bad writes before they reach NVS, but older firmware versions
+// (or a buggy dashboard) may have already poisoned the namespace. Without
+// this guard, a single bad NVS entry survives every re-flash (the browser
+// flasher writes only bootloader / partition-table / otadata / app — NVS
+// at 0x9000 is untouched) and bricks the board into a boot-loop.
+static int nvs_get_pin(nvs_handle_t h, const char *key, int dflt) {
     int32_t v;
-    return nvs_get_i32(h, key, &v) == ESP_OK ? (int)v : dflt;
+    if (nvs_get_i32(h, key, &v) != ESP_OK) return dflt;
+    if (v == -1) return -1;
+    if (v < 0 || v > PIN_MAX || pin_is_forbidden((int)v)) {
+        ESP_LOGW(TAG, "NVS pin '%s'=%ld is forbidden on this board, reverting to default %d",
+                 key, (long)v, dflt);
+        return dflt;
+    }
+    return (int)v;
 }
 
 void pin_config_load(pin_config_t *out) {
@@ -74,16 +133,16 @@ void pin_config_load(pin_config_t *out) {
 
     nvs_handle_t h;
     if (nvs_open("pins", NVS_READONLY, &h) != ESP_OK) return;
-    out->led         = nvs_get_int_default(h, "led",     out->led);
-    out->flash       = nvs_get_int_default(h, "flash",   out->flash);
-    out->motor_l_fwd = nvs_get_int_default(h, "m_l_fwd", out->motor_l_fwd);
-    out->motor_l_bwd = nvs_get_int_default(h, "m_l_bwd", out->motor_l_bwd);
-    out->motor_r_fwd = nvs_get_int_default(h, "m_r_fwd", out->motor_r_fwd);
-    out->motor_r_bwd = nvs_get_int_default(h, "m_r_bwd", out->motor_r_bwd);
-    out->motor_ena   = nvs_get_int_default(h, "m_ena",   out->motor_ena);
-    out->motor_enb   = nvs_get_int_default(h, "m_enb",   out->motor_enb);
-    out->enc_l       = nvs_get_int_default(h, "enc_l",   out->enc_l);
-    out->enc_r       = nvs_get_int_default(h, "enc_r",   out->enc_r);
+    out->led         = nvs_get_pin(h, "led",     out->led);
+    out->flash       = nvs_get_pin(h, "flash",   out->flash);
+    out->motor_l_fwd = nvs_get_pin(h, "m_l_fwd", out->motor_l_fwd);
+    out->motor_l_bwd = nvs_get_pin(h, "m_l_bwd", out->motor_l_bwd);
+    out->motor_r_fwd = nvs_get_pin(h, "m_r_fwd", out->motor_r_fwd);
+    out->motor_r_bwd = nvs_get_pin(h, "m_r_bwd", out->motor_r_bwd);
+    out->motor_ena   = nvs_get_pin(h, "m_ena",   out->motor_ena);
+    out->motor_enb   = nvs_get_pin(h, "m_enb",   out->motor_enb);
+    out->enc_l       = nvs_get_pin(h, "enc_l",   out->enc_l);
+    out->enc_r       = nvs_get_pin(h, "enc_r",   out->enc_r);
     nvs_close(h);
 }
 
@@ -116,35 +175,6 @@ static int extract_int_key(const char *json, size_t len, const char *key) {
     }
     if (!any) return PIN_ABSENT;
     return neg ? -v : v;
-}
-
-// Forbidden set: pins where wiring something else physically prevents
-// the firmware from running (camera signal lines on AI-Thinker, SPI
-// flash pins on all boards). Strapping pins, UART, USB pins are
-// recoverable — they live in a dashboard-side warning tier, not here.
-// See CLAUDE.md's panda pattern: firmware enforces the irreversible
-// floor, dashboard handles the educational layer.
-#if CONFIG_BR_BOARD_AITHINKER_CAM
-static const int PINS_FORBIDDEN[] = { 0, 5, 18, 19, 21, 22, 23, 25, 26, 27, 32, 34, 35, 36, 39 };
-#elif CONFIG_BR_BOARD_DEVKIT
-static const int PINS_FORBIDDEN[] = { 6, 7, 8, 9, 10, 11 };
-#elif CONFIG_BR_BOARD_C3_SUPERMINI
-static const int PINS_FORBIDDEN[] = { 11, 12, 13, 14, 15, 16, 17 };
-#endif
-
-#if CONFIG_IDF_TARGET_ESP32
-#define PIN_MAX 39
-#elif CONFIG_IDF_TARGET_ESP32C3
-#define PIN_MAX 21
-#else
-#error "pin_config: unknown IDF target — add PIN_MAX"
-#endif
-
-static bool pin_is_forbidden(int p) {
-    for (size_t i = 0; i < sizeof(PINS_FORBIDDEN) / sizeof(PINS_FORBIDDEN[0]); i++) {
-        if (p == PINS_FORBIDDEN[i]) return true;
-    }
-    return false;
 }
 
 void pin_config_handle_write(const uint8_t *json_bytes, size_t len) {
