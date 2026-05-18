@@ -1266,19 +1266,26 @@ def _read_ble_rssi() -> int | None:
 
 
 # Per-central bookkeeping for the idle watchdog. A central that opens a GATT
-# link but never writes within IDLE_DISCONNECT_S almost always means Chrome
-# timed out mid-discovery and never came back — the kind of stuck link that
-# blocks subsequent connect attempts until the supervision timeout fires.
-# Force-disconnect those so the slot is free for the next try.
+# link but never touches it within IDLE_DISCONNECT_S almost always means
+# Chrome timed out mid-discovery and never came back — the kind of stuck
+# link that blocks subsequent connect attempts until the supervision timeout
+# fires. Force-disconnect those so the slot is free for the next try.
+#
+# "Touches" means ANY GATT operation — read OR write. The first version of
+# this watchdog only counted writes, which kicked legitimate monitoring
+# sessions: a parked dashboard does notify-subscribed telemetry reads and
+# fw-info reads, no writes, and would get force-disconnected at 62s. The
+# updated heuristic treats reads as equally valid liveness.
 _ble_first_seen_at: dict[str, float] = {}
-_last_ble_write_at: float = 0.0
+_last_ble_activity_at: float = 0.0
 IDLE_DISCONNECT_S = 60.0
 
 
 async def _ble_idle_watchdog_task() -> None:
     """Polls connected centrals every 10s; disconnects any that have been
-    linked > IDLE_DISCONNECT_S with no GATT writes received since they
-    first appeared. Self-cleans stuck links without dashboard or SSH."""
+    linked > IDLE_DISCONNECT_S with no GATT activity (read or write)
+    received since they first appeared. Self-cleans stuck links without
+    dashboard or SSH."""
     while True:
         try:
             now = time.time()
@@ -1291,11 +1298,11 @@ async def _ble_idle_watchdog_task() -> None:
                 if mac not in _ble_first_seen_at:
                     _ble_first_seen_at[mac] = now
                 connected_for = now - _ble_first_seen_at[mac]
-                # Any write received since this central appeared counts as
+                # Any GATT operation since this central appeared counts as
                 # liveness — the link is being used, leave it alone.
-                writes_since_seen = _last_ble_write_at >= _ble_first_seen_at[mac]
-                if connected_for > IDLE_DISCONNECT_S and not writes_since_seen:
-                    log.info("idle-disconnect: %s after %.0fs, no GATT writes", mac, connected_for)
+                activity_since_seen = _last_ble_activity_at >= _ble_first_seen_at[mac]
+                if connected_for > IDLE_DISCONNECT_S and not activity_since_seen:
+                    log.info("idle-disconnect: %s after %.0fs, no GATT activity", mac, connected_for)
                     await asyncio.create_subprocess_exec(
                         "bluetoothctl", "disconnect", mac,
                         stdout=asyncio.subprocess.DEVNULL,
@@ -1640,6 +1647,12 @@ def _schedule(coro) -> None:
 
 
 def on_read(characteristic: BlessGATTCharacteristic, **_) -> bytearray:
+    # Reads count as liveness too — a connected dashboard streaming
+    # telemetry + heartbeat reads is a legitimate monitoring session even
+    # without writes. Previously only on_write stamped this, which kicked
+    # parked dashboards at 62s.
+    global _last_ble_activity_at
+    _last_ble_activity_at = time.time()
     uuid = characteristic.uuid.lower()
     if uuid == LED_CHAR_UUID:
         return bytearray([_led_state])
@@ -1673,11 +1686,11 @@ def on_read(characteristic: BlessGATTCharacteristic, **_) -> bytearray:
 
 
 def on_write(characteristic: BlessGATTCharacteristic, value: bytearray, **_) -> None:
-    global _led_state, _last_ble_write_at
+    global _led_state, _last_ble_activity_at
     # Any GATT write counts as liveness for the idle watchdog. A stuck link
-    # (Chrome timed out, never wrote) never reaches this callback, so its
-    # _last_ble_write_at stays older than its first-seen timestamp.
-    _last_ble_write_at = time.time()
+    # (Chrome timed out, never reached this callback) leaves
+    # _last_ble_activity_at older than its first-seen timestamp.
+    _last_ble_activity_at = time.time()
     uuid = characteristic.uuid.lower()
     if uuid == LED_CHAR_UUID:
         if len(value) == 0 or led is None:
