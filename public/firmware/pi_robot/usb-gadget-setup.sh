@@ -9,6 +9,23 @@ if [ -d "$GADGET" ]; then
   exit 0  # already configured (reboot-safe idempotency)
 fi
 
+# Wait for dwc2 to register a UDC on /sys/class/udc. systemd-modules-load
+# returns as soon as modprobe finishes, but dwc2's USB-device-controller
+# registration is async on top of that — racing past it would leave us
+# with an empty /sys/class/udc and a silent skip (ConditionPathExists
+# previously masked this; we dropped it so the unit actually runs).
+# 10s is generous: dwc2 publishes within ~200 ms on a healthy boot.
+for _ in $(seq 1 50); do
+  if ls /sys/class/udc 2>/dev/null | grep -q .; then
+    break
+  fi
+  sleep 0.2
+done
+if ! ls /sys/class/udc 2>/dev/null | grep -q .; then
+  echo "usb-gadget: no UDC after 10s — dwc2 not loaded or in host mode" >&2
+  exit 1
+fi
+
 mkdir -p "$GADGET"
 cd "$GADGET"
 
