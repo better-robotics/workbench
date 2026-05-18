@@ -271,9 +271,14 @@ _camera_import_err = None
 if CAMERA_ENABLED is not False:
     try:
         from aiortc import (  # type: ignore
-            RTCPeerConnection, RTCSessionDescription, RTCIceCandidate,
+            RTCPeerConnection, RTCSessionDescription,
             RTCConfiguration, RTCIceServer,
         )
+        # candidate_from_sdp parses the browser-shaped "candidate:…" line into
+        # an aiortc RTCIceCandidate. The class itself doesn't take a `candidate`
+        # kwarg — it wants the already-parsed component/foundation/ip/port
+        # fields — so trickle ICE has to go through this helper.
+        from aiortc.sdp import candidate_from_sdp  # type: ignore
         import aiohttp  # type: ignore
         from picamera2 import Picamera2  # type: ignore
         from picamera2.encoders import JpegEncoder  # type: ignore
@@ -1518,11 +1523,14 @@ async def _cam_handle_message(msg: dict) -> None:
             }})
             _set_cam_status(st="answered")
         elif t == "ice" and _cam_pc is not None:
-            cand = RTCIceCandidate(
-                sdpMid=d.get("sdpMid"),
-                sdpMLineIndex=d.get("sdpMLineIndex"),
-                candidate=d.get("candidate", ""),
-            )
+            cand_str = (d.get("candidate") or "").strip()
+            if not cand_str:
+                return  # end-of-candidates marker; aiortc doesn't need one
+            if cand_str.startswith("candidate:"):
+                cand_str = cand_str[len("candidate:"):]
+            cand = candidate_from_sdp(cand_str)
+            cand.sdpMid = d.get("sdpMid")
+            cand.sdpMLineIndex = d.get("sdpMLineIndex")
             await _cam_pc.addIceCandidate(cand)
         elif t == "stop":
             await _cam_teardown()
