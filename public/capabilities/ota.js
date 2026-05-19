@@ -43,11 +43,6 @@ export async function uploadFile(id, filename, destPath, contentBytes, { restart
 let renderEntry = () => {};
 export function setRender(fn) { renderEntry = fn; }
 
-// Called right after a commit succeeds (PNA or BLE) so onDisconnected
-// knows the upcoming BLE drop is the firmware rebooting and can auto-retry.
-let _markExpectingReconnect = () => {};
-export function setExpectingReconnectHandler(fn) { _markExpectingReconnect = fn; }
-
 // Patch existing OTA section in place; avoids full innerHTML rewrite on
 // every progress tick (which would destroy hovered elements and flicker).
 // Falls back to full re-render if the section isn't in the DOM yet.
@@ -301,16 +296,14 @@ export async function updateFirmware(id) {
       try {
         await streamOtaViaWebRTC(entry, bytes);
         webrtcOk = true;
-        logFor(entry, "OTA staged + apply triggered — robot applying bundle");
-        _markExpectingReconnect(entry.id);
+        logFor(entry, "OTA staged + apply triggered — click Reconnect when the robot's back");
       } catch (err) {
         logFor(entry, `WebRTC OTA failed: ${err.message} — falling back to BLE`);
       }
       if (!webrtcOk) {
         try {
           await streamOtaBytes(entry, bytes);
-          logFor(entry, "OTA commit sent — robot applying bundle");
-          _markExpectingReconnect(entry.id);
+          logFor(entry, "OTA commit sent — click Reconnect when the robot's back");
         } catch (err) {
           logFor(entry, `OTA failed: ${err.message}`);
         }
@@ -349,8 +342,7 @@ export async function updateFirmware(id) {
     try {
       await streamOtaViaWebRTC(entry, bytes);
       webrtcOk = true;
-      logFor(entry, "OTA committed via WebRTC — robot restarting");
-      _markExpectingReconnect(entry.id);
+      logFor(entry, "OTA committed via WebRTC — click Reconnect when the robot's back");
     } catch (err) {
       logFor(entry, `WebRTC OTA failed: ${err.message} — falling back to BLE`);
     }
@@ -358,8 +350,7 @@ export async function updateFirmware(id) {
       logFor(entry, `OTA streaming over BLE (~30s for ~1.6 MB)…`);
       try {
         await streamOtaBytes(entry, bytes);
-        logFor(entry, "OTA commit sent — robot restarting");
-        _markExpectingReconnect(entry.id);
+        logFor(entry, "OTA commit sent — click Reconnect when the robot's back");
       } catch (err) {
         logFor(entry, `OTA failed: ${err.message}`);
       }
@@ -387,8 +378,7 @@ export async function updateFromFile(id) {
     await acquireWakeLock();
     try {
       await streamOtaBytes(entry, bytes);
-      logFor(entry, "OTA commit sent — robot restarting");
-      _markExpectingReconnect(entry.id);
+      logFor(entry, "OTA commit sent — click Reconnect when the robot's back");
     } catch (err) {
       logFor(entry, `OTA failed: ${err.message}`);
     } finally {

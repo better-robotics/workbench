@@ -23,8 +23,8 @@ export async function restartService(id) {
     return;
   }
   if (!confirm(
-    `Restart the robot's service?\n\nThis disconnects BLE briefly; the ` +
-    `dashboard will reconnect once the service is back (~5–10 s).`
+    `Restart the robot's service?\n\nThis disconnects BLE briefly. ` +
+    `Click Reconnect on the robot card once the service is back (~5–10 s).`
   )) return;
   if (await sendCommand(entry, "ops", { op: "restart-service" })) {
     logFor(entry, "service restart requested");

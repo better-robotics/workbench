@@ -16,7 +16,7 @@ import {
   formatUptime, formatWifi, formatWifiShort, formatResetReason,
   formatRssi, rssiSeverity, tempSeverity,
 } from "./format.js";
-import { updateFirmware, updateFromFile, setExpectingReconnectHandler } from "./capabilities/ota.js";
+import { updateFirmware, updateFromFile } from "./capabilities/ota.js";
 import { restartService, rebootRobot, enrollKey, getLog, getConfig } from "./capabilities/runtime/command.js";
 import { initGamepad } from "./gamepad.js";
 import { initMotorsKeyboard } from "./capabilities/runtime/signed-pair.js";
@@ -40,7 +40,6 @@ import {
 setDisconnectHandler((id) => onDisconnected(id));
 setCapabilityRenderer((entry) => renderEntry(entry));
 setHelpersRobotRenderer((entry) => renderEntry(entry));
-setExpectingReconnectHandler((id) => markExpectingReconnect(id));
 
 // A phone helper's camera mounted on this robot (phone-as-eye). The video
 // element is discoverable by camera-frame.js's findCameraElement enumerator
@@ -219,13 +218,10 @@ async function refreshMyFingerprint() {
 }
 onKeyChange(refreshMyFingerprint);
 
-// Skip auto-reconnect for robots untouched past this window — stale entries
-// shouldn't blast the BT stack with timeout attempts on every page load.
-const AUTO_RECONNECT_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 // gatt.connect() has no browser-exposed timeout; a wedged robot can leave the
 // amber "Connecting…" pulse on indefinitely. Healthy connects complete in
 // under 2s — 6s is plenty of margin and fails fast enough that the user
-// gets a real "Re-pair" button instead of staring at a spinner.
+// gets a real "Reconnect" button instead of staring at a spinner.
 const GATT_CONNECT_TIMEOUT_MS = 6000;
 function gattConnectWithTimeout(device) {
   return Promise.race([
@@ -263,46 +259,18 @@ async function pickDeviceOrFail(options) {
 }
 
 async function loadPaired() {
-  // Restore remembered robots first — works even when getDevices() is missing.
-  for (const { id, name, fwType, autoReconnect, lastConnectedAt, arucoMarkerId, cameraFlip } of loadKnown()) {
+  // Rehydrate paired entries from localStorage. We deliberately don't call
+  // navigator.bluetooth.getDevices() to repopulate cached BluetoothDevice
+  // handles: cached-handle reconnect was the source of the post-restart
+  // wedge (gatt.connect on a stale handle, no way to recover without a
+  // fresh requestDevice). Every click goes through the chooser now —
+  // predictable, one shape, no timing races against the robot's boot.
+  for (const { id, name, fwType, lastConnectedAt, arucoMarkerId, cameraFlip } of loadKnown()) {
     if (!state.devices.has(id)) {
-      state.devices.set(id, makeEntry(id, name, fwType, { autoReconnect, lastConnectedAt, arucoMarkerId, cameraFlip }));
-    }
-  }
-  if (navigator.bluetooth.getDevices) {
-    try {
-      const paired = await navigator.bluetooth.getDevices();
-      paired.forEach(entryFor);
-    } catch (err) {
-      log(`Could not list paired devices: ${err.message}`);
+      state.devices.set(id, makeEntry(id, name, fwType, { lastConnectedAt, arucoMarkerId, cameraFlip }));
     }
   }
   render();
-  autoReconnectKnown();
-}
-
-// Fire off reconnect attempts for robots whose last intent was to be connected.
-// Guard: only attempt if a paired BluetoothDevice is already attached (from
-// getDevices) — otherwise connect() would prompt with a chooser, which is
-// hostile on page load.
-// After this many consecutive failures in one session, stop retrying on load —
-// a dead/out-of-range robot shouldn't keep hammering the BT stack. Counter
-// lives in-memory (not persisted) so a fresh page load gets one clean attempt.
-const AUTO_RECONNECT_MAX_FAILURES = 2;
-async function autoReconnectKnown() {
-  // Serialize per-robot attempts. Parallel auto-reconnect with a stale
-  // BT stack means every robot waits the full timeout in lockstep —
-  // sequential makes page-load failure surface in 6s × N instead of
-  // freezing the UI for 6s flat with all spinners pulsing.
-  const cutoff = Date.now() - AUTO_RECONNECT_MAX_AGE_MS;
-  for (const entry of state.devices.values()) {
-    if (!entry.device) continue;
-    if (!entry.autoReconnect) continue;
-    if ((entry.lastConnectedAt || 0) < cutoff) continue;
-    if ((entry.consecutiveFailures || 0) >= AUTO_RECONNECT_MAX_FAILURES) continue;
-    try { await connect(entry.id); }
-    catch { /* timeouts are expected; status-row shows it */ }
-  }
 }
 
 async function scanForNew() {
@@ -344,22 +312,11 @@ async function restoreDevice(entry) {
 async function connect(id) {
   const entry = state.devices.get(id);
   if (!entry) return;
-  // If the last attempt's cached handle was stale, force the chooser path —
-  // requestDevice gives us a fresh BluetoothDevice; the cached one will keep
-  // failing the same way until Chrome's pairing-list garbage-collects it.
-  if (entry.staleHandle) entry.device = null;
   if (!entry.device) {
-    // requestDevice requires user activation. If we got here from
-    // setTimeout (auto-reconnect after OTA) there's no gesture to spend
-    // — bail without firing requestDevice, otherwise we'd silently
-    // SecurityError four times in a row eating the retry window for a
-    // call that can never succeed without a click.
-    if (!navigator.userActivation?.isActive) return;
-    // Visual feedback BEFORE the chooser opens — without this, if Chrome
-    // doesn't pop the picker (no matching device advertising yet) the
-    // button stays on "Re-pair" with no signal that the click registered.
-    // Setting connecting now flips the label to "Connecting…" and the
-    // catch path below restores it on cancel.
+    // requestDevice requires user activation — we only get here from a
+    // direct click, so userActivation should be live. Visual feedback
+    // BEFORE the chooser opens so the click registers in the UI even if
+    // Chrome takes a moment to surface the picker.
     entry.status = "connecting";
     renderEntry(entry);
     try {
@@ -389,16 +346,13 @@ async function connect(id) {
   try {
     server = await gattConnectWithTimeout(entry.device);
   } catch (err) {
-    // Cached gatt.connect failed before we got anywhere. Almost always means
-    // the BluetoothDevice handle is stale (robot rebooted, bonding rotated).
-    // Flip the button to "Re-pair" so the next click goes through the chooser
-    // — chaining requestDevice into the same click is blocked by Chrome's
-    // 5s transient-activation window vs. our 20s gatt.connect timeout.
+    // gatt.connect on the just-picked device failed. We drop the handle so
+    // the next click starts a fresh chooser instead of retrying a maybe-
+    // stale BluetoothDevice.
+    entry.device = null;
     entry.status = "error";
-    entry.staleHandle = true;
     entry.lastConnectError = err.message || String(err);
-    entry.consecutiveFailures = (entry.consecutiveFailures || 0) + 1;
-    logFor(entry, `connect failed: ${entry.lastConnectError} — click Re-pair to retry with a fresh handle`);
+    logFor(entry, `connect failed: ${entry.lastConnectError}`);
     renderEntry(entry);
     return;
   }
@@ -418,13 +372,9 @@ async function connect(id) {
     // A robot advertising only the service (no chars) is still "connected".
     // Every capability is optional.
     entry.status = "connected";
-    entry.staleHandle = false;
-    // Record the intent signal: this session's last explicit wish is "connected".
-    // Unexpected GATT drops won't flip it — only an explicit Disconnect click will.
-    entry.autoReconnect = true;
+    // lastConnectedAt feeds phones.js's "most recently active dashboard"
+    // tiebreaker for cross-tab phone pair signaling.
     entry.lastConnectedAt = Date.now();
-    // Reset the per-session failure state so a future drop starts from zero.
-    entry.consecutiveFailures = 0;
     entry.lastConnectError = null;
     persist();
     renderHelpers();  // phone "Mount camera" picker now has a new destination.
@@ -557,7 +507,6 @@ async function connect(id) {
   } catch (err) {
     entry.status = "error";
     entry.lastConnectError = err.message || String(err);
-    entry.consecutiveFailures = (entry.consecutiveFailures || 0) + 1;
     logFor(entry, `connect failed: ${entry.lastConnectError}`);
   }
   renderEntry(entry);
@@ -619,10 +568,7 @@ async function readHeartbeatPlane(entry, server) {
 async function tryConnectHeartbeatOnly(entry, server) {
   if (!(await readHeartbeatPlane(entry, server))) return false;
   entry.status = "firmware-down";
-  entry.staleHandle = false;
-  entry.autoReconnect = true;
   entry.lastConnectedAt = Date.now();
-  entry.consecutiveFailures = 0;
   entry.lastConnectError = null;
   persist();
   logFor(entry, `firmware down — heartbeat ip=${entry.heartbeat?.ip || "?"} pi_robot=${entry.heartbeat?.pi_robot || "?"}`);
@@ -650,10 +596,6 @@ async function probeRuntimeCaps(entry, service) {
 async function disconnect(id) {
   const entry = state.devices.get(id);
   if (!entry) return;
-  // Explicit user intent: "I'm done with this robot." Won't auto-reconnect on
-  // next load. Unexpected drops go through onDisconnected without touching this.
-  entry.autoReconnect = false;
-  persist();
   if (entry.device && entry.device.gatt.connected) entry.device.gatt.disconnect();
   onDisconnected(id);
 }
@@ -682,43 +624,10 @@ function onDisconnected(id) {
   for (const cap of CAPABILITIES) cap.cleanup(entry);
   for (const cap of entry.runtimeCaps || []) cap.cleanup(entry);
   entry.runtimeCaps = [];
+  // Drop the BluetoothDevice handle on every disconnect so the next click
+  // forces a fresh requestDevice — no stale-handle traps after a Pi reboot.
+  entry.device = null;
   renderEntry(entry);
-  if (entry.autoReconnect !== false) {
-    // OTA-induced disconnect: the firmware sets entry.expectingReconnectUntil
-    // before its restart, so we keep retrying. Backoff 3 / 6 / 12 / 25 s
-    // spreads attempts across the chip's ~10-30 s reboot window.
-    if (entry.expectingReconnectUntil && Date.now() < entry.expectingReconnectUntil) {
-      schedulePostOtaReconnect(id);
-    }
-  }
-}
-
-const POST_OTA_RECONNECT_DELAYS = [3000, 6000, 12000, 25000];
-function schedulePostOtaReconnect(id, attempt = 0) {
-  if (attempt >= POST_OTA_RECONNECT_DELAYS.length) return;
-  setTimeout(async () => {
-    const entry = state.devices.get(id);
-    if (!entry) return;
-    if (entry.status === "connected" || entry.status === "connecting") return;
-    if (Date.now() > (entry.expectingReconnectUntil || 0)) return;
-    logFor(entry, `auto-reconnect after restart (attempt ${attempt + 1}/${POST_OTA_RECONNECT_DELAYS.length})`);
-    try { await connect(id); } catch {}
-    const after = state.devices.get(id);
-    if (after && after.status !== "connected") {
-      schedulePostOtaReconnect(id, attempt + 1);
-    } else if (after) {
-      after.expectingReconnectUntil = 0;  // we're back; clear the marker.
-    }
-  }, POST_OTA_RECONNECT_DELAYS[attempt]);
-}
-
-// Called from ota.js after a commit succeeds — opens the auto-reconnect
-// window so onDisconnected (which fires when the firmware reboots) knows
-// to retry instead of leaving the entry idle.
-export function markExpectingReconnect(id, windowMs = 60000) {
-  const entry = state.devices.get(id);
-  if (!entry) return;
-  entry.expectingReconnectUntil = Date.now() + windowMs;
 }
 
 async function forgetDevice(id) {
@@ -746,9 +655,6 @@ async function forgetDevice(id) {
   render();
 }
 
-// Connect-all shows when ≥1 idle robot has a BluetoothDevice handle already
-// Per-entry node ownership: a notify for robot A never touches robot B's DOM,
-// so slider drags on one card survive sibling state changes.
 // QR hint: ?robot=X on the URL means a scan landed us here. Surface a
 // one-click Pair CTA when that robot isn't paired yet. Chrome gates
 // requestDevice on user activation, so the button click is the activation.
@@ -1053,11 +959,7 @@ function renderEntry(entry) {
         ${connected
           ? ""
           : `<button class="sm" data-action="connect" ${connecting ? "disabled" : ""}>${
-              connecting ? "Connecting…"
-              : entry.staleHandle ? "Re-pair"
-              : entry.device && (entry.consecutiveFailures || 0) >= AUTO_RECONNECT_MAX_FAILURES ? "Retry"
-              : entry.device ? "Connect"
-              : "Pair"
+              connecting ? "Connecting…" : "Reconnect"
             }</button>`}
         <button class="icon" data-action="menu" aria-label="More actions"><svg class="icon-svg"><use href="icons.svg#icon-more"/></svg></button>
       </div>
@@ -1067,11 +969,6 @@ function renderEntry(entry) {
       ${warningsSlot}
       ${opsRow}
     </div>
-    ${entry.staleHandle && !connected && !connecting ? `
-      <div class="meta robot-stale-hint">
-        Pick ${escapeHtml(entry.name)} again to reconnect. The robot's pairing isn't affected.
-      </div>
-    ` : ""}
     ${stateHtml}
     ${firmwareDown ? `
       <div class="firmware-down-banner">

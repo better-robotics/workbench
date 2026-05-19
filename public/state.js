@@ -20,9 +20,7 @@ export function persist() {
   for (const e of state.devices.values()) {
     out.push({
       id: e.id, name: e.name, fwType: e.fwType || null,
-      // Intent signal: true when the user's last explicit wish was to be connected,
-      // false when they clicked Disconnect. Unexpected drops leave it unchanged.
-      autoReconnect: !!e.autoReconnect,
+      // Phones.js's "most recently active dashboard" tiebreaker reads this.
       lastConnectedAt: e.lastConnectedAt || 0,
       // ArUco marker ID bound to this robot. Null = unbound; detection falls
       // back to positional `entries[m.id]` so zero-config still works for
@@ -44,13 +42,12 @@ export function loadKnown() {
   catch { return []; }
 }
 
-export function makeEntry(id, name, fwType = null, { autoReconnect = false, lastConnectedAt = 0, arucoMarkerId = null, cameraFlip = false } = {}) {
+export function makeEntry(id, name, fwType = null, { lastConnectedAt = 0, arucoMarkerId = null, cameraFlip = false } = {}) {
   return {
     id, name,
     // Platform label shown as a badge on the card. Cached from fw-info.type
     // on first connect so the badge survives disconnects / page reloads.
     fwType,
-    autoReconnect,
     lastConnectedAt,
     // ArUco marker assignment — see persist() comment. null = positional fallback.
     arucoMarkerId,
@@ -61,13 +58,6 @@ export function makeEntry(id, name, fwType = null, { autoReconnect = false, last
     // staleness before steering — producer never clears stale entries.
     arucoPosition: null,
     device: null,
-    // Set when a cached gatt.connect() failed (typically after a robot reboot:
-    // Chrome keeps the BluetoothDevice handle, but the bonded GATT session
-    // can't be re-established without a fresh requestDevice). Causes the
-    // button to render as "Re-pair" instead of "Connect", so the next click
-    // hits the chooser path. Not persisted — fresh handles on page load
-    // start with this false.
-    staleHandle: false,
     status: "idle",
     ledChar: null, ledOn: false,
     wifiScanChar: null, wifiJoinChar: null, wifiStatusChar: null,
