@@ -18,8 +18,7 @@ import {
 // surfaces an error if neither transport is available.
 let _askInChat = null;
 export function setAskInChatHandler(fn) { _askInChat = fn; }
-import { detectOnce, GROUNDING_ENABLED, isGroundingFailed } from "./grounding.js";
-import { isMediapipeFailed } from "./mediapipe.js";
+import { detectOnce, isMediapipeFailed } from "./mediapipe.js";
 import { startWatcher, stopWatcher, ACTION_NAMES, watcherStatus, COCO_CLASSES } from "./watcher.js";
 import { speak as voiceSpeak } from "./voice.js";
 
@@ -131,7 +130,7 @@ const ALL_TOOLS = [
   },
   {
     name: "get_robot_detections",
-    description: "Open-vocab detector on the robot's camera frame. Returns {label, score, bbox:{x,y,w,h,cx,cy}} per hit; coords normalized to [0,1], x=0 left, y=0 top. cx<0.45 = left of center, cx>0.55 = right of center. Empty array = no match. Per-camera bboxes are not comparable across cameras.",
+    description: "Closed-vocab detector on the robot's camera frame (MediaPipe COCO, ~80 classes). Returns {label, score, bbox:{x,y,w,h,cx,cy}} per hit; coords normalized to [0,1], x=0 left, y=0 top. cx<0.45 = left of center, cx>0.55 = right of center. Empty array = no class in `queries` was seen (this also means: queries containing non-COCO terms like 'cat feeder' or 'doorway' will always return empty — use only COCO labels like 'person', 'cup', 'cat', 'chair', 'cell phone', 'bottle', 'laptop'). Per-camera bboxes are not comparable across cameras.",
     input_schema: {
       type: "object",
       properties: {
@@ -139,7 +138,7 @@ const ALL_TOOLS = [
         queries: {
           type: "array",
           items: { type: "string" },
-          description: "Up to 5 short noun phrases ('yellow can', 'doorway').",
+          description: "Up to 5 COCO class labels ('person', 'cup', 'cat', 'cell phone', 'stop sign'). Non-COCO terms silently return empty.",
         },
         camera: { type: "string", description: "'primary' (default), 'phone', or 'all'." },
       },
@@ -217,7 +216,7 @@ const ALL_TOOLS = [
   },
   {
     name: "speak",
-    description: "Say a short message aloud via browser TTS — ambient voice for the human without making them check the chat. Use for findings ('I see a stop sign'), completion signals ('done — three loops'), or important asks. Don't narrate tool calls or restate chat replies. Keep utterances under ~15 words. Returns immediately; audio plays asynchronously and cancels any prior utterance still speaking.",
+    description: "Say a short phrase aloud via browser TTS — ambient narration so the operator doesn't have to watch the chat. Call this at every major decision point, not just at the end of a turn: starting a multi-step task ('starting the search'), after a notable observation ('found the stop sign'), when changing direction ('trying the kitchen'), on completion ('done — found it'), and important asks ('need help — where next?'). Aim for 3–7 words per utterance — longer reads as a recital. Skip routine state polls and tool-call narration. Returns immediately; cancels any prior utterance still speaking.",
     input_schema: {
       type: "object",
       properties: {
@@ -248,8 +247,7 @@ const ALL_TOOLS = [
 
 // Hide disabled tools from Pip so it doesn't waste tokens proposing calls
 // that would fail. Keeping the executor case below (unreachable when the
-// tool isn't advertised) means re-enabling is a single flag flip in
-// grounding.js, not a re-plumb.
+// tool isn't advertised) is harmless if mediapipe init recovers later.
 // Backends that accept image blocks in tool_result content. OpenAI's
 // tool-result image support is untested here so gated out until verified
 // end-to-end.
@@ -259,12 +257,11 @@ export function isVisionAvailable() {
 }
 
 // Dynamic per-call so runtime toggles (Settings → Pip vision) take effect
-// without a page reload. GROUNDING_ENABLED is still a module-load constant;
-// pipVisionEnabled comes from settings and can flip between asks.
+// without a page reload. All MediaPipe-backed tools (detections + watcher)
+// share the same isMediapipeFailed() gate — same model, same failure mode.
 export function getTools() {
   return ALL_TOOLS.filter(t => {
-    if (t.name === "get_robot_detections" && (!GROUNDING_ENABLED || isGroundingFailed())) return false;
-    if ((t.name === "start_robot_watcher" || t.name === "stop_robot_watcher") && isMediapipeFailed()) return false;
+    if ((t.name === "get_robot_detections" || t.name === "start_robot_watcher" || t.name === "stop_robot_watcher") && isMediapipeFailed()) return false;
     if (t.name === "view_robot_frame" && !isVisionAvailable()) return false;
     return true;
   });
@@ -401,20 +398,21 @@ async function dispatch(name, input) {
       const entry = state.devices.get(input.id);
       if (!entry) return { error: `no robot with id ${input.id}` };
       const queries = Array.isArray(input.queries) ? input.queries.map(String).slice(0, 5) : [];
-      if (queries.length === 0) return { error: "queries is required (up to 5 short noun phrases)" };
+      if (queries.length === 0) return { error: "queries is required (up to 5 COCO class labels)" };
       const camera = String(input.camera || "primary").toLowerCase();
       const sources = listCameraSources(entry);
+      // MediaPipe's detectOnce takes { classes, source, threshold } and
+      // filters the 80-class scan post-detection. Returns null on hard
+      // failure, [] on "no class matched" — those mean different things.
+      const captureErr = isMediapipeFailed()
+        ? "detector unavailable this session (MediaPipe init failed — check browser console)"
+        : "couldn't capture a frame — camera not started or video element 0-sized";
       try {
         if (camera === "all") {
           const detections_by_camera = {};
           for (const src of sources) {
-            const dets = await detectOnce(entry, queries, { source: src.element });
-            if (dets === null) {
-              const why = isGroundingFailed()
-                ? "detector unavailable this session (WebGPU/model init failed)"
-                : `couldn't capture a frame from camera '${src.label}'`;
-              return { error: why };
-            }
+            const dets = await detectOnce(entry, { classes: queries, source: src.element });
+            if (dets === null) return { error: captureErr };
             detections_by_camera[src.label] = dets;
           }
           return { detections_by_camera };
@@ -423,13 +421,8 @@ async function dispatch(name, input) {
         if (!pick) {
           return { error: `no camera '${camera}' on this robot. available: ${sources.map(s => s.label).join(", ") || "(none)"}` };
         }
-        const detections = await detectOnce(entry, queries, { source: pick.element });
-        if (detections === null) {
-          const why = isGroundingFailed()
-            ? "detector unavailable this session (WebGPU/model init failed — check browser console)"
-            : "couldn't capture a frame — camera element missing or Watch off";
-          return { error: why };
-        }
+        const detections = await detectOnce(entry, { classes: queries, source: pick.element });
+        if (detections === null) return { error: captureErr };
         return { detections };
       } catch (err) {
         return { error: `detector failed: ${String(err.message || err)}` };
