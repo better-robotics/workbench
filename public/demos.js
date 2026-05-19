@@ -263,13 +263,20 @@ async function stopsignPatrol(ctx) {
   // Wavy forward — alternating slight-right and slight-left arcs feels
   // organic, like a vehicle gently changing lanes. Each segment is a
   // max-duration pulse so the sweep covers serious ground per loop.
-  // Six segments = ~12s of forward motion = ~3-4m at 35 cm/s.
-  const wavyForward = async (segments = 6) => {
+  //
+  // Tuned for "real patrol" feel: 12 segments × 2000ms ≈ 24s of forward
+  // motion per leg ≈ 7-8m at 35 cm/s. Firmware caps speed at 40 and
+  // pulse duration at 2000ms so this is as fast as a single leg can go
+  // without changing the firmware floor. Bumped from 6 → 12 segments
+  // (double the pulses per leg) and widened the arc from 0.65 → 0.75
+  // so each segment covers more straight-line distance — the patrol
+  // reads as "covering ground" instead of "twitching back and forth."
+  const wavyForward = async (segments = 12) => {
     for (let i = 0; i < segments; i++) {
       if (shouldStop()) return;
       const arc = i % 2 === 0
-        ? [SPEED,         SPEED * 0.65]
-        : [SPEED * 0.65,  SPEED       ];
+        ? [SPEED,         SPEED * 0.75]
+        : [SPEED * 0.75,  SPEED       ];
       await pulse(ctx, arc[0], arc[1], MAX);
     }
   };
@@ -287,7 +294,7 @@ async function stopsignPatrol(ctx) {
     let lap = 0;
     while (!shouldStop()) {
       lap++;
-      await wavyForward(6);
+      await wavyForward();  // default 12 segments — see helper comment
       if (shouldStop()) break;
       await ctx.exec("speak", { text: `Lap ${lap}, turning around.` });
       await turnAround();
