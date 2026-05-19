@@ -36,8 +36,12 @@ static const char *TAG = "motors";
 #define MOTOR_RES        LEDC_TIMER_8_BIT
 
 #define MOTOR_WATCHDOG_MS    500
-#define LLM_MAX_SPEED        40
-#define LLM_MAX_DURATION_MS  2000
+// 70/4000 matches the Pi caps — see firmware/pi_robot/pi_robot.py for the
+// rationale (40% PWM stalls on carpet; 4s pulses let a planner-loop cross
+// a room without re-issuing every two seconds; safety floors elsewhere
+// still gate forward motion when an obstacle is close).
+#define LLM_MAX_SPEED        70
+#define LLM_MAX_DURATION_MS  4000
 
 // Stall rung: a commanded side that hasn't ticked for STALL_THRESHOLD_MS
 // is jammed (wall, gear bind, broken motor wire). Cut power before the

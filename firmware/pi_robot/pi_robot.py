@@ -110,8 +110,14 @@ MOTOR_WATCHDOG_MS = 500
 # firmware honors by auto-stopping at the end of the pulse. Magnitude and
 # duration are clamped to these caps regardless of what the dashboard
 # sends; firmware is the safety floor, not Pip / Claude.
-LLM_MAX_SPEED = 40
-LLM_MAX_DURATION_MS = 2000
+#
+# 70/4000 is the demo-tuned shape: 40% PWM frequently can't overcome
+# stiction on carpet (wheels buzz but don't turn); 70% gives a meaningful
+# walk-pace traversal. 4 s lets a pulse cross most of a room without
+# Claude needing to re-issue every two seconds, while the safety floor +
+# 100 ms watchdog still cut in-flight motion when an obstacle appears.
+LLM_MAX_SPEED = 70
+LLM_MAX_DURATION_MS = 4000
 
 # BLE OTA protocol:
 #   ota-data  (write) — binary frames with 1-byte opcode:
@@ -1407,8 +1413,12 @@ async def _ble_idle_watchdog_task() -> None:
 
 
 async def _telemetry_task() -> None:
-    """Periodic vitals notify. 6s cadence catches spikes without saturating
-    BLE. Payload < ~60 B fits one ATT."""
+    """Periodic vitals notify. 2s cadence — fast enough that Claude reading
+    state after a 1–4s motion pulse sees the post-pulse dist_cm /
+    encoder ticks, slow enough that ~70 B/s of BLE notifies stays well
+    inside one ATT and doesn't compete with motor/ops writes. Was 6s
+    pre-sonar (vitals only); shorter is non-negotiable for reactive
+    Claude-driving demos."""
     while True:
         try:
             t: dict = {
@@ -1430,7 +1440,7 @@ async def _telemetry_task() -> None:
             _publish(TELEMETRY_CHAR_UUID, _json_bytes(t))
         except Exception as e:
             log.warning("telemetry: %s", e)
-        await asyncio.sleep(6)
+        await asyncio.sleep(2)
 
 
 async def _delayed_system_action(kind: str) -> None:
