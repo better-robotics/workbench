@@ -487,8 +487,24 @@ export function initAssistant() {
   if (showIntro) { try { localStorage.setItem(seenKey, "1"); } catch {} }
   // Inject in-chat ask handler so pip-tools' ask_human can render option
   // buttons / free-text input inline in the active turn.
-  setAskInChatHandler(({ question, options }) =>
-    _pip.askInChat({ question, options }, _activeTurnEl));
+  //
+  // pip-core's askInChat does `host.insertBefore(block, host.querySelector(".pip-reply"))`,
+  // intended for single-reply turns. Our per-iteration setup emits multiple
+  // `.pip-iter-reply pip-reply` bubbles, so that anchor finds the FIRST
+  // reply and shoves the question above it — i.e. at the top of the turn.
+  // Wrapping in a trailing empty div with no `.pip-reply` descendants makes
+  // pip-core's querySelector return null and `insertBefore(block, null)`
+  // fall through to appendChild, landing the question at the bottom of the
+  // turn where chat UX expects it. Anchor is removed after the answer
+  // resolves so it doesn't leak DOM per ask_human call.
+  setAskInChatHandler(({ question, options }) => {
+    if (!_activeTurnEl) return Promise.resolve(null);
+    const anchor = document.createElement("div");
+    anchor.className = "pip-ask-anchor";
+    _activeTurnEl.appendChild(anchor);
+    return _pip.askInChat({ question, options }, anchor)
+      .finally(() => anchor.remove());
+  });
   watchDialogs();
   wireMicButton();
 }
