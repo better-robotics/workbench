@@ -2061,6 +2061,31 @@ dialog[open]::backdrop { opacity: 1; }
   object-fit: contain;
 }
 
+/* COCO class disclosure inside the Reflex card body. Default collapsed
+   so the section stays compact; expand reveals all 80 classes as a
+   wrapped comma-separated list. summary is keyboard-focusable. */
+.watcher-coco {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--ink-muted);
+}
+.watcher-coco > summary {
+  cursor: pointer;
+  user-select: none;
+  padding: 2px 0;
+}
+.watcher-coco > summary:hover { color: var(--ink); }
+.watcher-coco-list {
+  margin-top: 4px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--surface);
+  line-height: 1.5;
+  font-family: "SF Mono", ui-monospace, Menlo, monospace;
+  font-size: 10.5px;
+  word-spacing: 1px;
+}
+
 /* Inline reflex-fire notice — rendered when watcher.js fires its
    onWatcherFire event during an active Pip turn. Dim, single-line,
    distinct from tool pills. Fire-once-and-disable means it lands at most

@@ -44,6 +44,26 @@ const ACTIONS = {
 };
 export const ACTION_NAMES = Object.keys(ACTIONS);
 
+// COCO 80 — the exact closed vocabulary EfficientDet-Lite0 detects. Exposed
+// so the tool description can list them for the planner (no more guessing)
+// and the Reflex card body can show them for the operator (no more "what
+// can I watch for?"). Pinned here as the single source of truth instead of
+// duplicating in pip-tools.js + watcher UI.
+export const COCO_CLASSES = [
+  "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train",
+  "truck", "boat", "traffic light", "fire hydrant", "stop sign",
+  "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep", "cow",
+  "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella", "handbag",
+  "tie", "suitcase", "frisbee", "skis", "snowboard", "sports ball", "kite",
+  "baseball bat", "baseball glove", "skateboard", "surfboard", "tennis racket",
+  "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana",
+  "apple", "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza",
+  "donut", "cake", "chair", "couch", "potted plant", "bed", "dining table",
+  "toilet", "tv", "laptop", "mouse", "remote", "keyboard", "cell phone",
+  "microwave", "oven", "toaster", "sink", "refrigerator", "book", "clock",
+  "vase", "scissors", "teddy bear", "hair drier", "toothbrush",
+];
+
 function ensureConfig(entry) {
   if (!entry.watcher) entry.watcher = { classes: ["stop sign"], action: "halt", enabled: false, lastDetection: null };
   return entry.watcher;
@@ -127,6 +147,13 @@ function renderSection(entry) {
   const actionOpts = ACTION_NAMES.map(a =>
     `<option value="${a}"${cfg.action === a ? " selected" : ""}>${a}</option>`
   ).join("");
+  // Datalist for autocomplete on the class input — Apple-HIG combobox
+  // shape, lets the operator pick from the exact 80 without consulting
+  // external docs. <details>/summary surfaces the full list as a
+  // disclosure so the visual default is compact.
+  const datalistId = `coco-classes-${entry.id}`;
+  const datalistOpts = COCO_CLASSES.map(c => `<option value="${c}">`).join("");
+  const cocoListHtml = COCO_CLASSES.map(c => escapeHtml(c)).join(", ");
   const body = `
     <div class="watcher-body">
       <div class="row">
@@ -134,13 +161,19 @@ function renderSection(entry) {
         <input type="text" class="watcher-classes" data-action="watcher-classes"
                value="${escapeHtml(cfg.classes.join(", "))}"
                placeholder="stop sign, person"
+               list="${datalistId}"
                ${enabled ? "disabled" : ""}>
+        <datalist id="${datalistId}">${datalistOpts}</datalist>
       </div>
       <div class="row">
         <div class="label">On detection</div>
         <select data-action="watcher-action" ${enabled ? "disabled" : ""}>${actionOpts}</select>
       </div>
-      <div class="meta">Closed-vocab COCO (~80 classes). For open-vocab text prompts, use Pip's get_robot_detections.</div>
+      <details class="watcher-coco">
+        <summary>All ${COCO_CLASSES.length} COCO classes</summary>
+        <div class="watcher-coco-list">${cocoListHtml}</div>
+      </details>
+      <div class="meta">Closed-vocab — only the classes above will trigger.</div>
     </div>
   `;
   return capSection({ name: "watcher", label: "Reflex", state, action, body });
