@@ -172,6 +172,16 @@ async function onSubmit(text, { turnEl }) {
   // the right-edge slot (send → stop). Just clear the abort flag here.
 
   let pendingTraceLi = null;
+  // Reply bubble lives at .pip-reply inside turnEl; pip-core fills it from
+  // our return value at the end. We pre-create it (if absent) and write
+  // text-deltas into it as Claude streams, so the user sees the answer
+  // grow instead of waiting for the full turn.
+  let replyEl = turnEl.querySelector(".pip-reply");
+  if (!replyEl) {
+    replyEl = document.createElement("div");
+    replyEl.className = "pip-reply";
+    turnEl.appendChild(replyEl);
+  }
   const messages = _pip.history.slice(-HISTORY_LIMIT)
     .map(m => ({ role: m.role, content: m.content }));
   const reply = await askWithTools(messages, {
@@ -183,6 +193,10 @@ async function onSubmit(text, { turnEl }) {
     onToolEnd: ({ name, input, result, error, durationMs }) => {
       finishTraceLine(pendingTraceLi, name, input, result, error, durationMs);
       pendingTraceLi = null;
+    },
+    onDelta: (textSoFar) => {
+      replyEl.textContent = textSoFar;
+      scrollPanelToBottom();
     },
     shouldAbort: () => _abort,
     onMaxIterations: async () => {
@@ -242,11 +256,17 @@ function registerInitialSlashCommands() {
   // repurposes Pip's main input via _pip.collectSecret — same input the
   // user's already looking at.
   const CLAUDE_ALIASES = CLAUDE_VARIANTS.map(v => v.alias);
-  const MODEL_CHOICES = [...PIP_BACKENDS, ...CLAUDE_ALIASES];
   _pip.registerSlash({
     name: "model",
     description: "switch Pip's backend (github/bridge/anthropic/openai) or Claude variant (opus/sonnet/haiku)",
-    complete: (partial) => MODEL_CHOICES.filter(b => b.startsWith(partial.toLowerCase())),
+    // Context-aware completion: on a Claude-capable backend, variants come
+    // first (that's the next decision you'd most likely make); otherwise
+    // backends lead.
+    complete: (partial) => {
+      const isClaude = settings.pipBackend === "bridge" || settings.pipBackend === "anthropic";
+      const ordered = isClaude ? [...CLAUDE_ALIASES, ...PIP_BACKENDS] : [...PIP_BACKENDS, ...CLAUDE_ALIASES];
+      return ordered.filter(b => b.startsWith(partial.toLowerCase()));
+    },
     handler: async (argsString) => {
       const arg = argsString.trim().toLowerCase();
       if (!arg) {

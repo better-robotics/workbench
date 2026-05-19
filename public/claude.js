@@ -42,6 +42,102 @@ export function activeModelForBackend(backend) {
 // networks and first-request cold-start.
 const TIMEOUT_MS = 20000;
 
+// Streams a Claude /v1/messages request through the localhost proxy.
+// Returns a parsed-response shape — { status, content, stop_reason } —
+// identical to JSON.parse(non-stream-body), plus emits onTextDelta(fullText)
+// as text_delta events arrive. Falls back to { status, body } on HTTP error
+// and { status: 0, error } on network failure so the caller's existing
+// branches still match. Anthropic SSE format reference:
+// docs.anthropic.com/en/docs/build-with-claude/streaming
+async function streamAnthropicViaProxy(body, onTextDelta) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  let resp;
+  try {
+    resp = await fetch(BRIDGE_PROXY_URL + "/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json", "accept": "text/event-stream" },
+      body: JSON.stringify({ ...body, stream: true }),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    if (err.name === "AbortError") return null;
+    return { status: 0, error: err.message || String(err) };
+  }
+  if (!resp.ok) {
+    clearTimeout(timer);
+    const text = await resp.text().catch(() => "");
+    return { status: resp.status, body: text };
+  }
+
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  const content = [];
+  let stopReason = null;
+  let textSoFar = "";  // cumulative text across every text block in this call
+
+  const handleEvent = (eventType, data) => {
+    if (eventType === "content_block_start") {
+      const block = { ...data.content_block };
+      if (block.type === "text") block.text = "";
+      // Anthropic streams tool input as a JSON string in deltas; accumulate
+      // raw, parse at content_block_stop.
+      if (block.type === "tool_use") block._rawInput = "";
+      content[data.index] = block;
+    } else if (eventType === "content_block_delta") {
+      const block = content[data.index];
+      if (!block) return;
+      if (data.delta?.type === "text_delta") {
+        block.text += data.delta.text;
+        textSoFar += data.delta.text;
+        onTextDelta?.(textSoFar);
+      } else if (data.delta?.type === "input_json_delta") {
+        block._rawInput += data.delta.partial_json;
+      }
+    } else if (eventType === "content_block_stop") {
+      const block = content[data.index];
+      if (block?.type === "tool_use") {
+        try { block.input = JSON.parse(block._rawInput || "{}"); }
+        catch { block.input = {}; }
+        delete block._rawInput;
+      }
+    } else if (eventType === "message_delta") {
+      if (data.delta?.stop_reason) stopReason = data.delta.stop_reason;
+    }
+  };
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf("\n\n")) !== -1) {
+        const raw = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        let eventType = null, data = "";
+        for (const line of raw.split("\n")) {
+          if (line.startsWith("event:")) eventType = line.slice(6).trim();
+          else if (line.startsWith("data:")) data += line.slice(5).trimStart();
+        }
+        if (!data) continue;
+        let parsed;
+        try { parsed = JSON.parse(data); } catch { continue; }
+        handleEvent(eventType, parsed);
+      }
+    }
+  } catch (err) {
+    if (err.name === "AbortError") return null;
+    return { status: 0, error: err.message || String(err) };
+  } finally {
+    clearTimeout(timer);
+  }
+
+  return { status: 200, content: content.filter(Boolean), stop_reason: stopReason };
+}
+
 // Talks to the AI Bridge localhost proxy. The proxy injects the OAuth token
 // and Claude-Max billing header; we just send the bare messages body. Returns
 // the same {status, body} | null shape the rest of this file already consumes.
@@ -242,46 +338,61 @@ export async function askWithTools(messages, opts = {}) {
   return _anthropicAskWithTools(messages, opts);
 }
 
-async function _anthropicAskWithTools(messages, { system, tools, executor, maxIterations = 10, maxTokens = 1024, onToolStart, onToolEnd, shouldAbort, onMaxIterations } = {}) {
+async function _anthropicAskWithTools(messages, { system, tools, executor, maxIterations = 10, maxTokens = 1024, onToolStart, onToolEnd, shouldAbort, onMaxIterations, onDelta } = {}) {
   const convo = [...messages];
   let i = 0;
   let budget = maxIterations;
+  // Cumulative text across iterations so the bubble keeps growing through
+  // multi-step tool conversations rather than resetting per iteration.
+  let priorText = "";
+  // Streaming only on the bridge backend — anthropic-direct path stays
+  // buffered for now (direct fetch doesn't use this transport).
+  const canStream = onDelta && settings.pipBackend === "bridge";
   while (i < budget) {
     if (shouldAbort?.()) return "(stopped)";
-    const res = await callAnthropic({
+    const body = {
       model: currentClaudeModel(),
       max_tokens: maxTokens,
       system,
       messages: convo,
       tools: tools?.map(sanitizeTool),
-      stream: false,
-    });
-    if (!res || res.error) { logBackendError("askWithTools", res); return null; }
-    if (res.status < 200 || res.status >= 300) { logBackendError("askWithTools", res); return null; }
-    let json;
-    try { json = JSON.parse(res.body); }
-    catch (err) { console.warn("[claude] askWithTools: malformed JSON body", err); return null; }
-
-    convo.push({ role: "assistant", content: json.content });
-
-    if (json.stop_reason !== "tool_use") {
-      const text = (json.content || [])
-        .filter(b => b.type === "text")
-        .map(b => b.text)
-        .join("\n")
-        .trim();
-      return text;  // may be "" — caller decides what to do with silence
+    };
+    let result;
+    if (canStream) {
+      result = await streamAnthropicViaProxy(body, (textSoFar) => onDelta(priorText + textSoFar));
+    } else {
+      const res = await callAnthropic({ ...body, stream: false });
+      if (!res || res.error) { logBackendError("askWithTools", res); return null; }
+      if (res.status < 200 || res.status >= 300) { logBackendError("askWithTools", res); return null; }
+      try { result = JSON.parse(res.body); result.status = 200; }
+      catch (err) { console.warn("[claude] askWithTools: malformed JSON body", err); return null; }
     }
+    if (!result || result.error) { logBackendError("askWithTools", result); return null; }
+    if (result.status < 200 || result.status >= 300) { logBackendError("askWithTools", result); return null; }
+
+    convo.push({ role: "assistant", content: result.content });
+
+    const iterText = (result.content || [])
+      .filter(b => b.type === "text")
+      .map(b => b.text)
+      .join("\n");
+
+    if (result.stop_reason !== "tool_use") {
+      return (priorText + iterText).trim();  // may be "" — caller decides what to do with silence
+    }
+    // Tool-use iteration: bank any text Claude said before the tool call so
+    // the next iteration's stream continues from where this one left off.
+    if (iterText) priorText += iterText + "\n";
 
     // Execute each tool_use block; pack all results into one user turn.
-    const toolUses = json.content.filter(b => b.type === "tool_use");
+    const toolUses = result.content.filter(b => b.type === "tool_use");
     const toolResults = [];
     for (const tu of toolUses) {
       const startedAt = performance.now();
       onToolStart?.({ name: tu.name, input: tu.input });
       try {
-        const result = await executor(tu.name, tu.input);
-        onToolEnd?.({ name: tu.name, input: tu.input, result, error: null, durationMs: performance.now() - startedAt });
+        const toolOut = await executor(tu.name, tu.input);
+        onToolEnd?.({ name: tu.name, input: tu.input, result: toolOut, error: null, durationMs: performance.now() - startedAt });
         // _pipContent sentinel — micro-protocol any executor can use.
         // Default contract: executor returns a JS object, we JSON-stringify
         // it. Opt-in: executor returns { _pipContent: [...blocks] } where
@@ -290,9 +401,9 @@ async function _anthropicAskWithTools(messages, { system, tools, executor, maxIt
         // the actual image so Claude's next turn sees pixels, not base64.
         // Future tools that want the same: return { _pipContent: [...] };
         // no plumbing change needed.
-        const content = (result && result._pipContent)
-          ? result._pipContent
-          : JSON.stringify(result);
+        const content = (toolOut && toolOut._pipContent)
+          ? toolOut._pipContent
+          : JSON.stringify(toolOut);
         toolResults.push({
           type: "tool_result",
           tool_use_id: tu.id,
