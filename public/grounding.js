@@ -1,10 +1,25 @@
 // Open-vocabulary object detection via transformers.js. Output shape:
 // [{ label, score, bbox: { x, y, w, h, cx, cy } }] with coordinates
 // normalized to [0,1]; cx/cy is the box center (x=0 left, y=0 top).
+//
+// DISABLED — wired-but-unproven, kept out of demos. Real-world testing
+// surfaced two failure modes: (1) Grounding DINO returns medium-confidence
+// false positives labeled with raw BERT tokens like "stop sign.[SEP]"
+// when the queried object isn't actually in the frame; (2) the default
+// threshold of 0.25 is too loose for actionable decisions but bumping it
+// hurts recall on real hits. Closed-vocab reflex use cases now route
+// through `mediapipe.js` (EfficientDet-Lite0 COCO), which is robust on
+// the known classes the project actually needs. See
+// `.claude/notes.md` → "Wired but unproven → Grounding DINO" for the full
+// validation list and revisit triggers.
+//
+// Flipping GROUNDING_ENABLED back to true is the only thing needed to
+// re-arm the path once the failure modes are addressed (label sanitizing,
+// threshold tuning, Pip-side tool-selection guidance).
 
 import { drawFrameToCanvas } from "./camera-frame.js";
 
-export const GROUNDING_ENABLED = true;
+export const GROUNDING_ENABLED = false;
 
 // Unversioned URL tracks the latest v4.x — ships the native WebGPU EP
 // with broader op coverage than onnxruntime-web's old WebGPU backend.
@@ -80,6 +95,9 @@ function normalizeQuery(q) {
 }
 
 export async function detectOnce(entry, queries, { threshold = DEFAULT_THRESHOLD, topk = DEFAULT_TOPK, source = null } = {}) {
+  // Hard-stop when disabled — defense in depth so the 151 MB model never
+  // downloads if some future caller bypasses the getTools() filter.
+  if (!GROUNDING_ENABLED) return null;
   if (_pipeFailed) return null;
   if (!Array.isArray(queries) || queries.length === 0) return [];
   const canvas = drawFrameToCanvas(entry, MAX_DIM, source);

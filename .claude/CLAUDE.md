@@ -27,7 +27,7 @@ The **browser-native robotics dev environment** — vibe-code robots in a tab, r
 # Subsystem map
 
 - **Pair layer** — `pairing.js`, `phones.js`, `mobile.js` + `phone.html`. Desktop ↔ phone WebRTC.
-- **Perception + detection** — `camera-frame.js`, `grounding.js`, `aruco.js` (overhead ArUco → `entry.arucoPosition`). Overhead aruco wired but unproven — see "Wired but unproven" in `.claude/notes.md`.
+- **Perception + detection** — `camera-frame.js`, `mediapipe.js` (closed-vocab COCO reflex, powers `watcher.js`), `grounding.js` (open-vocab — currently disabled, see "Wired but unproven"), `aruco.js` (overhead ArUco → `entry.arucoPosition`, wired but unproven).
 - **Pip / assistant** — `assistant.js`, `claude.js`, `pip-tools.js`.
 - **Robot ops** — `ble.js`, `ops-response.js`, `capabilities/`.
 - **Robot lifecycle** — `prepare.js`, `recovery.js`, `pinout.js`.
@@ -74,9 +74,9 @@ Different model shapes are good at different jobs — distinct primitives, not i
 
 **Detectors and perception:**
 
-- **Open-vocab detector** (`grounding.js`, Grounding DINO tiny): text-prompt detection, no retraining. ~150–300 ms on CPU. For backend-vision-capable Pip turns, `view_robot_frame` passes the raw frame straight to the planner — no caption step.
+- **Closed-vocab reflex detector** (`mediapipe.js`, EfficientDet-Lite0 via MediaPipe Tasks API): 80 COCO classes, ~10–30 ms on GPU. Powers the per-robot Reflex card (`watcher.js`) and user-code `robot.watchFor` / `robot.detections`. Fire-once-and-disable shape — same terminal-rung pattern as `ask_human`. For backend-vision-capable Pip turns, `view_robot_frame` passes the raw frame straight to the planner — no caption step.
 
-**Unproven / experimental:** Overhead ArUco localization (`aruco.js`) and YOLO26n closed-vocab detector (not built). See `.claude/notes.md` "Wired but unproven." Keep out of user docs until validated.
+**Unproven / experimental:** Overhead ArUco localization (`aruco.js`), open-vocab `grounding.js` (Grounding DINO tiny — currently **disabled** via `GROUNDING_ENABLED=false` after real-world false positives), YOLO26n closed-vocab detector (not built). See `.claude/notes.md` "Wired but unproven." Keep out of user docs until validated.
 
 **Planners (Pip):**
 

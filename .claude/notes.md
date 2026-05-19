@@ -212,6 +212,26 @@ Loads at runtime but not confirmed end-to-end against hardware. Kept out of `REA
 
 **Why bother.** Sub-pixel deterministic pose for a tagged object is the only roadmap primitive that closes the visual-servo loop without a depth sensor — and the substrate for the multi-robot-orchestration direction in `.claude/CLAUDE.md`. Drives `entry.arucoPosition` which the motion controller consumes as ground truth (subject to its staleness gate — `aruco.js` does NOT clear stale entries when a robot leaves frame; consumer's job).
 
+## Grounding DINO open-vocab detector (`public/grounding.js`) — disabled
+
+**What's wired.**
+- Grounding DINO tiny via `@huggingface/transformers`, ONNX, q4f16 quant (~151 MB cached). WebGPU init cascade falls through to WASM CPU. Pipeline kind `zero-shot-object-detection`.
+- `detectOnce(entry, queries, { threshold, topk, source })` accepts up to 5 noun phrases per call, concatenates into a period-separated prompt (Grounding DINO's ONNX export pins batch=1), returns `{ label, score, bbox }` normalized to the input canvas.
+- Was the backing of the `get_robot_detections` Pip tool. Tool is now hidden from `getTools()` via the `GROUNDING_ENABLED` flag.
+
+**What failed in real-world testing.**
+- Returned a medium-confidence (0.60) match labeled `"stop sign.[SEP]"` against a robot-vacuum dock — no stop sign in the frame. The `[SEP]` token is a BERT separator that should never surface as a label; it's the post-processor leaking internal tokens when the model can't bind the query to a real phrase. Pip trusted the score and declared "stop sign found."
+- Default threshold of 0.25 is too loose for actionable decisions (false-positive heavy), but raising it hurts recall on legitimate hits — open-vocab models are calibrated for "find a thing matching this phrase," not "is the thing present yes/no."
+
+**To re-arm.**
+1. Sanitize labels in `grounding.js` — strip `[SEP]`/`[CLS]`/`[PAD]` tokens, drop detections whose cleaned label is empty. `[SEP]` in a label is the smoking gun for a junk match.
+2. Raise default threshold to ~0.5 and document per-call override semantics in the Pip tool description.
+3. Re-shape the `get_robot_detections` tool description to push Pip toward `start_robot_watcher` (closed-vocab MediaPipe COCO) for known classes and treat open-vocab results as "suggestive, not certain" below ~0.7.
+4. Validate against a fixed scene set — 10 frames known-positive, 10 frames known-negative — with the new threshold + label sanitizer. Promote back to default-on only when negative recall hits zero false positives across the set.
+
+**Why bother keeping it.**
+Open-vocab text-prompt detection is a real capability gap when filled — MediaPipe's 80 classes don't cover "the yellow can" or "doorway." The wedge "browser-resident model serving for arbitrary queries" depends on this primitive working. Disabling is a tactical retreat for the upcoming demo, not a strategy shift.
+
 ## YOLO26n closed-vocab detector (not built)
 
 Considered as a faster sibling to Grounding DINO for reactive-tier use cases (visual servo, gamepad-overlay tracking). No `yolo.js` exists. Don't promise externally until it ships *and* validates against a use case Grounding DINO can't serve.
