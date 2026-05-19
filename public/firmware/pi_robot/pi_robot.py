@@ -1033,62 +1033,25 @@ def _open_camera_track():
 
 
 class _PiCameraTrack(MediaStreamTrack if _camera_available else object):  # type: ignore
-    """Capture at the cam's full-FOV native mode for sensor coverage, deliver
-    TRANSMIT_SIZE for the encoder. UVC webcams typically expose only one
-    non-cropped mode (their max-resolution sensor mode); all lower-res UVC
-    modes are center crops of it — picking 640×480 directly looks "zoomed
-    in." 1280×960 covers every cheap UVC cam we've seen.
-
-    Downscale path is platform-conditional. On CSI cams the VC4/VC7L ISP
-    fills picamera2's `lores` stream alongside `main` for free, and
-    `lores` is YUV420 — VP8's native input. On libcamera's `uvcvideo`
-    pipeline handler, lores isn't available (the stream config ends up
-    None and picamera2's start path raises trying to set per-stream
-    properties on it). Fall back to capturing `main` RGB888 and
-    `.reformat()`-ing on recv() — slow but works everywhere.
-
-    Capture runs on a background thread into a single-slot buffer; recv()
-    drains the latest frame and discards anything older. Bounds glass-to
-    -glass latency to one frame even when aiortc's software VP8 encoder
-    lags the sensor — the previous counter-based PTS at time_base 1/15
-    made every frame look on-time to the browser's jitter buffer, so
-    stale frames couldn't be dropped and delay walked up monotonically.
-    Wall-clock PTS on the 90 kHz RTP video clock lets the decoder see
-    real timing."""
+    """640x480. Capture runs on a background thread into a single-slot
+    buffer; recv() drains the latest frame and discards anything older.
+    Bounds glass-to-glass latency to one frame even when aiortc's software
+    VP8 encoder lags the sensor — the previous counter-based PTS at
+    time_base 1/15 made every frame look on-time to the browser's jitter
+    buffer, so stale frames couldn't be dropped and delay walked up
+    monotonically. Wall-clock PTS on the 90 kHz RTP video clock lets the
+    decoder see real timing. UVC cams may center-crop from native sensor
+    size; revisit when full-FOV is worth burning CPU on."""
     kind = "video"
-
-    CAPTURE_SIZE = (1280, 960)
-    TRANSMIT_SIZE = (640, 480)
 
     def __init__(self) -> None:
         super().__init__()
         self.camera = Picamera2()
-        # Try the HW-downscale path; UVC-pipeline cams fail mid-start with
-        # an opaque NoneType.orientation error because their lores config
-        # is silently dropped. The retry path re-creates the Picamera2
-        # instance because libcamera leaves the device in a half-acquired
-        # state after the failed start.
-        self._uses_lores = True
-        try:
-            cfg = self.camera.create_video_configuration(
-                main={"size": self.CAPTURE_SIZE, "format": "RGB888"},
-                lores={"size": self.TRANSMIT_SIZE, "format": "YUV420"},
-            )
-            self.camera.configure(cfg)
-            self.camera.start()
-        except Exception as e:
-            log.warning("camera: lores stream unsupported (%s); falling back to main+swscale", e)
-            self._uses_lores = False
-            try: self.camera.stop()
-            except Exception: pass
-            try: self.camera.close()
-            except Exception: pass
-            self.camera = Picamera2()
-            cfg = self.camera.create_video_configuration(
-                main={"size": self.CAPTURE_SIZE, "format": "RGB888"},
-            )
-            self.camera.configure(cfg)
-            self.camera.start()
+        cfg = self.camera.create_video_configuration(
+            main={"size": (640, 480), "format": "RGB888"},
+        )
+        self.camera.configure(cfg)
+        self.camera.start()
         self._time_base = fractions.Fraction(1, 90000)
         self._loop = asyncio.get_running_loop()
         self._frame_event = asyncio.Event()
@@ -1101,10 +1064,9 @@ class _PiCameraTrack(MediaStreamTrack if _camera_available else object):  # type
         self._thread.start()
 
     def _capture_loop(self) -> None:
-        stream = "lores" if self._uses_lores else "main"
         while not self._stop_flag.is_set():
             try:
-                arr = self.camera.capture_array(stream)
+                arr = self.camera.capture_array("main")
             except Exception:
                 if self._stop_flag.wait(0.05):
                     break
@@ -1125,19 +1087,7 @@ class _PiCameraTrack(MediaStreamTrack if _camera_available else object):  # type
             self._frame_event.clear()
             if arr is not None:
                 break
-        if self._uses_lores:
-            # lores delivers planar YUV420 (Y then U then V at half size,
-            # ndarray shape (h*3/2, w)). PyAV's "yuv420p" takes the same
-            # layout, and VP8 consumes YUV420 natively — the encoder skips
-            # the RGB→YUV step.
-            frame = av.VideoFrame.from_ndarray(arr, format="yuv420p")
-        else:
-            # main path: RGB888 at native, software resize on the asyncio
-            # thread. Slow, but the only option when the pipeline handler
-            # doesn't expose lores (uvcvideo).
-            frame = av.VideoFrame.from_ndarray(arr, format="rgb24")
-            frame = frame.reformat(width=self.TRANSMIT_SIZE[0],
-                                   height=self.TRANSMIT_SIZE[1])
+        frame = av.VideoFrame.from_ndarray(arr, format="rgb24")
         frame.pts = int(time.monotonic() * 90000)
         frame.time_base = self._time_base
         return frame
