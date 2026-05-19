@@ -17,18 +17,6 @@ import {
 // with options or free-text. Falls back to the phone path; ask_human
 // surfaces an error if neither transport is available.
 let _askInChat = null;
-
-// Consecutive move_motor calls without an intervening observation.
-// Executor-enforced so the planner can't bypass; reset by any
-// get_robot_detections / view_robot_frame call.
-const _pulseRun = new Map();
-const PULSE_RUN_LIMIT = 3;
-function bumpPulseRun(robotId) {
-  const n = (_pulseRun.get(robotId) || 0) + 1;
-  _pulseRun.set(robotId, n);
-  return n;
-}
-function resetPulseRun(robotId) { _pulseRun.set(robotId, 0); }
 export function setAskInChatHandler(fn) { _askInChat = fn; }
 import { detectOnce, GROUNDING_ENABLED, isGroundingFailed } from "./grounding.js";
 import { isMediapipeFailed } from "./mediapipe.js";
@@ -161,7 +149,7 @@ const ALL_TOOLS = [
   },
   {
     name: "move_motor",
-    description: "Time-bounded motor pulse: (l, r) speeds in [-100, 100], duration_ms. Firmware caps speed to ±40 and duration to [50, 2000]. Re-observe between pulses; executor stops you after 3 consecutive pulses without an intervening observation. Returns { ok, applied:{l,r,duration_ms} } or { ok:false, error }.",
+    description: "Time-bounded motor pulse: (l, r) speeds in [-100, 100], duration_ms. Firmware caps speed to ±40, duration to [50, 2000] ms, auto-stops at end of window, and clips pure-forward motion when dist_cm < ~15. You decide when to look (view_robot_frame), arm a reflex (start_robot_watcher), or escalate (ask_human) — no executor-imposed observation cadence. Returns { ok, applied:{l,r,duration_ms} } or { ok:false, error }.",
     input_schema: {
       type: "object",
       properties: {
@@ -333,7 +321,6 @@ async function dispatch(name, input) {
       if (!isVisionAvailable()) return { error: "vision is disabled or backend doesn't support images" };
       const e = state.devices.get(input.id);
       if (!e) return { error: `no robot with id ${input.id}` };
-      resetPulseRun(input.id);  // legitimate look-between-moves
       // 640px / 0.85 q is larger than ask_human's 320 / 0.75 — Claude's
       // vision wants detail, phone thumbnails don't. PNG would bloat the
       // tool-result payload without a useful accuracy bump.
@@ -381,7 +368,6 @@ async function dispatch(name, input) {
       if (!entry) return { error: `no robot with id ${input.id}` };
       const queries = Array.isArray(input.queries) ? input.queries.map(String).slice(0, 5) : [];
       if (queries.length === 0) return { error: "queries is required (up to 5 short noun phrases)" };
-      resetPulseRun(input.id);  // legitimate look-between-moves
       const camera = String(input.camera || "primary").toLowerCase();
       const sources = listCameraSources(entry);
       try {
@@ -432,16 +418,10 @@ async function dispatch(name, input) {
       return { ok: true, status };
     }
     case "move_motor": {
-      // Executor-enforced stop after 3 consecutive pulses without an
-      // intervening scene observation — making the model unable to bypass
-      // what was previously prose. Look-between-moves resets the run.
-      const run = bumpPulseRun(input.id);
-      if (run > PULSE_RUN_LIMIT) {
-        return {
-          ok: false,
-          error: `stop-rule triggered: ${run - 1} consecutive pulses without an intervening observation. Call get_robot_detections / view_robot_frame, or escalate to ask_human — you're not closing on the target.`,
-        };
-      }
+      // Each pulse is firmware-bounded (speed ±40, duration 50–2000 ms,
+      // watchdog auto-stop, dist_cm forward-clip). The planner decides
+      // when to look or ask for help — no executor-imposed observation
+      // cadence between pulses.
       return await pulseMotors(input.id, input.l, input.r, input.duration_ms);
     }
     case "speak": {

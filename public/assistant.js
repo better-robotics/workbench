@@ -9,7 +9,7 @@ import { createPip, renderMd } from "https://cdn.jsdelivr.net/npm/@jonasneves/pi
 
 const HISTORY_LIMIT = 12;
 
-// Executor-enforced rules (3-pulse stop, pulse cap, signed-pair clamp) live
+// Executor-enforced rules (signed-pair clamp, firmware pulse caps) live
 // in pip-tools.js. Per-tool guidance (when to detect vs view, ask_human
 // routing) lives in tool descriptions and ships on every turn. Static
 // system prompt carries identity + discovery posture; the current
@@ -246,8 +246,9 @@ async function onSubmit(text, { turnEl }) {
     // High budget + no interrupt prompt: trust the planner to stop when
     // done (stop_reason !== "tool_use") or the user to hit Stop. The old
     // "Continue?" prompt cut Claude mid-thought on multi-step tasks the
-    // 10-iteration default couldn't fit. Stop button + executor-side
-    // safety floors (3-pulse rule, firmware caps) bound blast radius.
+    // 10-iteration default couldn't fit. Stop button + firmware-level
+    // safety floors (pulse caps, watchdog, ultrasonic clip) bound blast
+    // radius — no executor-imposed observation cadence layered on top.
     maxIterations: 50,
     onToolStart: ({ name }) => {
       // Close out the current iteration's text bubble so the next
