@@ -131,7 +131,14 @@ export function startDetection(entry, { classes, source = null, threshold, inter
     if (stopped) return;
     const dets = await detectOnce(entry, { classes, source, threshold });
     if (stopped) return;
-    if (dets === null) { finish(null); return; }
+    if (dets === null) {
+      // Distinguish hard failure (detector dead — abandon) from transient
+      // null (no frame this tick — camera element missing or 0-sized).
+      // Persistent watchers need to ride out brief camera blips.
+      if (_detectorFailed) { finish(null); return; }
+      timer = setTimeout(loop, intervalMs);
+      return;
+    }
     if (dets.length > 0) { finish(dets[0]); return; }
     timer = setTimeout(loop, intervalMs);
   };

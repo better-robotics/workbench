@@ -32,6 +32,7 @@ import { initHelpers, setHelpersRobotRenderer, renderHelpers } from "./helpers.j
 // as the overhead camera; detection runs against the helper's existing
 // preview tile. No init call here.
 import "./aruco.js";
+import { watcherCap, stopWatcher } from "./watcher.js";
 import {
   setupServiceWorker, wireInstallMenuItem, wireCheckUpdatesMenuItem,
   wireHardRefresh, wireDiagnosticsMenuItem, setReportIssueLink, readSwVersion,
@@ -624,6 +625,10 @@ function onDisconnected(id) {
   for (const cap of CAPABILITIES) cap.cleanup(entry);
   for (const cap of entry.runtimeCaps || []) cap.cleanup(entry);
   entry.runtimeCaps = [];
+  // Stop any running reflex watcher — its detect loop would otherwise
+  // poll a now-vanished camera element forever (transient-null tolerance
+  // is for blips, not disconnects).
+  stopWatcher(entry, { silent: true });
   // Drop the BluetoothDevice handle on every disconnect so the next click
   // forces a fresh requestDevice — no stale-handle traps after a Pi reboot.
   entry.device = null;
@@ -815,7 +820,7 @@ function renderEntry(entry) {
   // keep their canonical order so the eye lands on each in the same
   // place across robots. OTA only emits markup when in flight, so this
   // ordering is a no-op in steady state.
-  const CAP_ORDER = { ota: 0, led: 1, motors: 2, wifi: 3, camera: 4, ops: 5 };
+  const CAP_ORDER = { ota: 0, led: 1, motors: 2, wifi: 3, camera: 4, watcher: 4.5, ops: 5 };
   const byOrder = (a, b) => (CAP_ORDER[a.name] ?? 99) - (CAP_ORDER[b.name] ?? 99);
   // Schema is flat (each cap is its own BLE characteristic) but the operator's
   // mental model isn't — Flash and Snapshot are sub-controls of the Camera.
@@ -825,6 +830,10 @@ function renderEntry(entry) {
   const allCaps = [];
   for (const c of CAPABILITIES) allCaps.push({ cap: c });
   for (const c of entry.runtimeCaps || []) allCaps.push({ cap: c });
+  // Dashboard-side virtual cap — not firmware-published, lives at the
+  // intersection of camera (input) and motors (action). renderSection
+  // self-gates on camera availability.
+  allCaps.push({ cap: watcherCap });
   const childrenOf = new Map();
   const topCaps = [];
   for (const item of allCaps) {
@@ -1029,6 +1038,7 @@ function renderEntry(entry) {
   };
   for (const cap of CAPABILITIES) safeCall(() => cap.wireActions(entry, entry.node), "wireActions", cap);
   for (const cap of entry.runtimeCaps || []) safeCall(() => cap.wireActions(entry, entry.node), "wireActions", cap);
+  safeCall(() => watcherCap.wireActions(entry, entry.node), "wireActions", watcherCap);
   for (const cap of CAPABILITIES) safeCall(() => cap.postRender?.(entry), "postRender", cap);
   for (const cap of entry.runtimeCaps || []) safeCall(() => cap.postRender?.(entry), "postRender", cap);
   // Per-capability disclosure toggles (cap-section.js renders the buttons).
