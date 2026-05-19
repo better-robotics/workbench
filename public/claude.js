@@ -359,7 +359,11 @@ async function _anthropicAskWithTools(messages, { system, tools, executor, maxIt
     };
     let result;
     if (canStream) {
-      result = await streamAnthropicViaProxy(body, (textSoFar) => onDelta(priorText + textSoFar));
+      // Per-iteration delta. The host renders each iteration as its own
+      // inline reply element interleaved with tool pills, so it doesn't
+      // need (and would mis-render) the cumulative-across-iterations
+      // string we used to send.
+      result = await streamAnthropicViaProxy(body, onDelta);
     } else {
       const res = await callAnthropic({ ...body, stream: false });
       if (!res || res.error) { logBackendError("askWithTools", res); return null; }

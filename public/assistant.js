@@ -5,7 +5,7 @@ import { settings, saveSettings } from "./settings.js";
 import { state } from "./state.js";
 import { isSupported as voiceInputSupported, startDictation } from "./voice-input.js";
 import { AUTH_URL } from "./endpoints.js";
-import { createPip } from "https://cdn.jsdelivr.net/npm/@jonasneves/pip@2.9.5/pip-core.esm.js";
+import { createPip, renderMd } from "https://cdn.jsdelivr.net/npm/@jonasneves/pip@2.9.5/pip-core.esm.js";
 
 const HISTORY_LIMIT = 12;
 
@@ -22,12 +22,13 @@ const PIP_SYSTEM = [
   "If a tool returns { error: ... }, surface it; don't fabricate around it.",
   "telemetry.dist_cm (when present) is the forward-facing ultrasonic distance in centimeters.",
   "Firmware silently clips pure-forward motion when dist_cm < ~15 — turns and reverse always pass, so rotate away first if blocked.",
-  // Terseness rules, Claude-Code style. Pip is a status bar, not a chat —
-  // long answers crowd the dashboard. Markdown is fine when it earns its
-  // bytes (a list of robots, a code snippet); narrative paragraphs are not.
-  "Be terse. Answer directly with no preamble, recap, or apology.",
-  "Match length to the question — one short sentence is the default; only elaborate when explicitly asked.",
-  "Don't narrate what you're about to do; do it.",
+  "",
+  // Hard-enforced format constraints. Pip renders into a small chat
+  // bubble with a deliberately tiny markdown subset — anything outside
+  // it ships as raw syntax to the user. Plain-text-summary keeps Claude
+  // honest about length (see hatch agent-loop.js for prior art).
+  "REPLY FORMAT: reply with a concise plain-text summary. One short sentence is the default; never more than three lines unless the user explicitly asks for detail. No preamble, no recap, no apology, no narrating what you're about to do.",
+  "Supported markdown: **bold**, *italic*, `code`, - bullets, 1. numbered lists, ```code blocks```. Do NOT use headers (#, ##, ###), horizontal rules (---), tables, or decorative section emojis — those render as raw text.",
 ].join("\n");
 
 // Per-turn context. Collapses the "you must call list_robots first" round
@@ -61,38 +62,31 @@ let _pip = null;
 let _abort = false;
 let _activeTurnEl = null;
 
-// Trace row, one per tool_use. Click the summary to expand input/result —
-// makes Pip's reasoning auditable in-place instead of requiring DevTools.
-// Long strings (e.g. base64 image data) get truncated in the detail view
-// so a single view_robot_frame call doesn't dump 80KB into the panel.
-function appendTraceLine(turnEl, name) {
-  let ul = turnEl.querySelector(".pip-trace");
-  if (!ul) {
-    ul = document.createElement("ul");
-    ul.className = "pip-trace";
-    const reply = turnEl.querySelector(".pip-reply");
-    turnEl.insertBefore(ul, reply || null);
-  }
-  const li = document.createElement("li");
-  li.className = "pip-trace-line pending";
-  const summary = document.createElement("button");
-  summary.type = "button";
-  summary.className = "pip-trace-summary";
-  summary.textContent = `${labelTool(name)} …`;
-  summary.setAttribute("aria-expanded", "false");
-  const detail = document.createElement("pre");
-  detail.className = "pip-trace-detail";
-  detail.hidden = true;
-  summary.addEventListener("click", () => {
-    const willOpen = detail.hidden;
-    detail.hidden = !willOpen;
-    summary.setAttribute("aria-expanded", String(willOpen));
+// Tool-call pill, hatch-style. Appended directly to turnEl in flow with
+// the rest of the iteration's text — so a multi-step turn renders as
+// [text 1] [pill 1] [text 2] [pill 2] [final text], not [stack of pills]
+// [final text]. Clicking Details expands a pre with args + result.
+function appendStepPill(turnEl, name) {
+  const el = document.createElement("div");
+  el.className = "pip-step running";
+  el.innerHTML =
+    `<div class="pip-step-head">` +
+      `<span class="pip-step-icon">▸</span>` +
+      `<span class="pip-step-label">${escHtml(labelTool(name))} …</span>` +
+      `<span class="pip-step-elapsed"></span>` +
+      `<button class="pip-step-toggle" type="button" hidden>Details</button>` +
+    `</div>` +
+    `<div class="pip-step-detail" hidden></div>`;
+  turnEl.appendChild(el);
+  const toggle = el.querySelector(".pip-step-toggle");
+  const detail = el.querySelector(".pip-step-detail");
+  toggle.addEventListener("click", () => {
+    const open = detail.hidden;
+    detail.hidden = !open;
+    toggle.textContent = open ? "Hide" : "Details";
   });
-  li.appendChild(summary);
-  li.appendChild(detail);
-  ul.appendChild(li);
   scrollPanelToBottom();
-  return li;
+  return el;
 }
 
 function safeJson(obj, maxStr = 240) {
@@ -104,18 +98,34 @@ function safeJson(obj, maxStr = 240) {
   }, 2);
 }
 
-function finishTraceLine(li, name, input, result, error, durationMs) {
-  if (!li) return;
-  li.classList.remove("pending");
+function escHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function finishStepPill(el, name, input, result, error, durationMs) {
+  if (!el) return;
+  el.classList.remove("running");
   const isError = !!error;
-  if (isError) li.classList.add("error");
-  const summary = li.querySelector(".pip-trace-summary");
-  summary.textContent = summarizeTool(name, input, result, error, durationMs);
-  const detail = li.querySelector(".pip-trace-detail");
-  const payload = { input: input ?? null };
-  if (isError) payload.error = String(error?.message || error);
-  else payload.result = result ?? null;
-  detail.textContent = safeJson(payload);
+  if (isError) el.classList.add("error");
+  el.querySelector(".pip-step-label").textContent =
+    summarizeTool(name, input, result, error, durationMs);
+  if (durationMs != null) {
+    const ms = Math.round(durationMs);
+    el.querySelector(".pip-step-elapsed").textContent =
+      ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
+  }
+  const detail = el.querySelector(".pip-step-detail");
+  const sections = [
+    input ? `<div class="pip-step-section"><span class="pip-step-detail-label">args</span><pre class="pip-step-pre">${escHtml(safeJson(input))}</pre></div>` : "",
+    isError
+      ? `<div class="pip-step-section"><span class="pip-step-detail-label">error</span><pre class="pip-step-pre">${escHtml(String(error?.message || error))}</pre></div>`
+      : (result != null ? `<div class="pip-step-section"><span class="pip-step-detail-label">result</span><pre class="pip-step-pre">${escHtml(safeJson(result))}</pre></div>` : ""),
+  ].filter(Boolean).join("");
+  if (sections) {
+    detail.innerHTML = sections;
+    el.querySelector(".pip-step-toggle").hidden = false;
+  }
   scrollPanelToBottom();
 }
 
@@ -200,14 +210,32 @@ async function actOnFailure(backend, turnEl) {
   return backendFailureHint(backend);
 }
 
-// Host onSubmit — runs askWithTools with trace + stop button.
-async function onSubmit(text, { turnEl, setReplyText }) {
+// Host onSubmit — runs askWithTools with hatch-style inline pill flow.
+// We render text + tool pills directly into turnEl in arrival order
+// instead of stuffing the final text into pip's single .pip-reply.
+async function onSubmit(text, { turnEl }) {
   _activeTurnEl = turnEl;
   _abort = false;
   // pip-core auto-toggles responding state around onSubmit, which morphs
   // the right-edge slot (send → stop). Just clear the abort flag here.
 
-  let pendingTraceLi = null;
+  // Hide pip's default empty reply slot — we own the flow now.
+  const defaultReply = turnEl.querySelector(".pip-reply");
+  if (defaultReply) defaultReply.hidden = true;
+
+  let currentReplyEl = null;   // active iteration's text bubble; null between iterations
+  let pendingStepEl = null;    // active tool pill awaiting onToolEnd
+  // pip-iter-reply is our marker; pip-reply + ai-generated pull in
+  // pip-core's markdown styling (p margins, code, ul/ol). pip's own
+  // setReplyText queries the first .pip-reply (the hidden default we
+  // leave at the top), so adding the class here doesn't trip on it.
+  const appendReplyEl = () => {
+    const el = document.createElement("div");
+    el.className = "pip-iter-reply pip-reply ai-generated";
+    turnEl.appendChild(el);
+    return el;
+  };
+
   const messages = _pip.history.slice(-HISTORY_LIMIT)
     .map(m => ({ role: m.role, content: m.content }));
   const reply = await askWithTools(messages, {
@@ -221,25 +249,46 @@ async function onSubmit(text, { turnEl, setReplyText }) {
     // 10-iteration default couldn't fit. Stop button + executor-side
     // safety floors (3-pulse rule, firmware caps) bound blast radius.
     maxIterations: 50,
-    onToolStart: ({ name }) => { pendingTraceLi = appendTraceLine(turnEl, name); },
-    onToolEnd: ({ name, input, result, error, durationMs }) => {
-      finishTraceLine(pendingTraceLi, name, input, result, error, durationMs);
-      pendingTraceLi = null;
+    onToolStart: ({ name }) => {
+      // Close out the current iteration's text bubble so the next
+      // iteration's deltas land in a fresh one below the pill.
+      currentReplyEl = null;
+      pendingStepEl = appendStepPill(turnEl, name);
     },
-    // Route through pip-core's setReplyText so deltas render as markdown
-    // (innerHTML = renderMd(text)) instead of raw textContent. Same call
-    // path pip uses for the final reply, so no flicker at the end.
-    onDelta: (textSoFar) => setReplyText(turnEl, textSoFar, true),
+    onToolEnd: ({ name, input, result, error, durationMs }) => {
+      finishStepPill(pendingStepEl, name, input, result, error, durationMs);
+      pendingStepEl = null;
+    },
+    onDelta: (iterText) => {
+      if (!currentReplyEl) currentReplyEl = appendReplyEl();
+      currentReplyEl.innerHTML = renderMd(iterText);
+      scrollPanelToBottom();
+    },
     shouldAbort: () => _abort,
   });
   _activeTurnEl = null;
-  // Backend returned nothing usable → surface an actionable recovery
-  // (button or repurposed main input) instead of pip-core's generic
-  // "try again." See actOnFailure: github → Sign in button; anthropic/
-  // openai → main input becomes the key-paste field; bridge falls back
-  // to a text hint.
-  if (reply == null || reply === "") return actOnFailure(settings.pipBackend, turnEl);
-  return reply;
+
+  // Backend returned nothing usable → render the failure inline since
+  // we've hidden pip's default reply. actOnFailure can also drive an
+  // inline askInChat (sign-in / key prompt), which appends its own
+  // block to turnEl independently.
+  if (reply == null || reply === "") {
+    const failureText = await actOnFailure(settings.pipBackend, turnEl);
+    if (failureText) {
+      const el = appendReplyEl();
+      el.innerHTML = renderMd(failureText);
+      scrollPanelToBottom();
+    }
+  } else if (!currentReplyEl) {
+    // Non-streaming path (e.g. backend != bridge) had no deltas — render
+    // the full reply once now so the user actually sees it.
+    const el = appendReplyEl();
+    el.innerHTML = renderMd(reply);
+    scrollPanelToBottom();
+  }
+  // Return "" so pip's setReplyText writes to the hidden default reply
+  // — invisible, but it keeps pip's responding-state teardown happy.
+  return "";
 }
 
 // Re-enter the top layer so bubble+panel stack above a modal dialog that
