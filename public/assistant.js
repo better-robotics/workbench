@@ -2,6 +2,7 @@ import { ask, askWithTools, activeModelForBackend, CLAUDE_VARIANTS } from "./cla
 import { getTools, executor, setAskInChatHandler } from "./pip-tools.js";
 import { labelTool, summarizeTool } from "./format.js";
 import { settings, saveSettings } from "./settings.js";
+import { state } from "./state.js";
 import { AUTH_URL } from "./endpoints.js";
 import { createPip } from "https://cdn.jsdelivr.net/npm/@jonasneves/pip@2.9.5/pip-core.esm.js";
 
@@ -9,17 +10,44 @@ const HISTORY_LIMIT = 12;
 
 // Executor-enforced rules (3-pulse stop, pulse cap, signed-pair clamp) live
 // in pip-tools.js. Per-tool guidance (when to detect vs view, ask_human
-// routing) lives in tool descriptions and ships on every turn. System
-// prompt carries identity + discovery posture only.
+// routing) lives in tool descriptions and ships on every turn. Static
+// system prompt carries identity + discovery posture; the current
+// connected-robot snapshot is appended per-turn by buildSystem() so Pip
+// can skip list_robots when ids are unambiguous.
 const PIP_SYSTEM = [
   "You are an assistant in a browser robotics dashboard for ESP32 and Pi robots.",
   "Tools let you read robot state, see frames, detect objects, pulse motors, ask the human.",
-  "Use tools to discover — don't guess robot state. list_robots first if ambiguous.",
+  "Use tools to discover state — don't guess.",
   "If a tool returns { error: ... }, surface it; don't fabricate around it.",
   "telemetry.dist_cm (when present) is the forward-facing ultrasonic distance in centimeters.",
   "Firmware silently clips pure-forward motion when dist_cm < ~15 — turns and reverse always pass, so rotate away first if blocked.",
   "Respond concisely.",
 ].join("\n");
+
+// Per-turn context. Collapses the "you must call list_robots first" round
+// trip when the id is already unambiguous from current state.
+function currentRobotsLine() {
+  const usable = [...state.devices.values()].filter(e =>
+    e.status === "connected" || e.status === "firmware-down"
+  );
+  if (usable.length === 0) {
+    return "No robots are connected. Tools requiring an id will return errors until the user pairs and connects one.";
+  }
+  if (usable.length === 1) {
+    const r = usable[0];
+    const note = r.status === "firmware-down" ? " (firmware down — only recovery ops work)" : "";
+    return `Connected robot: id="${r.id}" name="${r.name}" type=${r.fwType || "unknown"}${note}. Use this id directly; list_robots is unnecessary.`;
+  }
+  const lines = usable.map(r => {
+    const note = r.status === "firmware-down" ? " [firmware down]" : "";
+    return `- id="${r.id}" name="${r.name}" type=${r.fwType || "unknown"}${note}`;
+  }).join("\n");
+  return `${usable.length} connected robots (use these ids directly; list_robots only to refresh status):\n${lines}`;
+}
+
+function buildSystem() {
+  return `${PIP_SYSTEM}\n\n${currentRobotsLine()}`;
+}
 
 export const PIP_INTRO = "Try: \"why isn't this robot connecting\" or \"what's in the camera\". /help for commands.";
 
@@ -187,7 +215,7 @@ async function onSubmit(text, { turnEl }) {
   const messages = _pip.history.slice(-HISTORY_LIMIT)
     .map(m => ({ role: m.role, content: m.content }));
   const reply = await askWithTools(messages, {
-    system: PIP_SYSTEM,
+    system: buildSystem(),
     tools: getTools(),
     executor,
     maxTokens: 1024,
