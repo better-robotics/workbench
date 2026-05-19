@@ -33,6 +33,7 @@ Pure-function tests live in `tests/`; run with `make smoke`. Below needs hardwar
 - [ ] **Camera (ESP32)** renders when WiFi joined. Per-camera transport toggle (WebRTC ↔ HTTP MJPEG) switches the live view without page reload; both transports paint frames.
 - [ ] **Camera (Pi)** WebRTC stream comes up once `pi-robot-rtc.service` is healthy; ICE survives Pi reboot.
 - [ ] **Snapshot** completes in <5 s; stalls trigger watchdog with retry.
+- [ ] **Reflex watcher**: open the Reflex section on a connected robot with a camera → Start → hold a stop sign to the camera → button flips to Start (fire-once), state shows "saw stop sign at HH:MM", motors halt if a Motors cap is present. Pip variant: `start_robot_watcher` from chat with `classes: ["stop sign"]` does the same.
 - [ ] **OTA** progress smoothly reports per chunk; "100% receiving → committing → done" transitions visible.
 - [ ] **OTA orphan** state cleared on next connect (no stuck "1% receiving" forever).
 

@@ -31,6 +31,8 @@ function bumpPulseRun(robotId) {
 function resetPulseRun(robotId) { _pulseRun.set(robotId, 0); }
 export function setAskInChatHandler(fn) { _askInChat = fn; }
 import { detectOnce, GROUNDING_ENABLED, isGroundingFailed } from "./grounding.js";
+import { isMediapipeFailed } from "./mediapipe.js";
+import { startWatcher, stopWatcher, ACTION_NAMES, watcherStatus } from "./watcher.js";
 
 const ALL_TOOLS = [
   {
@@ -172,6 +174,38 @@ const ALL_TOOLS = [
     annotations: { readOnlyHint: false, idempotentHint: false, destructiveHint: true, openWorldHint: true },
   },
   {
+    name: "start_robot_watcher",
+    description: "Start a closed-vocab reflex watcher on the robot's camera (MediaPipe COCO, ~10–30ms/frame). Fires the action on first detection of any class in `classes`, then disables itself (fire-once). Use for see→act reflex shapes — e.g. watch for 'stop sign' and 'halt'. Idempotent: starting a new watcher replaces any prior. For one-shot lookup or open-vocab text prompts, use get_robot_detections instead.",
+    input_schema: {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        classes: {
+          type: "array",
+          items: { type: "string" },
+          description: "COCO classes (e.g. 'stop sign', 'person', 'traffic light', 'cat'). ~80 classes total.",
+        },
+        action: {
+          type: "string",
+          enum: ACTION_NAMES,
+          description: "halt = zero-speed motor pulse; speak = announce label; notify = console log. Defaults to halt.",
+        },
+      },
+      required: ["id", "classes"],
+    },
+    annotations: { readOnlyHint: false, idempotentHint: true, destructiveHint: true, openWorldHint: false },
+  },
+  {
+    name: "stop_robot_watcher",
+    description: "Cancel a running reflex watcher on a robot. Idempotent — safe to call if none is running.",
+    input_schema: {
+      type: "object",
+      properties: { id: { type: "string" } },
+      required: ["id"],
+    },
+    annotations: { readOnlyHint: false, idempotentHint: true, destructiveHint: false, openWorldHint: false },
+  },
+  {
     name: "ask_human",
     description: "Blocking question to the user (60s). Routes to a paired phone if available, otherwise inline buttons in chat. Provide options for tappable answers; omit for free text. Returns {answer, timed_out, via}.",
     input_schema: {
@@ -208,6 +242,7 @@ export function isVisionAvailable() {
 export function getTools() {
   return ALL_TOOLS.filter(t => {
     if (t.name === "get_robot_detections" && (!GROUNDING_ENABLED || isGroundingFailed())) return false;
+    if ((t.name === "start_robot_watcher" || t.name === "stop_robot_watcher") && isMediapipeFailed()) return false;
     if (t.name === "view_robot_frame" && !isVisionAvailable()) return false;
     return true;
   });
@@ -366,6 +401,22 @@ async function dispatch(name, input) {
       } catch (err) {
         return { error: `detector failed: ${String(err.message || err)}` };
       }
+    }
+    case "start_robot_watcher": {
+      const e = state.devices.get(input.id);
+      if (!e) return { error: `no robot with id ${input.id}` };
+      const classes = Array.isArray(input.classes) ? input.classes.map(String).map(s => s.trim()).filter(Boolean) : [];
+      if (classes.length === 0) return { error: "classes is required (e.g. ['stop sign'])" };
+      const action = ACTION_NAMES.includes(input.action) ? input.action : "halt";
+      startWatcher(e, { classes, action });
+      return { ok: true, watching: classes, action };
+    }
+    case "stop_robot_watcher": {
+      const e = state.devices.get(input.id);
+      if (!e) return { error: `no robot with id ${input.id}` };
+      stopWatcher(e);
+      const status = watcherStatus(e);
+      return { ok: true, status };
     }
     case "move_motor": {
       // Executor-enforced stop after 3 consecutive pulses without an
