@@ -20,7 +20,7 @@ let _askInChat = null;
 export function setAskInChatHandler(fn) { _askInChat = fn; }
 import { detectOnce, GROUNDING_ENABLED, isGroundingFailed } from "./grounding.js";
 import { isMediapipeFailed } from "./mediapipe.js";
-import { startWatcher, stopWatcher, ACTION_NAMES, watcherStatus } from "./watcher.js";
+import { startWatcher, stopWatcher, ACTION_NAMES, watcherStatus, COCO_CLASSES } from "./watcher.js";
 import { speak as voiceSpeak } from "./voice.js";
 
 const ALL_TOOLS = [
@@ -164,7 +164,11 @@ const ALL_TOOLS = [
   },
   {
     name: "start_robot_watcher",
-    description: "Start a closed-vocab reflex watcher on the robot's camera (MediaPipe COCO, ~10–30ms/frame). Fires the action on first detection of any class in `classes`, then disables itself (fire-once). Use for see→act reflex shapes — e.g. watch for 'stop sign' and 'halt'. Idempotent: starting a new watcher replaces any prior. For one-shot lookup or open-vocab text prompts, use get_robot_detections instead.",
+    description: `Start a closed-vocab reflex watcher on the robot's camera (MediaPipe COCO, ~10–30ms/frame). Fires the action on first detection of any class in \`classes\`, then disables itself (fire-once). Use for see→act reflex shapes — e.g. watch for 'stop sign' and 'halt'. Idempotent: starting a new watcher replaces any prior.
+
+Valid classes (exact strings, COCO-80): ${COCO_CLASSES.join(", ")}. Strings outside this set will never fire — if the target isn't here (e.g. "Roomba"), don't arm a watcher; use view_robot_frame after each move instead.
+
+When a watcher is armed for the user's target, trust it: it polls every camera frame at ~10ms. You don't need to also call view_robot_frame between moves — that just spends image tokens and adds latency. Move freely; the L2 [reflex-fire] observation will appear in your next iteration's tool_result when the watcher catches the target.`,
     input_schema: {
       type: "object",
       properties: {

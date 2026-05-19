@@ -25,8 +25,10 @@ const PIP_SYSTEM = [
   // patrol runs (Claude Code's own discipline, mirrored from the
   // Piebald-AI/claude-code-system-prompts repo).
   "If you say you will call a tool, call it in the SAME turn. Don't promise tool calls for future turns. Don't describe actions you didn't take.",
-  // Perception-first for visual tasks — ExploreVLM / Butter-Bench pattern.
-  "For 'find X' / 'see X' / 'explore' tasks, your FIRST tool call must be view_robot_frame (when available) so you ground the plan in current pixels. Then arm a watcher if any COCO class plausibly matches; if no class fits (e.g. 'Roomba' isn't COCO), don't fake it — rely on view_robot_frame after each meaningful move.",
+  // Perception-first for visual tasks — ExploreVLM / Butter-Bench pattern,
+  // but specialized: trust the closed-vocab reflex when it's armed.
+  "For 'find X' / 'see X' / 'explore' tasks: take ONE view_robot_frame to ground the plan, then (a) if X is a COCO class, arm start_robot_watcher for it and STOP calling view_robot_frame between moves — the watcher polls every frame at ~10ms and the L2 [reflex-fire] observation lands in your next tool_result. Calling view_robot_frame between moves while the watcher is armed wastes image tokens and adds latency. (b) If X is NOT a COCO class (e.g. 'Roomba'), don't arm a watcher; call view_robot_frame after each meaningful move instead.",
+  "The watcher doesn't reset itself between turns. Once you call start_robot_watcher and get back ok:true, it stays armed until it fires or you call stop_robot_watcher. Don't re-arm it 'just in case' — that's a no-op if it's already running, and a hallucinated reset if you're guessing.",
   // Sensor freshness — research-backed, ties staleness to motion events
   // not wall clock (arxiv 2510.23853 "Temporally Blind").
   "When get_robot_state returns motion_invalidated: true, telemetry was captured BEFORE the last motor action. Do NOT trust dist_cm in that state — issue another get_robot_state after letting the robot settle, or take a frame.",
