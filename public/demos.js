@@ -194,6 +194,77 @@ async function selfie(ctx) {
   await ctx.exec("speak", { text: "Nice meeting you." });
 }
 
+// 11 — Stopsign patrol. Long open-loop wavy traverse + 180° turn,
+//      repeated until the COCO watcher catches a stop sign. Showcases
+//      "long-running motion interrupted by a reflex" — the canonical
+//      reactive-robotics shape (Spot's "walk until you see X", DJI's
+//      ActiveTrack with a stop condition).
+//
+//      The watcher's halt action is the firmware-level safety floor:
+//      the robot stops the *moment* it sees the sign, regardless of
+//      where we are in the loop. The demo also listens to the same
+//      fire event via ctx.onWatcherFire so it can break out of its
+//      sweep and narrate the catch.
+async function stopsignPatrol(ctx) {
+  await ctx.exec("speak", { text: "Patrol mode. Looking for a stop sign." });
+  await ctx.exec("start_robot_camera", { id: ctx.id });
+  await ctx.exec("start_robot_watcher", {
+    id: ctx.id,
+    classes: ["stop sign"],
+    action: "halt",
+  });
+
+  let caught = false;
+  const unsub = ctx.onWatcherFire?.((entry, det) => {
+    if (entry?.id === ctx.id && det?.label === "stop sign") caught = true;
+  });
+  const shouldStop = () => caught || ctx.shouldAbort?.();
+
+  // Wavy forward — alternating slight-right and slight-left arcs feels
+  // organic, like a vehicle gently changing lanes. Each segment is a
+  // max-duration pulse so the sweep covers serious ground per loop.
+  // Six segments = ~12s of forward motion = ~3-4m at 35 cm/s.
+  const wavyForward = async (segments = 6) => {
+    for (let i = 0; i < segments; i++) {
+      if (shouldStop()) return;
+      const arc = i % 2 === 0
+        ? [SPEED,         SPEED * 0.65]
+        : [SPEED * 0.65,  SPEED       ];
+      await pulse(ctx, arc[0], arc[1], MAX);
+    }
+  };
+
+  // 180° spin in place. Two max-duration spin pulses are roughly a
+  // half rotation at speed 40; tune the count if the robot under-turns.
+  const turnAround = async () => {
+    for (let i = 0; i < 2; i++) {
+      if (shouldStop()) return;
+      await pulse(ctx, -SPEED, SPEED, MAX);
+    }
+  };
+
+  try {
+    let lap = 0;
+    while (!shouldStop()) {
+      lap++;
+      await wavyForward(6);
+      if (shouldStop()) break;
+      await ctx.exec("speak", { text: `Lap ${lap}, turning around.` });
+      await turnAround();
+    }
+  } finally {
+    unsub?.();
+  }
+
+  if (caught) {
+    // Halt is firmware-level; this is just the spoken announcement.
+    // The watcher stays armed so it'll keep guarding after the demo.
+    await ctx.exec("speak", { text: "Stop sign detected. Patrol halted." });
+  } else if (ctx.shouldAbort?.()) {
+    await ctx.exec("speak", { text: "Patrol stopped." });
+  }
+}
+
 // 10 — Show-off. Greatest-hits reel chaining intro + figure8 + wiggle +
 //      dance. ~45s. Use this as the "full pitch" — every capability,
 //      back to back, with vocal narration tying them together.
@@ -222,6 +293,7 @@ const DEMOS = {
   introduce: { run: introduce, label: "introduce"  },
   wiggle:    { run: wiggle,    label: "wiggle"     },
   selfie:    { run: selfie,    label: "selfie"     },
+  stopsign:  { run: stopsignPatrol, label: "stop-sign-patrol" },
   showoff:   { run: showOff,   label: "show-off"   },
 };
 
@@ -231,9 +303,13 @@ export const DEMO_NAMES = Object.keys(DEMOS);
 // Web Speech produces — "figure eight" / "figure 8", "zig zag" /
 // "zigzag", "show off" / "showoff", etc. Dictated demo invocations
 // should "just work" without the user having to spell things exactly.
+// Order matters: more-specific aliases come first so they win against
+// shorter ones (e.g. `stopsign` before `patrol`, since "stop sign
+// patrol" should map to the stopsign demo, not vanilla patrol).
 const ALIASES = {
   figure8:   /(?:figure[\s-]*(?:eight|8))/i,
   zigzag:    /(?:zig[\s-]*zag)/i,
+  stopsign:  /(?:stop[\s-]*sign)/i,
   dance:     /dance/i,
   patrol:    /patrol/i,
   react:     /react/i,
