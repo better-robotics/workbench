@@ -85,12 +85,19 @@ let _activeTurnEl = null;
 // the rest of the iteration's text — so a multi-step turn renders as
 // [text 1] [pill 1] [text 2] [pill 2] [final text], not [stack of pills]
 // [final text]. Clicking Details expands a pre with args + result.
+// Compact chevron — pip-core's own slash/send buttons use 12×12 SVGs
+// with stroke-width 1.6, so we match for visual consistency.
+const CHEVRON_SVG =
+  `<svg class="pip-step-chevron" viewBox="0 0 12 12" width="10" height="10" aria-hidden="true">` +
+    `<path d="M4.5 3 L8 6 L4.5 9" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>` +
+  `</svg>`;
+
 function appendStepPill(turnEl, name) {
   const el = document.createElement("div");
   el.className = "pip-step running";
   el.innerHTML =
     `<div class="pip-step-head">` +
-      `<span class="pip-step-icon">▸</span>` +
+      CHEVRON_SVG +
       `<span class="pip-step-label">${escHtml(labelTool(name))} …</span>` +
       `<span class="pip-step-elapsed"></span>` +
       `<button class="pip-step-toggle" type="button" hidden>Details</button>` +
@@ -102,6 +109,7 @@ function appendStepPill(turnEl, name) {
   toggle.addEventListener("click", () => {
     const open = detail.hidden;
     detail.hidden = !open;
+    el.classList.toggle("expanded", open);
     toggle.textContent = open ? "Hide" : "Details";
   });
   scrollPanelToBottom();
@@ -127,8 +135,12 @@ function finishStepPill(el, name, input, result, error, durationMs) {
   el.classList.remove("running");
   const isError = !!error;
   if (isError) el.classList.add("error");
+  // null durationMs to summarizeTool — we render elapsed in its own
+  // span so the label stays semantic (tool name + arg summary) and the
+  // timing aligns to the right edge instead of being baked into the
+  // sentence.
   el.querySelector(".pip-step-label").textContent =
-    summarizeTool(name, input, result, error, durationMs);
+    summarizeTool(name, input, result, error, null);
   if (durationMs != null) {
     const ms = Math.round(durationMs);
     el.querySelector(".pip-step-elapsed").textContent =

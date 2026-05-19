@@ -1982,6 +1982,27 @@ dialog[open]::backdrop { opacity: 1; }
    of ~5.5px. Match horizontally so the inset stays symmetric. */
 .pip-form { --pip-btn-right: 4px; }
 
+/* Reset the dashboard's global `button` rules for the buttons WE inject
+   into Pip. The global `button { min-height: 44px; ... transform:
+   scale(0.98) on :active; filter: brightness on hover }` is right for
+   dashboard buttons and wrong for the tiny inline buttons we add inside
+   Pip. Pip-core's own buttons (send, stop, slash-key) explicitly reset
+   min-height in their own rules, so we only target ours. */
+.pip-mic-btn,
+.pip-step-toggle {
+  min-height: 0;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  font-weight: inherit;
+}
+.pip-mic-btn:not(:disabled):hover,
+.pip-step-toggle:not(:disabled):hover { filter: none; }
+/* Step-toggle has no transform baseline so `transform: none` is fine.
+   Mic-btn's :active rule lives in the .pip-mic-btn block below and
+   preserves its translateY(-50%) centering explicitly. */
+.pip-step-toggle:active { transform: none; filter: none; }
+
 /* Mic button — sits at the right edge, just inside the send-button slot.
    Send is at right:4 with width 24; mic at right:32 leaves a 4px gap so
    both fit without overlap. Dashboard-injected (assistant.js
@@ -1993,30 +2014,31 @@ dialog[open]::backdrop { opacity: 1; }
 .pip-mic-btn {
   position: absolute;
   right: 32px;
-  top: calc(50% - 12px);
+  top: 50%;
+  transform: translateY(-50%);
   width: 24px; height: 24px;
   display: inline-flex;
   align-items: center; justify-content: center;
-  padding: 0;
-  margin: 0;
   border: none;
   background: transparent;
   color: var(--ink-muted);
   cursor: pointer;
-  transition: color 120ms ease;
   z-index: 1;
 }
 .pip-mic-btn:hover  { color: var(--ink); }
-.pip-mic-btn:active { color: var(--ink); opacity: 0.7; }
+.pip-mic-btn:active { color: var(--ink); opacity: 0.7; transform: translateY(-50%); }
 .pip-mic-btn.listening { color: #d93b3b; }
 /* Extra right-padding so typed text doesn't slide under the mic. Send is
    at 4..28px from the right edge, mic at 32..56px — 64px clears both. */
 .pip-form--mic .pip-input { padding-right: 64px; }
 /* When the mic is present, keep the send button rendered even when
    pip-core hides it (empty input) — the empty slot to the mic's right
-   reads as "broken layout" otherwise. Disabled-looking when not usable. */
+   reads as "broken layout" otherwise. Disabled-looking when not usable.
+   !important because pip-core's `.pip-send-btn[hidden] { display: none }`
+   ships in a <style> appended late and ties with us at higher source
+   order despite our higher specificity in some cache states. */
 .pip-form--mic .pip-send-btn[hidden] {
-  display: inline-flex;
+  display: inline-flex !important;
   opacity: 0.35;
   pointer-events: none;
 }
@@ -2067,11 +2089,12 @@ dialog[open]::backdrop { opacity: 1; }
   gap: 6px;
   min-width: 0;
 }
-.pip-step-icon {
-  font-size: 9px;
-  opacity: 0.5;
+.pip-step-chevron {
+  opacity: 0.55;
   flex-shrink: 0;
+  transition: transform 120ms ease;
 }
+.pip-step.expanded .pip-step-chevron { transform: rotate(90deg); }
 .pip-step-label {
   flex: 1;
   min-width: 0;
