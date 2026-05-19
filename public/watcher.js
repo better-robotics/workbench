@@ -3,16 +3,20 @@
 // it works without a script open, and Pip can compose it ("watch for X,
 // then ask_human").
 //
-// Continuous-fire: the watcher stays armed after each detection. To
-// avoid re-triggering on every ~100ms detector tick while the target
-// stays in frame, a REARM_DEBOUNCE_MS cool-down gates the next round.
-// Operator (or Pip) explicitly stops it via stopWatcher.
+// Two loop shapes by action:
+//   - speak / notify: continuous-fire, REARM_DEBOUNCE_MS cool-down. Fires
+//     once per cool-down while the target lingers (announce-style).
+//   - halt: presence/absence poll. On enter, halts motors + sets a per-
+//     entry gate Promise that motor tools in pip-tools.js await. On exit,
+//     resolves the gate so blocked motor calls proceed. Mirrors the
+//     openpilot panda pattern from .claude/CLAUDE.md — safety enforced
+//     below the planner: Pip can't bypass the gate, only narrate around it.
 //
 // Actions are a closed set (halt / speak / notify). Same containment
 // principle as ask_human being the bottom rung: a hallucinated Pip call
 // can pick which verb, not invent a new one.
 
-import { startDetection, isMediapipeFailed } from "./mediapipe.js";
+import { startDetection, detectOnce, isMediapipeFailed } from "./mediapipe.js";
 import { pulseMotors } from "./capabilities/runtime/signed-pair.js";
 import { listCameraSources } from "./camera-frame.js";
 import { capSection } from "./capabilities/runtime/cap-section.js";
@@ -30,23 +34,106 @@ const _running = new Map();
 // ~2s) and "missed a re-appearance" (annoying above ~5s).
 const REARM_DEBOUNCE_MS = 3000;
 
+// Halt-loop poll interval. Tighter than the speak/notify debounce because
+// the gate-release moment (sign leaves frame) needs to feel immediate; a
+// 1s wait between "I moved the sign away" and motion resuming reads as
+// the demo being broken.
+const HALT_POLL_MS = 200;
+
 // Fire-event listeners — assistant.js subscribes so it can inject a
 // synthetic observation into Pip's active turn (L2 "harness pushes state
-// to planner" pattern from Butter-Bench / ExploreVLM). Continuous-fire +
-// debounce caps the rate at ~1 event / REARM_DEBOUNCE_MS per watcher.
+// to planner" pattern from Butter-Bench / ExploreVLM). `kind` is "fire"
+// (target entered frame) or "clear" (target left frame); only halt-mode
+// watchers emit "clear" — speak/notify have no concept of "stopped seeing."
 const _fireListeners = new Set();
 export function onWatcherFire(fn) {
   _fireListeners.add(fn);
   return () => _fireListeners.delete(fn);
 }
-function emitFire(entry, det) {
+function emitFire(entry, det, kind = "fire") {
   for (const fn of _fireListeners) {
-    try { fn(entry, det); } catch (err) { console.warn("[watcher] fire listener:", err); }
+    try { fn(entry, det, kind); } catch (err) { console.warn("[watcher] fire listener:", err); }
   }
 }
 
+// Per-entry motor gate. While `blocked`, motor tools in pip-tools.js await
+// `promise`; on release (sign left frame, watcher stopped, or operator hit
+// Stop), the promise resolves and blocked tool calls proceed. Lifecycle:
+//   - blocked: false on first ensureGate()
+//   - entry transition → blocked=true, fresh promise
+//   - exit/stop/abort → resolve(), blocked=false
+// One gate per entry — multiple halt-classes share it. The kept-stale
+// reference after exit is harmless: awaitReflexGate short-circuits when
+// !blocked.
+const _gates = new Map();
+
+function ensureGate(entryId) {
+  let g = _gates.get(entryId);
+  if (!g) {
+    g = { blocked: false, promise: Promise.resolve(), resolve: () => {}, sinceMs: 0 };
+    _gates.set(entryId, g);
+  }
+  return g;
+}
+
+function setGateBlocked(entryId) {
+  const g = ensureGate(entryId);
+  if (g.blocked) return;
+  g.blocked = true;
+  g.sinceMs = Date.now();
+  g.promise = new Promise((resolve) => { g.resolve = resolve; });
+}
+
+function releaseGate(entryId) {
+  const g = _gates.get(entryId);
+  if (!g || !g.blocked) return;
+  g.blocked = false;
+  try { g.resolve(); } catch {}
+}
+
+export function isReflexGated(entryId) {
+  return !!_gates.get(entryId)?.blocked;
+}
+
+// Drop any active motor block on every entry. Called from assistant.js on
+// Stop — guarantees the loop unblocks even if a tool is mid-await on a
+// gate Promise that the watcher poll hasn't gotten to resolve yet.
+export function releaseAllGates() {
+  for (const id of _gates.keys()) releaseGate(id);
+}
+
+// Await the gate to clear, with a max wait and an isAborted poll. Returns
+// { blocked: false } immediately if not gated, else { blocked: true,
+// released: "clear" | "abort" | "timeout" } when one of the three fires.
+// Polled rather than promise-chained so abort + timeout share one code
+// path with the natural release.
+const DEFAULT_GATE_TIMEOUT_MS = 10000;
+export async function awaitReflexGate(entryId, { maxMs = DEFAULT_GATE_TIMEOUT_MS, isAborted = () => false } = {}) {
+  const g = _gates.get(entryId);
+  if (!g || !g.blocked) return { blocked: false };
+  const started = Date.now();
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (released) => {
+      if (done) return;
+      done = true;
+      clearInterval(poll);
+      resolve({ blocked: true, released });
+    };
+    const poll = setInterval(() => {
+      if (done) return;
+      if (!g.blocked) finish("clear");
+      else if (isAborted()) finish("abort");
+      else if (Date.now() - started > maxMs) finish("timeout");
+    }, 100);
+  });
+}
+
 const ACTIONS = {
-  halt:   async (entry)      => { await pulseMotors(entry.id, 0, 0, 200); },
+  // halt is implemented as its own loop (runHaltLoop) — presence/absence
+  // with a motor gate, not a single fire-and-cool-down. The entry here is
+  // a no-op so cfg.action validation and the UI dropdown still work.
+  halt:   async ()           => {},
   speak:  async (_entry, det) => { ttsSpeak(`saw ${det.label}`); },
   notify: async (entry, det) => {
     console.log(`[watcher] ${entry.name} saw ${det.label} (${(det.score * 100 | 0)}%)`);
@@ -110,6 +197,78 @@ function runDetectIteration(entry, cfg) {
   });
 }
 
+// Halt-action loop. Polls the detector at HALT_POLL_MS; on the rising
+// edge (no hit → hit) it pulses motors to zero, speaks, blocks the gate,
+// and emits a "fire" observation. On the falling edge (hit → no hit) it
+// speaks "resuming", releases the gate, and emits "clear". The pulse on
+// enter is one-shot — firmware watchdog (~1s) handles continued braking
+// of any already-in-flight pulse; the gate prevents new motion. No
+// per-tick re-pulsing — that'd flood BLE for no extra safety.
+function runHaltLoop(entry, cfg) {
+  let stopped = false;
+  let timer = null;
+  const stopFn = () => {
+    if (stopped) return;
+    stopped = true;
+    if (timer) { clearTimeout(timer); timer = null; }
+    releaseGate(entry.id);
+  };
+  _running.set(entry.id, { stop: stopFn });
+
+  const tick = async () => {
+    if (stopped) return;
+    if (!cfg.enabled || entry.status !== "connected") {
+      stopFn();
+      _running.delete(entry.id);
+      cfg.enabled = false;
+      renderEntry(entry);
+      return;
+    }
+    let dets = null;
+    try {
+      dets = await detectOnce(entry, { classes: cfg.classes });
+    } catch {
+      dets = null;
+    }
+    if (stopped) return;
+    // Hard failure (detector permanently down) → exit. Transient null
+    // (camera blip, frame not ready) → just keep polling.
+    if (dets === null && isMediapipeFailed()) {
+      stopFn();
+      _running.delete(entry.id);
+      cfg.enabled = false;
+      renderEntry(entry);
+      return;
+    }
+    const hit = (dets && dets.length > 0) ? dets[0] : null;
+    const g = ensureGate(entry.id);
+    const wasBlocked = g.blocked;
+
+    if (hit && !wasBlocked) {
+      cfg.lastDetection = { label: hit.label, score: hit.score, ts: Date.now() };
+      try { await pulseMotors(entry.id, 0, 0, 200); } catch {}
+      // stopWatcher / Stop button could fire while pulseMotors awaits —
+      // skip the setGateBlocked below in that case, otherwise the gate
+      // re-engages with no loop alive to release it and motor tools hang
+      // until the 10s timeout.
+      if (stopped) return;
+      ttsSpeak(`stopped, ${hit.label}`);
+      setGateBlocked(entry.id);
+      emitFire(entry, { ...cfg.lastDetection }, "fire");
+      renderEntry(entry);
+    } else if (!hit && wasBlocked) {
+      ttsSpeak("resuming");
+      releaseGate(entry.id);
+      emitFire(entry, cfg.lastDetection, "clear");
+      renderEntry(entry);
+    }
+
+    if (!stopped) timer = setTimeout(tick, HALT_POLL_MS);
+  };
+
+  tick();
+}
+
 export function startWatcher(entry, opts = {}) {
   const cfg = ensureConfig(entry);
   if (opts.classes) {
@@ -120,7 +279,8 @@ export function startWatcher(entry, opts = {}) {
   if (opts.action && ACTIONS[opts.action]) cfg.action = opts.action;
   stopWatcher(entry, { silent: true });
   cfg.enabled = true;
-  runDetectIteration(entry, cfg);
+  if (cfg.action === "halt") runHaltLoop(entry, cfg);
+  else runDetectIteration(entry, cfg);
   renderEntry(entry);
   return cfg;
 }
@@ -131,6 +291,7 @@ export function stopWatcher(entry, { silent = false } = {}) {
     active.stop();
     _running.delete(entry.id);
   }
+  releaseGate(entry.id);
   if (entry.watcher) entry.watcher.enabled = false;
   if (!silent) renderEntry(entry);
 }
@@ -161,13 +322,16 @@ function renderSection(entry) {
   const cfg = ensureConfig(entry);
   const enabled = !!cfg.enabled;
   const last = cfg.lastDetection;
-  // Continuous-fire: when enabled AND we've seen a hit, surface both the
-  // active vocabulary and the most recent sighting so the operator knows
-  // (a) it's still watching and (b) what it last caught.
+  const gated = isReflexGated(entry.id);
+  // Surface the gate state explicitly when blocked — operators (and demo
+  // audiences) need to see WHY motion isn't happening, not infer it from
+  // a stale "last saw" line.
   const state = enabled
-    ? last
-      ? `watching ${cfg.classes.join(", ")} · last saw ${last.label} at ${fmtClock(last.ts)}`
-      : `watching: ${cfg.classes.join(", ")}`
+    ? gated
+      ? `BLOCKED — ${last?.label || cfg.classes[0]} visible · motion gated`
+      : last
+        ? `watching ${cfg.classes.join(", ")} · last saw ${last.label} at ${fmtClock(last.ts)}`
+        : `watching: ${cfg.classes.join(", ")}`
     : last ? `saw ${last.label} at ${fmtClock(last.ts)}` : "off";
   const action = enabled
     ? `<button class="secondary sm" data-action="watcher-stop">Stop</button>`

@@ -6,6 +6,8 @@ import { logFor } from "../../log.js";
 import { capSection } from "./cap-section.js";
 import { startMjpegForward, stopMjpegForward } from "./mjpeg-restream.js";
 import { persist } from "../../state.js";
+import { startWatcher, stopWatcher } from "../../watcher.js";
+import { isMediapipeFailed } from "../../mediapipe.js";
 
 import { renderEntry } from "./render-bus.js";
 
@@ -270,6 +272,23 @@ export function makeMjpegStreamCap(schema) {
       const findEl = () => entry.node?.querySelector(
         `img.robot-camera[data-cam-id="${entry.id}"], canvas.robot-camera[data-cam-id="${entry.id}"]`,
       );
+      // Auto-arm the reflex watcher on camera start so the demo's stop-
+      // sign gate is live the moment frames flow. Skipped if pre-armed
+      // (operator custom config) or mediapipe failed. _watcherAutoArmed
+      // tracks the inverse on stop so a manually-armed watcher survives
+      // a camera restart. Symmetric with webrtc-installable.js.
+      const armWatcherIfAuto = () => {
+        if (entry.watcher?.enabled) return;
+        if (isMediapipeFailed()) return;
+        entry._watcherAutoArmed = true;
+        startWatcher(entry);
+      };
+      const disarmWatcherIfAuto = () => {
+        if (!entry._watcherAutoArmed) return;
+        entry._watcherAutoArmed = false;
+        stopWatcher(entry);
+      };
+
       node.querySelector(`[data-action="${actionStart}"]`)?.addEventListener("click", async () => {
         entry[runningField] = true;
         renderEntry(entry);
@@ -297,6 +316,7 @@ export function makeMjpegStreamCap(schema) {
             el.src = `http://${ip}:81/stream`;
             startMjpegForward(entry, el);
             logFor(entry, `video: HTTP MJPEG ${el.src}`);
+            armWatcherIfAuto();
             return;
           }
           // WebRTC — firmware/webrtc_peer.c routes a `video` data channel
@@ -307,6 +327,7 @@ export function makeMjpegStreamCap(schema) {
             entry._webrtcVideo = ctrl;
             if (!entry[runningField]) { ctrl.dispose(); entry._webrtcVideo = null; return; }
             startMjpegForward(entry, el);
+            armWatcherIfAuto();
             return;
           }
           logFor(entry, `video: WebRTC unavailable; cannot stream`);
@@ -315,11 +336,13 @@ export function makeMjpegStreamCap(schema) {
           return;
         }
         startMjpegForward(entry, el);
+        armWatcherIfAuto();
       });
       node.querySelector(`[data-action="${actionStop}"]`)?.addEventListener("click", () => {
         if (entry._webrtcVideo) { entry._webrtcVideo.dispose(); entry._webrtcVideo = null; }
         stopMjpegForward(entry);
         entry[runningField] = false;
+        disarmWatcherIfAuto();
         renderEntry(entry);
       });
       // Post-render rebind: when the card re-renders mid-stream, the
