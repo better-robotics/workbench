@@ -3,6 +3,7 @@ import { getTools, executor, setAskInChatHandler } from "./pip-tools.js";
 import { labelTool, summarizeTool } from "./format.js";
 import { settings, saveSettings } from "./settings.js";
 import { state } from "./state.js";
+import { isSupported as voiceInputSupported, startDictation } from "./voice-input.js";
 import { AUTH_URL } from "./endpoints.js";
 import { createPip } from "https://cdn.jsdelivr.net/npm/@jonasneves/pip@2.9.5/pip-core.esm.js";
 
@@ -261,6 +262,18 @@ const PIP_BACKENDS = ["github", "bridge", "anthropic", "openai"];
 
 function registerInitialSlashCommands() {
   _pip.registerSlash({
+    name: "voice",
+    description: "start / stop voice dictation into the input",
+    handler: () => {
+      if (!voiceInputSupported()) {
+        return { reply: "Voice input isn't supported in this browser. Chrome / Edge / Safari only." };
+      }
+      toggleDictation();
+      return { reply: "" };
+    },
+  });
+
+  _pip.registerSlash({
     name: "scan",
     description: "open the BLE chooser to pair a robot",
     // Synthetic click on the scan button — keeps requestDevice's user-
@@ -427,4 +440,88 @@ export function initAssistant() {
   setAskInChatHandler(({ question, options }) =>
     _pip.askInChat({ question, options }, _activeTurnEl));
   watchDialogs();
+  wireMicButton();
+}
+
+// Web Speech dictation on pip's input. Injected post-init because pip-core
+// doesn't expose an input-area hook; we sit alongside its pip-slash-key on
+// the left edge using the same form-as-container pattern. Mic missing in
+// the browser (Firefox, older Safari builds) → the button just isn't
+// inserted, no broken affordance.
+let _dictation = null;
+function wireMicButton() {
+  if (!voiceInputSupported()) return;
+  const form = document.querySelector(".pip-form");
+  const input = form?.querySelector(".pip-input");
+  if (!form || !input) return;
+
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "pip-mic-btn";
+  btn.setAttribute("aria-label", "Voice input");
+  btn.title = "Voice input (press to start/stop)";
+  btn.innerHTML = `<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+    <path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM19 11a7 7 0 0 1-14 0M12 18v3M8 21h8"
+          stroke="currentColor" stroke-width="1.6" fill="none"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>`;
+  // First child so it sits at the left edge, mirroring pip-slash-key.
+  form.insertBefore(btn, form.firstChild);
+  form.classList.add("pip-form--mic");
+
+  const setListening = (on) => {
+    btn.classList.toggle("listening", on);
+    btn.setAttribute("aria-pressed", String(!!on));
+  };
+
+  // Snapshot whatever's in the input when dictation starts so the
+  // transcript appends to existing text rather than nuking it.
+  let prefix = "";
+  const writeTranscript = (text) => {
+    input.value = (prefix ? prefix + " " : "") + text;
+    // Dispatch input event so pip-core's send-button visibility logic runs.
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  };
+
+  const stop = () => {
+    if (!_dictation) return;
+    _dictation.stop();
+    _dictation = null;
+    setListening(false);
+  };
+
+  const start = () => {
+    if (_dictation) { stop(); return; }
+    prefix = input.value.trim();
+    setListening(true);
+    _dictation = startDictation({
+      onInterim: writeTranscript,
+      onFinal: (final) => { if (final) writeTranscript(final); },
+      onError: (err) => {
+        console.warn("[voice-input]", err);
+        if (err === "not-allowed") {
+          input.placeholder = "Microphone permission denied — check Site settings.";
+        }
+      },
+      onEnd: () => {
+        // Chrome can fire onend on idle even with continuous=true — flip
+        // the button back so the user can re-engage with one click instead
+        // of two.
+        _dictation = null;
+        setListening(false);
+        input.focus();
+      },
+    });
+  };
+
+  btn.addEventListener("click", () => (_dictation ? stop() : start()));
+  // Escape from anywhere bails out of an in-progress dictation.
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && _dictation) stop();
+  });
+}
+
+export function toggleDictation() {
+  // Slash-command entrypoint — same start/stop semantics as the button.
+  document.querySelector(".pip-mic-btn")?.click();
 }

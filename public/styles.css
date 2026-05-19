@@ -1981,6 +1981,39 @@ dialog[open]::backdrop { opacity: 1; }
    ~36px default, so vertical gap with the 24px button is ~3.5px instead
    of ~5.5px. Match horizontally so the inset stays symmetric. */
 .pip-form { --pip-btn-right: 4px; }
+
+/* Mic button — sits on the left edge mirroring pip-core's pip-slash-key.
+   Dashboard-injected (assistant.js wireMicButton), pip-core doesn't know
+   about it. Matches send-btn geometry so the form stays visually balanced. */
+.pip-mic-btn {
+  position: absolute;
+  left: 4px; top: 50%;
+  transform: translateY(-50%);
+  width: 24px; height: 24px;
+  display: inline-flex;
+  align-items: center; justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.pip-mic-btn:hover { background: var(--surface); color: var(--ink); }
+.pip-mic-btn:active { background: var(--bg); }
+.pip-mic-btn.listening {
+  color: #d93b3b;
+  background: color-mix(in srgb, #d93b3b 12%, transparent);
+  animation: pip-mic-pulse 1.2s ease-in-out infinite;
+}
+@keyframes pip-mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, #d93b3b 40%, transparent); }
+  50%      { box-shadow: 0 0 0 4px color-mix(in srgb, #d93b3b 0%,  transparent); }
+}
+/* Make room for the mic on the left when present. Override the standard
+   .pip-input padding-left so the typed text doesn't collide with the icon. */
+.pip-form--mic .pip-input { padding-left: 34px; }
 /* Tool-trace row — one per tool_use call, appended as Pip dispatches them.
    .pending = in-flight (italic + dim), .error = tool returned/threw. */
 .pip-trace {
