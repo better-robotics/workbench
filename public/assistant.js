@@ -387,6 +387,10 @@ async function onSubmit(text, { turnEl }) {
       exec: runStep,
       sleep: (ms) => new Promise(r => setTimeout(r, ms)),
       shouldAbort: () => _abort,
+      // Subscribe to MediaPipe watcher fires so demos can react to
+      // reflex events (e.g. stopsign demo halts its loop when the
+      // watcher catches "stop sign"). Returns an unsubscribe fn.
+      onWatcherFire,
     };
     try { await demo.run(ctx); }
     catch (err) {
