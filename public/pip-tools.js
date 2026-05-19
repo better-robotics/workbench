@@ -22,6 +22,14 @@ import { detectOnce, isMediapipeFailed } from "./mediapipe.js";
 import { startWatcher, stopWatcher, ACTION_NAMES, watcherStatus, COCO_CLASSES } from "./watcher.js";
 import { speak as voiceSpeak } from "./voice.js";
 
+// Linear-velocity calibration for drive_distance_cm / approach_until.
+// Rough first guess: a small wheeled robot at max firmware speed (40)
+// covers ~35 cm/sec on flat floor. Tune by driving a known distance
+// and timing it; everything else (per-cm ms, max-pulse cm, approach
+// step size) derives from this. Lives at module scope so it's
+// findable when you decide to recalibrate.
+const CM_PER_SEC_AT_40 = 35;
+
 const ALL_TOOLS = [
   {
     name: "list_robots",
@@ -148,7 +156,7 @@ const ALL_TOOLS = [
   },
   {
     name: "move_motor",
-    description: "Time-bounded motor pulse: (l, r) speeds in [-100, 100], duration_ms in [50, 2000]. Firmware caps speed to ±40, auto-stops at end of window, and clips pure-forward motion when dist_cm < ~15. Returns { ok, applied:{l,r,duration_ms} } or { ok:false, error }.",
+    description: "Time-bounded motor pulse: (l, r) speeds in [-100, 100], duration_ms in [50, 2000]. Firmware caps speed to ±40, auto-stops at end of window, and clips pure-forward motion when dist_cm < ~15. Returns { ok, applied:{l,r,duration_ms} } or { ok:false, error }. PREFER drive_distance_cm or approach_until for non-trivial moves — they save 1-2 LLM round-trips per logical action.",
     input_schema: {
       type: "object",
       properties: {
@@ -158,6 +166,36 @@ const ALL_TOOLS = [
         duration_ms: { type: "number", minimum: 50, maximum: 2000 },
       },
       required: ["id", "l", "r", "duration_ms"],
+    },
+    annotations: { readOnlyHint: false, idempotentHint: false, destructiveHint: true, openWorldHint: true },
+  },
+  {
+    name: "drive_distance_cm",
+    description: "Drive forward (positive cm) or backward (negative cm) a target distance at fixed speed. Auto-chains move_motor pulses if the distance exceeds one max pulse (~70cm at speed 40). Forward still auto-clips at dist_cm<15 (firmware floor). Returns { ok, requested_cm, executed_pulses, results }. Use when you KNOW how far to go (e.g. 'drive 50cm') — saves a frame+reframe between sub-pulses.",
+    input_schema: {
+      type: "object",
+      properties: {
+        id:    { type: "string" },
+        cm:    { type: "number", minimum: -300, maximum: 300, description: "Target distance; positive = forward, negative = reverse." },
+        speed: { type: "number", minimum: 5,    maximum: 40,  description: "Optional speed magnitude 5-40 (default 40)." },
+      },
+      required: ["id", "cm"],
+    },
+    annotations: { readOnlyHint: false, idempotentHint: false, destructiveHint: true, openWorldHint: true },
+  },
+  {
+    name: "approach_until",
+    description: "Closed-loop forward approach run inside the executor at ~3 Hz. Drives in long pulses, optionally turning to keep a COCO target centered between pulses, stops when stop_dist_cm or max_seconds is hit. Use INSTEAD of repeated move_motor + view_robot_frame cycles when approaching something — saves N LLM round-trips for N pulses. Returns { ok, reason, steps, final_dist_cm, trajectory }. Trajectory entries record action ('drive' | 'turn-left' | 'turn-right') for auditing.",
+    input_schema: {
+      type: "object",
+      properties: {
+        id:           { type: "string" },
+        stop_dist_cm: { type: "number", minimum: 10, maximum: 200, description: "Stop when ultrasonic dist_cm drops below this. Default 20." },
+        target:       { type: "string", description: "Optional COCO class to center on ('person', 'cup', 'stop sign', etc.). Omit for pure straight-line approach using dist_cm only." },
+        max_seconds:  { type: "number", minimum: 1, maximum: 30, description: "Safety cap on total approach time. Default 15." },
+        speed:        { type: "number", minimum: 5, maximum: 40, description: "Drive speed magnitude 5-40 (default 40)." },
+      },
+      required: ["id"],
     },
     annotations: { readOnlyHint: false, idempotentHint: false, destructiveHint: true, openWorldHint: true },
   },
@@ -453,6 +491,110 @@ async function dispatch(name, input) {
       const e = state.devices.get(input.id);
       if (e) e.lastMotorActionAt = Date.now();
       return await pulseMotors(input.id, input.l, input.r, input.duration_ms);
+    }
+    case "drive_distance_cm": {
+      const e = state.devices.get(input.id);
+      if (!e) return { error: `no robot with id ${input.id}` };
+      const cm = Math.max(-300, Math.min(300, Number(input.cm) || 0));
+      if (cm === 0) return { error: "cm must be non-zero" };
+      const speed = Math.max(5, Math.min(40, Number(input.speed) || 40));
+      const dir = cm > 0 ? 1 : -1;
+      // Linear-velocity calibration. Tune CM_PER_SEC_AT_40 if the robot
+      // overshoots/undershoots; everything else derives from it. Pulled
+      // out of the dispatch so it's findable later.
+      const cmPerSec = (speed / 40) * CM_PER_SEC_AT_40;
+      const msPerCm = 1000 / cmPerSec;
+      // Chain pulses up to the firmware 2000ms cap.
+      const pulses = [];
+      let remaining = Math.abs(cm);
+      while (remaining > 0) {
+        const wantMs = Math.round(remaining * msPerCm);
+        const ms = Math.min(2000, Math.max(50, wantMs));
+        const chunkCm = Math.min(remaining, ms / msPerCm);
+        pulses.push({ duration_ms: ms, cm: +chunkCm.toFixed(1) });
+        remaining -= chunkCm;
+        if (ms < 100) break;  // any tail < 100ms is rounding noise
+      }
+      e.lastMotorActionAt = Date.now();
+      const results = [];
+      let executed_cm = 0;
+      for (const p of pulses) {
+        const r = await pulseMotors(input.id, dir * speed, dir * speed, p.duration_ms);
+        results.push(r);
+        if (!r?.ok) break;
+        executed_cm += p.cm;
+        // Wait for the pulse to actually complete on-robot — otherwise
+        // the next pulse cancels the in-flight one and motion judders.
+        await new Promise(res => setTimeout(res, p.duration_ms + 30));
+      }
+      return { ok: true, requested_cm: cm, executed_cm: +executed_cm.toFixed(1) * dir, pulses: pulses.length, results };
+    }
+    case "approach_until": {
+      const e = state.devices.get(input.id);
+      if (!e) return { error: `no robot with id ${input.id}` };
+      const stopDistCm = Math.max(10, Math.min(200, Number(input.stop_dist_cm) || 20));
+      const maxSeconds = Math.max(1, Math.min(30, Number(input.max_seconds) || 15));
+      const speed = Math.max(5, Math.min(40, Number(input.speed) || 40));
+      const target = input.target ? String(input.target).toLowerCase() : null;
+      const startedAt = Date.now();
+      const trajectory = [];
+      let reason = null;
+      // Drive-pulse duration tuned so each cycle covers ~30-40cm at
+      // speed 40 — long enough to be efficient, short enough that
+      // course-correction or stop-checks aren't badly delayed.
+      const drivePulseMs = 1200;
+
+      while ((Date.now() - startedAt) / 1000 < maxSeconds) {
+        const distCm = e.telemetry?.dist_cm;
+        if (typeof distCm === "number" && distCm < stopDistCm) {
+          reason = `dist_cm=${distCm} < stop_dist_cm=${stopDistCm}`;
+          break;
+        }
+
+        // Optional center-on-target step. Only spend a turn if the
+        // target is well off-center (dead-band 0.4..0.6).
+        if (target) {
+          const sources = listCameraSources(e);
+          const primary = sources.find(s => s.label === "primary");
+          if (primary) {
+            let dets = null;
+            try { dets = await detectOnce(e, { classes: [target], source: primary.element }); }
+            catch { /* swallow per-iteration; loop guard handles total */ }
+            const hit = dets?.[0];
+            if (hit) {
+              const cx = hit.bbox?.cx ?? 0.5;
+              if (cx < 0.4 || cx > 0.6) {
+                const turnMs = 200;
+                const l = cx < 0.4 ? -speed : speed;
+                const r = cx < 0.4 ? speed : -speed;
+                await pulseMotors(input.id, l, r, turnMs);
+                e.lastMotorActionAt = Date.now();
+                trajectory.push({ action: cx < 0.4 ? "turn-left" : "turn-right", cx: +cx.toFixed(2), ms: turnMs });
+                await new Promise(res => setTimeout(res, turnMs + 30));
+                continue;
+              }
+            }
+          }
+        }
+
+        // Forward drive pulse (firmware clips at dist_cm<15 anyway).
+        const r = await pulseMotors(input.id, speed, speed, drivePulseMs);
+        e.lastMotorActionAt = Date.now();
+        trajectory.push({ action: "drive", ms: drivePulseMs, ok: !!r?.ok });
+        if (!r?.ok) { reason = `move_motor failed: ${r?.error || "unknown"}`; break; }
+        // Wait for pulse + a small extra so telemetry has a chance to
+        // refresh before the next dist_cm read.
+        await new Promise(res => setTimeout(res, drivePulseMs + 100));
+      }
+
+      if (!reason) reason = `max_seconds=${maxSeconds} reached`;
+      return {
+        ok: true,
+        reason,
+        steps: trajectory.length,
+        final_dist_cm: e.telemetry?.dist_cm ?? null,
+        trajectory,
+      };
     }
     case "start_robot_camera": {
       const e = state.devices.get(input.id);
