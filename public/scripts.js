@@ -8,6 +8,7 @@ import { pulseMotors } from "./capabilities/runtime/signed-pair.js";
 import { sendCommand } from "./capabilities/runtime/command.js";
 import { waitOpsResponse } from "./ops-response.js";
 import { captureFrameDataUrl } from "./camera-frame.js";
+import { detectOnce as mpDetectOnce, startDetection as mpStartDetection } from "./mediapipe.js";
 import { listPhones, askHuman } from "./phones.js";
 import { ask as claudeAsk } from "./claude.js";
 
@@ -129,6 +130,35 @@ log("done");
 `,
   },
   {
+    id: "stop-sign",
+    name: "Stop sign — reflex vision",
+    body: `// Closed-vocab reflex detector (MediaPipe COCO, ~10–30ms/frame on GPU).
+// Drive forward in short pulses; halt the cruise the moment a stop sign
+// shows up in the robot's camera. \`watchFor\` runs in parallel with the
+// drive loop so the script linearizes around the next sighting.
+//
+// Sits next to grounding (open-vocab, planner-paced) — see CLAUDE.md
+// "Model discipline" for which detector goes where.
+
+if (!robot) { log("Pair a robot first."); return; }
+
+let seen = null;
+robot.watchFor("stop sign", { timeoutMs: 30000 }).then(d => { seen = d; });
+
+for (let i = 0; i < 60 && !seen; i++) {
+  await robot.move({ left: 30, right: 30, durationMs: 300 });
+  await sleep(50);
+}
+
+if (seen) {
+  log(\`stop sign detected (\${(seen.score * 100 | 0)}%) at cx=\${seen.bbox.cx.toFixed(2)}\`);
+  speak("stop sign");
+} else {
+  log("timeout — no stop sign seen in 30 s");
+}
+`,
+  },
+  {
     id: "fleet-status",
     name: "Fleet status — typed ops across every robot",
     body: `// Multi-robot health check. Pulls config + recent log lines from every
@@ -229,6 +259,22 @@ function makeRobotApi(entry) {
     },
 
     frame(maxDim = 320) { return captureFrameDataUrl(entry, maxDim); },
+
+    // Closed-vocab COCO detection on the current robot frame (MediaPipe).
+    // For open-vocab text-prompt detection, use Pip via `pip.ask(...)`.
+    async detections(opts = {}) {
+      const dets = await mpDetectOnce(entry, opts);
+      if (dets === null) throw new Error(`${entry.name}: detector unavailable (WebGPU/model init failed)`);
+      return dets;
+    },
+
+    // Promise that resolves with the first detection matching `classes`,
+    // or null on timeout. Drives the "see X → do Y" reflex shape so the
+    // script can `await robot.watchFor("stop sign")` and linearize.
+    watchFor(classes, opts = {}) {
+      const list = Array.isArray(classes) ? classes : [classes];
+      return mpStartDetection(entry, { ...opts, classes: list }).promise;
+    },
   };
 }
 

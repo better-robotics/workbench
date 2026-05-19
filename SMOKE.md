@@ -64,5 +64,6 @@ Pure-function tests live in `tests/`; run with `make smoke`. Below needs hardwar
 
 - [ ] Open Scripts → load each template → Run executes.
 - [ ] `pip.ask` template fires Claude call → returns text.
+- [ ] `stop-sign` template: hold a stop sign to the robot camera → cruise halts within ~1 s, output logs detection + score. Confirms MediaPipe reflex path (closed-vocab, ~10–30ms) is live alongside grounding (open-vocab, planner-paced).
 - [ ] Stop button on a long-running script kills it (browser tab ↻ if needed).
 
