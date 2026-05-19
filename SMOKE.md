@@ -41,7 +41,6 @@ Pure-function tests live in `tests/`; run with `make smoke`. Below needs hardwar
 
 - [ ] Send a prompt → trace appears live (one row per tool call).
 - [ ] Stop button visible while iterating; click → loop ends with "(stopped)".
-- [ ] At iteration limit → Continue / Stop buttons appear inline.
 - [ ] `ask_human` when no phone paired → renders option buttons in chat bubble; click resolves.
 - [ ] Notify ≠ chat: opening multiple dialogs in sequence shows latest tip in notify slot, not stacked turns.
 - [ ] Prior turns auto-collapse on new prompt; click summary re-expands with full trace.

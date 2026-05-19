@@ -194,24 +194,14 @@ async function actOnFailure(backend, turnEl) {
   return backendFailureHint(backend);
 }
 
-// Host onSubmit — runs askWithTools with trace + stop + max-iter continue/stop.
-async function onSubmit(text, { turnEl }) {
+// Host onSubmit — runs askWithTools with trace + stop button.
+async function onSubmit(text, { turnEl, setReplyText }) {
   _activeTurnEl = turnEl;
   _abort = false;
   // pip-core auto-toggles responding state around onSubmit, which morphs
   // the right-edge slot (send → stop). Just clear the abort flag here.
 
   let pendingTraceLi = null;
-  // Reply bubble lives at .pip-reply inside turnEl; pip-core fills it from
-  // our return value at the end. We pre-create it (if absent) and write
-  // text-deltas into it as Claude streams, so the user sees the answer
-  // grow instead of waiting for the full turn.
-  let replyEl = turnEl.querySelector(".pip-reply");
-  if (!replyEl) {
-    replyEl = document.createElement("div");
-    replyEl.className = "pip-reply";
-    turnEl.appendChild(replyEl);
-  }
   const messages = _pip.history.slice(-HISTORY_LIMIT)
     .map(m => ({ role: m.role, content: m.content }));
   const reply = await askWithTools(messages, {
@@ -219,23 +209,22 @@ async function onSubmit(text, { turnEl }) {
     tools: getTools(),
     executor,
     maxTokens: 1024,
+    // High budget + no interrupt prompt: trust the planner to stop when
+    // done (stop_reason !== "tool_use") or the user to hit Stop. The old
+    // "Continue?" prompt cut Claude mid-thought on multi-step tasks the
+    // 10-iteration default couldn't fit. Stop button + executor-side
+    // safety floors (3-pulse rule, firmware caps) bound blast radius.
+    maxIterations: 50,
     onToolStart: ({ name }) => { pendingTraceLi = appendTraceLine(turnEl, name); },
     onToolEnd: ({ name, input, result, error, durationMs }) => {
       finishTraceLine(pendingTraceLi, name, input, result, error, durationMs);
       pendingTraceLi = null;
     },
-    onDelta: (textSoFar) => {
-      replyEl.textContent = textSoFar;
-      scrollPanelToBottom();
-    },
+    // Route through pip-core's setReplyText so deltas render as markdown
+    // (innerHTML = renderMd(text)) instead of raw textContent. Same call
+    // path pip uses for the final reply, so no flicker at the end.
+    onDelta: (textSoFar) => setReplyText(turnEl, textSoFar, true),
     shouldAbort: () => _abort,
-    onMaxIterations: async () => {
-      const choice = await _pip.askInChat({
-        question: "Several steps in without finishing. Continue?",
-        options: ["Continue", "Stop"],
-      }, turnEl);
-      return choice === "Continue" ? 5 : 0;
-    },
   });
   _activeTurnEl = null;
   // Backend returned nothing usable → surface an actionable recovery
