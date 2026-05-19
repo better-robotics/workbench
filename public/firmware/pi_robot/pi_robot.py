@@ -204,6 +204,12 @@ ENCODERS_PINS    = _config.get("encoders_pins", {"left": 22, "right": 24})
 # (17), motors (5/6/13/26), and encoders (22/24).
 ULTRASONIC_ENABLED = bool(_config.get("ultrasonic_enabled", False))
 ULTRASONIC_PINS    = _config.get("ultrasonic_pins", {"trig": 23, "echo": 27})
+# Safety floor — refuse forward motion when an obstacle is within this many
+# centimeters. Applies only when BOTH wheels are commanded positive (pure
+# forward); turns-in-place and reverse pass through, so the planner can
+# always rotate away from a wall. 0 disables. Distance reads come from
+# gpiozero's polling thread, so the check is non-blocking.
+ULTRASONIC_FLOOR_CM = int(_config.get("ultrasonic_floor_cm", 15))
 # Per-robot motor orientation — derived from the dashboard's calibration
 # flow, persisted here. The dashboard sends (L, R) in operator-frame
 # ("L drives the wheel on the operator's left, forward = wheel rolls
@@ -922,8 +928,31 @@ def _drive(motor: Motor | None, value: int) -> None:
         motor.stop()
 
 
+def _safety_clip(left: int, right: int) -> tuple[int, int]:
+    """Layered-safety floor: if both wheels are commanded forward AND the
+    ultrasonic sees an obstacle inside the configured threshold, zero
+    both. Turns-in-place (mixed signs) and reverse (any negative) pass
+    through so the planner can always escape. Failure modes (no sensor,
+    read error) fall through unchanged — never block motion on absent
+    telemetry."""
+    if not ULTRASONIC_FLOOR_CM or _us_dev is None:
+        return left, right
+    if left <= 0 or right <= 0:
+        return left, right
+    try:
+        d_cm = _us_dev.distance * 100
+    except Exception:
+        return left, right
+    if d_cm < ULTRASONIC_FLOOR_CM:
+        log.info("ultrasonic floor: %.1f cm < %d — clipping forward (%+d,%+d) → (0,0)",
+                 d_cm, ULTRASONIC_FLOOR_CM, left, right)
+        return 0, 0
+    return left, right
+
+
 def _apply_motors(left: int, right: int) -> None:
     global _motor_left, _motor_right
+    left, right = _safety_clip(left, right)
     # Dashboard re-publishes a held joystick at ~60 Hz; skip BLE notify +
     # PWM re-issue when nothing changed. Watchdog still resets on every
     # char-write upstream.
@@ -1649,6 +1678,14 @@ async def _motor_watchdog_task() -> None:
     window_s = MOTOR_WATCHDOG_MS / 1000.0
     while True:
         await asyncio.sleep(interval_s)
+        # Safety floor — re-check distance during in-flight forward motion
+        # so a pulse that started clear gets stopped when an obstacle
+        # appears. _safety_clip handles the threshold + sign logic.
+        if _motor_left > 0 and _motor_right > 0:
+            l, r = _safety_clip(_motor_left, _motor_right)
+            if (l, r) != (_motor_left, _motor_right):
+                _apply_motors(l, r)
+                continue
         if _motor_left == 0 and _motor_right == 0:
             continue
         if _motor_last_write_at == 0.0:
