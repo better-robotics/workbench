@@ -295,6 +295,27 @@ async function dispatch(name, input) {
         e.telemetryUpdatedAt && e.lastMotorActionAt
         && e.lastMotorActionAt > e.telemetryUpdatedAt
       );
+      // Watcher status — surface fire-once detection events here so Pip
+      // sees "the reflex caught something" on its next state poll without
+      // having to be told. This is the level-1 fix for "harness pushes
+      // state to planner, planner doesn't have to ask" (Butter-Bench /
+      // ExploreVLM convergent pattern). Fields surfaced explicitly with
+      // ages so the planner has enough context to decide whether to react.
+      const watcher = e.watcher
+        ? {
+            enabled: !!e.watcher.enabled,
+            classes: e.watcher.classes ?? null,
+            action: e.watcher.action ?? null,
+            last_detection: e.watcher.lastDetection
+              ? {
+                  label: e.watcher.lastDetection.label,
+                  score: e.watcher.lastDetection.score,
+                  ts_ms: e.watcher.lastDetection.ts,
+                  age_ms: now - e.watcher.lastDetection.ts,
+                }
+              : null,
+          }
+        : null;
       return {
         id: e.id, name: e.name, type: e.fwType ?? null,
         status: e.status,
@@ -304,6 +325,7 @@ async function dispatch(name, input) {
         telemetry_age_ms: telAge,
         since_last_motor_action_ms: motorAge,
         motion_invalidated,
+        watcher,
         robotStatus: e.robotStatus ?? null,
         capSchema: e.capSchema ?? null,
         now_ms: now,
