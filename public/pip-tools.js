@@ -31,7 +31,7 @@ const ALL_TOOLS = [
   },
   {
     name: "get_robot_state",
-    description: "Cached state for one robot: fwInfo, wifiStatus, telemetry, robotStatus, capability schema. No BLE write. Returns telemetry_age_ms, since_last_motor_action_ms, motion_invalidated (true when telemetry predates last motion — re-read before trusting). telemetry.dist_cm = forward ultrasonic distance in cm; firmware silently clips pure-forward motion when dist_cm < ~15 (turns/reverse always pass).",
+    description: "Cached state for one robot: fwInfo, wifiStatus, telemetry, robotStatus, capability schema, plus motion_invalidated (true when telemetry predates the last motor action — re-read before trusting). telemetry.dist_cm = forward ultrasonic distance in cm; firmware silently clips pure-forward motion when dist_cm < ~15 (turns/reverse always pass). No BLE write.",
     input_schema: {
       type: "object",
       properties: { id: { type: "string" } },
@@ -149,14 +149,14 @@ const ALL_TOOLS = [
   },
   {
     name: "move_motor",
-    description: "Time-bounded motor pulse: (l, r) speeds in [-100, 100], duration_ms. Firmware caps speed to ±40, duration to [50, 2000] ms, auto-stops at end of window, and clips pure-forward motion when dist_cm < ~15. You decide when to look (view_robot_frame), arm a reflex (start_robot_watcher), or escalate (ask_human) — no executor-imposed observation cadence. Returns { ok, applied:{l,r,duration_ms} } or { ok:false, error }.",
+    description: "Time-bounded motor pulse: (l, r) speeds in [-100, 100], duration_ms in [50, 2000]. Firmware caps speed to ±40, auto-stops at end of window, and clips pure-forward motion when dist_cm < ~15. Returns { ok, applied:{l,r,duration_ms} } or { ok:false, error }.",
     input_schema: {
       type: "object",
       properties: {
         id:          { type: "string" },
-        l:           { type: "number" },
-        r:           { type: "number" },
-        duration_ms: { type: "number" },
+        l:           { type: "number", minimum: -100, maximum: 100 },
+        r:           { type: "number", minimum: -100, maximum: 100 },
+        duration_ms: { type: "number", minimum: 50, maximum: 2000 },
       },
       required: ["id", "l", "r", "duration_ms"],
     },
@@ -164,15 +164,16 @@ const ALL_TOOLS = [
   },
   {
     name: "start_robot_watcher",
-    description: "Start a closed-vocab MediaPipe COCO reflex on the robot's camera (~10ms/frame). Fires the action on first detection of any string in `classes`, then disarms. Once armed, you do NOT need to also poll view_robot_frame for the same target — a [reflex-fire] block will appear in your next tool_result when it catches. Idempotent: a second call replaces any prior. If unsure which class names are valid, call list_coco_classes first.",
+    description: "Start a continuous closed-vocab MediaPipe COCO reflex on the robot's camera (~10ms/frame, 3s cool-down between fires). On every detection, runs the action then re-arms. Once armed, you do NOT need to also poll view_robot_frame for the same target — a [reflex-fire] block appears in your next tool_result when it catches. Idempotent: a second call replaces any prior. `classes` must come from the COCO-80 enum below.",
     input_schema: {
       type: "object",
       properties: {
         id: { type: "string" },
         classes: {
           type: "array",
-          items: { type: "string" },
-          description: "COCO classes (e.g. 'stop sign', 'person', 'traffic light', 'cat'). ~80 classes total.",
+          minItems: 1,
+          items: { type: "string", enum: COCO_CLASSES },
+          description: "One or more COCO-80 class names to watch for.",
         },
         action: {
           type: "string",
@@ -183,12 +184,6 @@ const ALL_TOOLS = [
       required: ["id", "classes"],
     },
     annotations: { readOnlyHint: false, idempotentHint: true, destructiveHint: true, openWorldHint: false },
-  },
-  {
-    name: "list_coco_classes",
-    description: "Return the 80 valid class strings the closed-vocab reflex watcher accepts. Call only when uncertain whether your target name matches the COCO vocabulary.",
-    input_schema: { type: "object", properties: {}, required: [] },
-    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   },
   {
     name: "stop_robot_watcher",
@@ -291,29 +286,22 @@ async function dispatch(name, input) {
       const e = state.devices.get(input.id);
       if (!e) return { error: `no robot with id ${input.id}` };
       const now = Date.now();
-      const telAge = e.telemetryUpdatedAt ? now - e.telemetryUpdatedAt : null;
-      const motorAge = e.lastMotorActionAt ? now - e.lastMotorActionAt : null;
       // motion_invalidated: true when a motor pulse fired AFTER the last
-      // telemetry sample, so dist_cm reflects pre-motion state. Tie
-      // staleness to the event, not a wall-clock TTL — survives Claude's
-      // weak time arithmetic (per "Temporally Blind" research).
+      // telemetry sample, so dist_cm reflects pre-motion state. Single
+      // boolean — the planner doesn't need to reconstruct it from age
+      // fields (the lens audit flagged the prior three-derived-fields
+      // shape as the "same fact in three places" anti-pattern). Watcher
+      // fire-events flow exclusively through the L2 injection path.
       const motion_invalidated = !!(
         e.telemetryUpdatedAt && e.lastMotorActionAt
         && e.lastMotorActionAt > e.telemetryUpdatedAt
       );
-      // Watcher fire-events flow exclusively through the L2 injection
-      // path (claude.js getPendingObservations → [reflex-fire] text block
-      // alongside next tool_result). Two channels for the same signal
-      // would just confuse the planner about authoritativeness; pick the
-      // direct one.
       return {
         id: e.id, name: e.name, type: e.fwType ?? null,
         status: e.status,
         fwInfo: e.fwInfo ?? null,
         wifiStatus: e.wifiStatus ?? null,
         telemetry: e.telemetry ?? null,
-        telemetry_age_ms: telAge,
-        since_last_motor_action_ms: motorAge,
         motion_invalidated,
         robotStatus: e.robotStatus ?? null,
         capSchema: e.capSchema ?? null,
@@ -446,9 +434,6 @@ async function dispatch(name, input) {
       } catch (err) {
         return { error: `detector failed: ${String(err.message || err)}` };
       }
-    }
-    case "list_coco_classes": {
-      return { classes: COCO_CLASSES };
     }
     case "start_robot_watcher": {
       const e = state.devices.get(input.id);
