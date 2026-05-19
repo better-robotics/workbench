@@ -1033,22 +1033,31 @@ def _open_camera_track():
 
 
 class _PiCameraTrack(MediaStreamTrack if _camera_available else object):  # type: ignore
-    """640x480. Capture runs on a background thread into a single-slot
-    buffer; recv() drains the latest frame and discards anything older.
-    Bounds glass-to-glass latency to one frame even when aiortc's software
-    VP8 encoder lags the sensor — the previous counter-based PTS at
-    time_base 1/15 made every frame look on-time to the browser's jitter
-    buffer, so stale frames couldn't be dropped and delay walked up
-    monotonically. Wall-clock PTS on the 90 kHz RTP video clock lets the
-    decoder see real timing. UVC cams may center-crop from native sensor
-    size; revisit when full-FOV is worth burning CPU on."""
+    """Capture at the cam's full-FOV native mode, downscale to TRANSMIT_SIZE
+    before handing to aiortc. UVC webcams typically expose only one
+    non-cropped mode (their max-resolution sensor mode); all lower-res
+    UVC modes are center crops of it — picking 640×480 directly looks
+    "zoomed in." 1280×960 covers every cheap UVC cam we've seen; falls
+    back to whatever picamera2 picks if the cam doesn't list it.
+
+    Capture runs on a background thread into a single-slot buffer; recv()
+    drains the latest frame and discards anything older. Bounds glass-to
+    -glass latency to one frame even when aiortc's software VP8 encoder
+    lags the sensor — the previous counter-based PTS at time_base 1/15
+    made every frame look on-time to the browser's jitter buffer, so
+    stale frames couldn't be dropped and delay walked up monotonically.
+    Wall-clock PTS on the 90 kHz RTP video clock lets the decoder see
+    real timing."""
     kind = "video"
+
+    CAPTURE_SIZE = (1280, 960)
+    TRANSMIT_SIZE = (640, 480)
 
     def __init__(self) -> None:
         super().__init__()
         self.camera = Picamera2()
         cfg = self.camera.create_video_configuration(
-            main={"size": (640, 480), "format": "RGB888"},
+            main={"size": self.CAPTURE_SIZE, "format": "RGB888"},
         )
         self.camera.configure(cfg)
         self.camera.start()
@@ -1095,6 +1104,8 @@ class _PiCameraTrack(MediaStreamTrack if _camera_available else object):  # type
         # skin / blue oranges. We optimize for USB since that's what
         # ships on most boards we encounter.)
         frame = av.VideoFrame.from_ndarray(arr, format="rgb24")
+        frame = frame.reformat(width=self.TRANSMIT_SIZE[0],
+                               height=self.TRANSMIT_SIZE[1])
         frame.pts = int(time.monotonic() * 90000)
         frame.time_base = self._time_base
         return frame
