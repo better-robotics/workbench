@@ -254,6 +254,43 @@ function sanitizeTool(t) {
   return out;
 }
 
+// Prompt caching: mark stable prefix blocks (system prompt + tool schema)
+// with cache_control so Anthropic bills cached reads at ~10% of the base
+// input rate (5-minute TTL, refreshed on each cache-hit). System + tools
+// are ~3000 tokens and stable across iterations of a turn, so this is the
+// highest-leverage cache. A cache_control marker caches everything up to
+// and including that block — one on the last tool covers all tools, one
+// on the last system block covers the system prompt. Max 4 breakpoints
+// per request; we use 2.
+//
+// Tested 2026-05: Claude Max OAuth tokens (the bridge backend's default)
+// silently IGNORE cache_control — confirmed via /v1/messages with 3000+
+// token system prompts returning usage.cache_creation_input_tokens: 0
+// even with the prompt-caching-2024-07-31 beta header. Prompt caching is
+// gated to API-key tier. The marker is left in place because (a) it's a
+// no-op on tiers that don't honor it, (b) the anthropic-direct backend
+// (own API key) DOES get the discount, (c) any future Claude Max policy
+// change makes it active immediately. Reference:
+// docs.anthropic.com/en/docs/build-with-claude/prompt-caching
+function withPromptCache(body) {
+  const out = { ...body };
+  if (typeof out.system === "string" && out.system.length > 0) {
+    out.system = [{ type: "text", text: out.system, cache_control: { type: "ephemeral" } }];
+  } else if (Array.isArray(out.system) && out.system.length > 0) {
+    const last = out.system[out.system.length - 1];
+    if (last && !last.cache_control) last.cache_control = { type: "ephemeral" };
+  }
+  if (Array.isArray(out.tools) && out.tools.length > 0) {
+    const lastIdx = out.tools.length - 1;
+    out.tools = out.tools.map((t, i) =>
+      i === lastIdx && !t.cache_control
+        ? { ...t, cache_control: { type: "ephemeral" } }
+        : t
+    );
+  }
+  return out;
+}
+
 // Logged after retry exhausted — null/error/non-2xx all mean we won't get
 // useful content back. Names the active backend so the message points at the
 // right thing to investigate.
@@ -275,13 +312,13 @@ export async function ask(userText, opts = {}) {
 }
 
 async function _anthropicAsk(userText, { system, maxTokens = 200 } = {}) {
-  const res = await callAnthropic({
+  const res = await callAnthropic(withPromptCache({
     model: currentClaudeModel(),
     max_tokens: maxTokens,
     system,
     messages: [{ role: "user", content: userText }],
     stream: false,
-  });
+  }));
   if (!res || res.error) { logBackendError("ask", res); return null; }
   if (res.status < 200 || res.status >= 300) { logBackendError("ask", res); return null; }
   try {
@@ -350,13 +387,13 @@ async function _anthropicAskWithTools(messages, { system, tools, executor, maxIt
   const canStream = onDelta && settings.pipBackend === "bridge";
   while (i < budget) {
     if (shouldAbort?.()) return "(stopped)";
-    const body = {
+    const body = withPromptCache({
       model: currentClaudeModel(),
       max_tokens: maxTokens,
       system,
       messages: convo,
       tools: tools?.map(sanitizeTool),
-    };
+    });
     let result;
     if (canStream) {
       // Per-iteration delta. The host renders each iteration as its own
