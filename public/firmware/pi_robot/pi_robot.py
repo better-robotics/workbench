@@ -22,6 +22,7 @@ import shlex
 import socket
 import subprocess
 import sys
+import threading
 import time
 
 # version.py is stamped by Makefile / CI (publish-pi-firmware) with the short
@@ -1032,9 +1033,15 @@ def _open_camera_track():
 
 
 class _PiCameraTrack(MediaStreamTrack if _camera_available else object):  # type: ignore
-    """640x480 @ 15fps — CPU-reasonable on a Pi 4, bandwidth-safe for WebRTC
-    over WiFi. UVC cams may center-crop this from their native sensor size;
-    revisit when full-FOV becomes a priority worth burning CPU on."""
+    """640x480. Capture runs on a background thread into a single-slot
+    buffer; recv() drains the latest frame and discards anything older.
+    Bounds glass-to-glass latency to one frame even when aiortc's software
+    VP8 encoder lags the sensor — the previous counter-based PTS at
+    time_base 1/15 made every frame look on-time to the browser's jitter
+    buffer, so stale frames couldn't be dropped and delay walked up
+    monotonically. Wall-clock PTS on the 90 kHz RTP video clock lets the
+    decoder see real timing. UVC cams may center-crop from native sensor
+    size; revisit when full-FOV is worth burning CPU on."""
     kind = "video"
 
     def __init__(self) -> None:
@@ -1045,11 +1052,41 @@ class _PiCameraTrack(MediaStreamTrack if _camera_available else object):  # type
         )
         self.camera.configure(cfg)
         self.camera.start()
-        self._pts = 0
-        self._time_base = fractions.Fraction(1, 15)
+        self._time_base = fractions.Fraction(1, 90000)
+        self._loop = asyncio.get_running_loop()
+        self._frame_event = asyncio.Event()
+        self._latest = None
+        self._lock = threading.Lock()
+        self._stop_flag = threading.Event()
+        self._thread = threading.Thread(
+            target=self._capture_loop, name="picamera2-capture", daemon=True,
+        )
+        self._thread.start()
+
+    def _capture_loop(self) -> None:
+        while not self._stop_flag.is_set():
+            try:
+                arr = self.camera.capture_array("main")
+            except Exception:
+                if self._stop_flag.wait(0.05):
+                    break
+                continue
+            with self._lock:
+                self._latest = arr
+            try:
+                self._loop.call_soon_threadsafe(self._frame_event.set)
+            except RuntimeError:
+                break
 
     async def recv(self):
-        arr = self.camera.capture_array("main")
+        while True:
+            await self._frame_event.wait()
+            with self._lock:
+                arr = self._latest
+                self._latest = None
+            self._frame_event.clear()
+            if arr is not None:
+                break
         # libcamera's "RGB888" config name describes the FORMAT, not the
         # memory order — the uvcvideo pipeline (USB cams) hands back bytes
         # in true R,G,B order. (Historically the CSI/vc4 pipeline delivered
@@ -1058,8 +1095,7 @@ class _PiCameraTrack(MediaStreamTrack if _camera_available else object):  # type
         # skin / blue oranges. We optimize for USB since that's what
         # ships on most boards we encounter.)
         frame = av.VideoFrame.from_ndarray(arr, format="rgb24")
-        self._pts += 1
-        frame.pts = self._pts
+        frame.pts = int(time.monotonic() * 90000)
         frame.time_base = self._time_base
         return frame
 
@@ -1067,6 +1103,9 @@ class _PiCameraTrack(MediaStreamTrack if _camera_available else object):  # type
         # close() after stop() releases the CSI allocation; without it, a
         # re-Start fails with "Camera __init__ sequence did not complete."
         # until reboot.
+        self._stop_flag.set()
+        try: self._thread.join(timeout=1.0)
+        except Exception: pass
         try: self.camera.stop()
         except Exception: pass
         try: self.camera.close()
