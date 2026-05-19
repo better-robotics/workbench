@@ -19,8 +19,23 @@ import {
 let _askInChat = null;
 export function setAskInChatHandler(fn) { _askInChat = fn; }
 import { detectOnce, isMediapipeFailed } from "./mediapipe.js";
-import { startWatcher, stopWatcher, ACTION_NAMES, watcherStatus, COCO_CLASSES } from "./watcher.js";
+import { startWatcher, stopWatcher, ACTION_NAMES, watcherStatus, COCO_CLASSES, awaitReflexGate, isReflexGated } from "./watcher.js";
 import { speak as voiceSpeak } from "./voice.js";
+
+// Motor-tool gate. Blocks a tool call while the reflex watcher's halt
+// gate is engaged (stop-sign-or-equivalent visible). 10s cap so a
+// forgotten sign can't freeze the planner forever; assistant.js's onAbort
+// calls releaseAllGates() to cut through immediately when the operator
+// hits Stop. Returns null if motion is permitted, or an error object the
+// tool case can return directly.
+async function awaitMotorGate(id) {
+  if (!isReflexGated(id)) return null;
+  const r = await awaitReflexGate(id, { maxMs: 10000 });
+  if (r.released === "timeout") {
+    return { ok: false, error: "reflex: stop sign blocked motion for 10s — clear the sign or call ask_human" };
+  }
+  return null;
+}
 
 // Linear-velocity calibration for drive_distance_cm / approach_until.
 // Rough first guess: a small wheeled robot at max firmware speed (40)
@@ -489,6 +504,8 @@ async function dispatch(name, input) {
       // when to look or ask for help — no executor-imposed observation
       // cadence between pulses. Stamp the action so subsequent
       // get_robot_state returns can flag motion-invalidated telemetry.
+      const gateErr = await awaitMotorGate(input.id);
+      if (gateErr) return gateErr;
       const e = state.devices.get(input.id);
       if (e) e.lastMotorActionAt = Date.now();
       return await pulseMotors(input.id, input.l, input.r, input.duration_ms);
@@ -519,7 +536,12 @@ async function dispatch(name, input) {
       e.lastMotorActionAt = Date.now();
       const results = [];
       let executed_cm = 0;
+      let gatedAt = null;
       for (const p of pulses) {
+        // Check before each chunk — a sign that appears mid-drive halts
+        // the chain rather than letting the queued chunks blast through.
+        const gateErr = await awaitMotorGate(input.id);
+        if (gateErr) { gatedAt = gateErr; break; }
         const r = await pulseMotors(input.id, dir * speed, dir * speed, p.duration_ms);
         results.push(r);
         if (!r?.ok) break;
@@ -528,7 +550,14 @@ async function dispatch(name, input) {
         // the next pulse cancels the in-flight one and motion judders.
         await new Promise(res => setTimeout(res, p.duration_ms + 30));
       }
-      return { ok: true, requested_cm: cm, executed_cm: +executed_cm.toFixed(1) * dir, pulses: pulses.length, results };
+      return {
+        ok: !gatedAt,
+        requested_cm: cm,
+        executed_cm: +executed_cm.toFixed(1) * dir,
+        pulses: pulses.length,
+        results,
+        ...(gatedAt ? { error: gatedAt.error } : {}),
+      };
     }
     case "approach_until": {
       const e = state.devices.get(input.id);
@@ -555,6 +584,11 @@ async function dispatch(name, input) {
       const drivePulseMsNear = 400;
 
       while ((Date.now() - startedAt) / 1000 < maxSeconds) {
+        // Sign-of-life check on the reflex gate before each approach step.
+        // A 10s+ block in here counts against max_seconds rather than
+        // extending it — the user's max_seconds budget is what they meant.
+        const gateErr = await awaitMotorGate(input.id);
+        if (gateErr) { reason = gateErr.error; break; }
         const distCm = e.telemetry?.dist_cm;
         if (typeof distCm === "number" && distCm < stopDistCm) {
           reason = `dist_cm=${distCm} < stop_dist_cm=${stopDistCm}`;
