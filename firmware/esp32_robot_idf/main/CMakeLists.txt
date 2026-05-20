@@ -31,6 +31,7 @@ set(BR_SRCS
     "motors.c"
     "encoders.c"
     "servo.c"
+    "rgb.c"
     "ota.c"
     "camera.c"
     "snapshot.c"

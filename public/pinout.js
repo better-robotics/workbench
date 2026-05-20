@@ -1401,6 +1401,7 @@ function esp32PinsFromFwInfo(entry) {
   const motors   = caps.find(c => c.name === "motors")?.pins;
   const encoders = caps.find(c => c.name === "encoders")?.pins;
   const servo    = caps.find(c => c.name === "servo")?.pin;
+  const rgb      = caps.find(c => c.name === "rgb")?.pins;
   return {
     led:     led    ?? 33,
     // No-cap fallback: -1 (disabled). C3/DevKit firmware doesn't advertise
@@ -1422,6 +1423,13 @@ function esp32PinsFromFwInfo(entry) {
     // Servo (SG90-class) — disabled by default; user assigns a free GPIO
     // when wired. Same -1 idiom as encoders.
     servo:   servo  ?? -1,
+    // RGB triple (Yahboom BST-03 headlights and similar common-cathode
+    // 3-channel boards). All three need to be wired for the firmware to
+    // claim LEDC channels; partial = disabled. C3 stays disabled even
+    // when assigned — not enough LEDC channels after motors+servo.
+    rgb_r:   rgb?.r ?? -1,
+    rgb_g:   rgb?.g ?? -1,
+    rgb_b:   rgb?.b ?? -1,
   };
 }
 
@@ -1490,6 +1498,9 @@ function renderEsp32View(entry) {
         ${row("Encoder left",   "enc_l")}
         ${row("Encoder right",  "enc_r")}
         ${row("Servo",          "servo")}
+        ${row("RGB · R",        "rgb_r")}
+        ${row("RGB · G",        "rgb_g")}
+        ${row("RGB · B",        "rgb_b")}
       </div>
     </div>
     <div class="row" style="margin-top: 12px;">
@@ -1519,7 +1530,7 @@ function renderEsp32Edit(entry) {
   // Excluding it from ALL_KEYS on no-flash boards keeps the conflict guard
   // from flagging a phantom claim against the real motor/LED assignments.
   const hasFlash = (entry?.fwInfo?.caps || []).some(c => c.name === "flash");
-  const ALL_KEYS = ["led", ...(hasFlash ? ["flash"] : []), "m_l_fwd", "m_l_bwd", "m_r_fwd", "m_r_bwd", "m_ena", "m_enb", "enc_l", "enc_r", "servo"];
+  const ALL_KEYS = ["led", ...(hasFlash ? ["flash"] : []), "m_l_fwd", "m_l_bwd", "m_r_fwd", "m_r_bwd", "m_ena", "m_enb", "enc_l", "enc_r", "servo", "rgb_r", "rgb_g", "rgb_b"];
   const usedBy = {};
   for (const k of ALL_KEYS) {
     if (c[k] < 0) continue;  // -1 = disabled, multiple disables don't conflict
@@ -1590,6 +1601,9 @@ function renderEsp32Edit(entry) {
         pins: { left: c.enc_l >= 0 ? c.enc_l : -1, right: c.enc_r >= 0 ? c.enc_r : -1 },
       }] : []),
       ...(c.servo >= 0 ? [{ name: "servo", type: "level", pin: c.servo }] : []),
+      ...(c.rgb_r >= 0 && c.rgb_g >= 0 && c.rgb_b >= 0
+        ? [{ name: "rgb", type: "rgb", pins: { r: c.rgb_r, g: c.rgb_g, b: c.rgb_b } }]
+        : []),
     ],
   };
   // Toolbar carries LED + Flash because they don't belong to any chip
@@ -1598,9 +1612,15 @@ function renderEsp32Edit(entry) {
   const ledV   = c.led < 0   ? "" : String(c.led);
   const flashV = c.flash < 0 ? "" : String(c.flash);
   const servoV = c.servo < 0 ? "" : String(c.servo);
+  const rgbRV  = c.rgb_r < 0 ? "" : String(c.rgb_r);
+  const rgbGV  = c.rgb_g < 0 ? "" : String(c.rgb_g);
+  const rgbBV  = c.rgb_b < 0 ? "" : String(c.rgb_b);
   const ledCls   = c.led   >= 0 && flagged.has(c.led)   ? " conflict" : "";
   const flashCls = c.flash >= 0 && flagged.has(c.flash) ? " conflict" : "";
   const servoCls = c.servo >= 0 && flagged.has(c.servo) ? " conflict" : "";
+  const rgbRCls  = c.rgb_r >= 0 && flagged.has(c.rgb_r) ? " conflict" : "";
+  const rgbGCls  = c.rgb_g >= 0 && flagged.has(c.rgb_g) ? " conflict" : "";
+  const rgbBCls  = c.rgb_b >= 0 && flagged.has(c.rgb_b) ? " conflict" : "";
 
   $("pinout-body").innerHTML = `
     <div class="pinout-toolbar">
@@ -1621,6 +1641,19 @@ function renderEsp32Edit(entry) {
              GPIO is logic-level only; the SG90 itself wants 5V). -->
         <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input${servoCls}"
                data-key="servo" value="${servoV}" placeholder="—">
+      </label>
+      <label class="toolbar-toggle toolbar-toggle-rgb">
+        <span>RGB</span>
+        <!-- Common-cathode RGB LED triple (Yahboom BST-03 and similar).
+             All three pins required; leave any blank to disable the cap.
+             ESP32-C3 won't claim it even if assigned (LEDC channels are
+             exhausted after motors+servo). -->
+        <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input${rgbRCls}"
+               data-key="rgb_r" value="${rgbRV}" placeholder="R">
+        <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input${rgbGCls}"
+               data-key="rgb_g" value="${rgbGV}" placeholder="G">
+        <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input${rgbBCls}"
+               data-key="rgb_b" value="${rgbBV}" placeholder="B">
       </label>
     </div>
     ${renderEsp32BoardWithDriver(previewEntry, { editable: true, editConfig: c, flagged })}
@@ -1703,7 +1736,7 @@ async function saveEsp32Edit(entry) {
   // Range check (firmware also validates, but reject early so the user
   // gets a focused error instead of a silent ignore over BLE). -1 means
   // "cap disabled" — accepted; only out-of-range positives reject.
-  for (const key of ["led", "flash", "m_l_fwd", "m_l_bwd", "m_r_fwd", "m_r_bwd", "enc_l", "enc_r", "servo"]) {
+  for (const key of ["led", "flash", "m_l_fwd", "m_l_bwd", "m_r_fwd", "m_r_bwd", "enc_l", "enc_r", "servo", "rgb_r", "rgb_g", "rgb_b"]) {
     const v = editConfig[key];
     if (!Number.isInteger(v) || v === -1) continue;
     if (v < 0 || v > 39) {

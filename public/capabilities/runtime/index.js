@@ -1,6 +1,7 @@
 // Type → runtime-constructor map, keyed by fw-info.caps entry `type`.
 import { makeToggleCap            } from "./toggle.js";
 import { makeLevelCap             } from "./level.js";
+import { makeRgbCap               } from "./rgb.js";
 import { makeSignedPairCap        } from "./signed-pair.js";
 import { makeCommandCap           } from "./command.js";
 import { makeWifiScanCap          } from "./wifi-scan.js";
@@ -12,6 +13,7 @@ import { setRender as setBusRender } from "./render-bus.js";
 export const RUNTIMES = {
   "toggle":              makeToggleCap,
   "level":               makeLevelCap,
+  "rgb":                 makeRgbCap,
   "signed-pair":         makeSignedPairCap,
   "command":             makeCommandCap,
   "wifi-scan":           makeWifiScanCap,

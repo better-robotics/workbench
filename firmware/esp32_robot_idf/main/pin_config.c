@@ -134,6 +134,11 @@ void pin_config_load(pin_config_t *out) {
     // default would clash on ESP32-CAM (already pin-pressured) and isn't
     // informative on DevKit/C3 either; user assigns explicitly when wired.
     out->servo = -1;
+    // RGB LED triple — disabled by default. User wires all three (R/G/B);
+    // partial assignment is treated as disabled (rgb_init enforces).
+    out->rgb_r = -1;
+    out->rgb_g = -1;
+    out->rgb_b = -1;
 
     nvs_handle_t h;
     if (nvs_open("pins", NVS_READONLY, &h) != ESP_OK) return;
@@ -148,6 +153,9 @@ void pin_config_load(pin_config_t *out) {
     out->enc_l       = nvs_get_pin(h, "enc_l",   out->enc_l);
     out->enc_r       = nvs_get_pin(h, "enc_r",   out->enc_r);
     out->servo       = nvs_get_pin(h, "servo",   out->servo);
+    out->rgb_r       = nvs_get_pin(h, "rgb_r",   out->rgb_r);
+    out->rgb_g       = nvs_get_pin(h, "rgb_g",   out->rgb_g);
+    out->rgb_b       = nvs_get_pin(h, "rgb_b",   out->rgb_b);
     nvs_close(h);
 }
 
@@ -195,9 +203,12 @@ void pin_config_handle_write(const uint8_t *json_bytes, size_t len) {
     int enc_l  = extract_int_key(json, len, "enc_l");
     int enc_r  = extract_int_key(json, len, "enc_r");
     int servo  = extract_int_key(json, len, "servo");
+    int rgb_r  = extract_int_key(json, len, "rgb_r");
+    int rgb_g  = extract_int_key(json, len, "rgb_g");
+    int rgb_b  = extract_int_key(json, len, "rgb_b");
 
-    int candidates[11] = { led, flash, l_fwd, l_bwd, r_fwd, r_bwd, m_ena, m_enb, enc_l, enc_r, servo };
-    for (int i = 0; i < 11; i++) {
+    int candidates[14] = { led, flash, l_fwd, l_bwd, r_fwd, r_bwd, m_ena, m_enb, enc_l, enc_r, servo, rgb_r, rgb_g, rgb_b };
+    for (int i = 0; i < 14; i++) {
         int p = candidates[i];
         if (p == PIN_ABSENT || p == -1) continue;
         if (p < 0 || p > PIN_MAX) {
@@ -208,7 +219,7 @@ void pin_config_handle_write(const uint8_t *json_bytes, size_t len) {
             ESP_LOGW(TAG, "GPIO %d is board-forbidden, ignored", p);
             return;
         }
-        for (int j = i + 1; j < 11; j++) {
+        for (int j = i + 1; j < 14; j++) {
             if (candidates[j] == p) {
                 ESP_LOGW(TAG, "GPIO %d assigned twice, ignored", p);
                 return;
@@ -232,10 +243,13 @@ void pin_config_handle_write(const uint8_t *json_bytes, size_t len) {
     if (enc_l  != PIN_ABSENT) nvs_set_i32(h, "enc_l",   enc_l);
     if (enc_r  != PIN_ABSENT) nvs_set_i32(h, "enc_r",   enc_r);
     if (servo  != PIN_ABSENT) nvs_set_i32(h, "servo",   servo);
+    if (rgb_r  != PIN_ABSENT) nvs_set_i32(h, "rgb_r",   rgb_r);
+    if (rgb_g  != PIN_ABSENT) nvs_set_i32(h, "rgb_g",   rgb_g);
+    if (rgb_b  != PIN_ABSENT) nvs_set_i32(h, "rgb_b",   rgb_b);
     nvs_commit(h);
     nvs_close(h);
 
-    ESP_LOGI(TAG, "saved (led=%d flash=%d L=%d/%d R=%d/%d ena=%d enb=%d enc=%d/%d servo=%d)",
-             led, flash, l_fwd, l_bwd, r_fwd, r_bwd, m_ena, m_enb, enc_l, enc_r, servo);
+    ESP_LOGI(TAG, "saved (led=%d flash=%d L=%d/%d R=%d/%d ena=%d enb=%d enc=%d/%d servo=%d rgb=%d/%d/%d)",
+             led, flash, l_fwd, l_bwd, r_fwd, r_bwd, m_ena, m_enb, enc_l, enc_r, servo, rgb_r, rgb_g, rgb_b);
     schedule_restart(500);
 }

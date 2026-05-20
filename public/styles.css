@@ -999,6 +999,11 @@ details.tray.has-alert > summary::after {
   cursor: pointer;
 }
 .toolbar-toggle .pinout-edit-input { width: 50px; }
+/* RGB toolbar slot — three inputs in a row with tighter spacing so the
+   triple reads as one labeled group. */
+.toolbar-toggle-rgb { gap: 4px; }
+.toolbar-toggle-rgb > span { margin-right: 4px; }
+.toolbar-toggle-rgb .pinout-edit-input { width: 36px; }
 .pinout-helper { margin-top: 8px; font-size: 12px; }
 /* Compact one-line warnings replacing the old stacked banners. Same colors
    as the legacy .pinout-warn / .soft so meaning carries; smaller padding
@@ -1253,6 +1258,24 @@ details.tray.has-alert > summary::after {
   accent-color: var(--accent);
   vertical-align: middle;
 }
+
+/* RGB color picker — sits in the same action slot as level-slider. The
+   browser's native input[type=color] is a tiny color square; default
+   chrome (border, padding) varies across platforms, so flatten it to a
+   uniform swatch that visually matches the level slider's footprint. */
+.rgb-picker {
+  width: 44px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.12));
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  vertical-align: middle;
+}
+.rgb-picker::-webkit-color-swatch-wrapper { padding: 2px; }
+.rgb-picker::-webkit-color-swatch { border: none; border-radius: 4px; }
+.rgb-picker::-moz-color-swatch { border: none; border-radius: 4px; }
 
 /* Joypad — 2D drag surface with a knob that follows the pointer. Drives
    throttle (Y) + turn (X); firmware-side differential mixing lives in JS

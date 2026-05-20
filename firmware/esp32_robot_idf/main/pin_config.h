@@ -27,6 +27,9 @@ typedef struct {
     int enc_l;
     int enc_r;
     int servo;       // -1 = no servo wired. Signal pin for SG90-class hobby servo.
+    int rgb_r;       // -1 = no RGB LED wired. Red signal pin.
+    int rgb_g;       // Green signal pin (paired with rgb_r and rgb_b).
+    int rgb_b;       // Blue signal pin.
 } pin_config_t;
 
 bool pin_valid(int pin);

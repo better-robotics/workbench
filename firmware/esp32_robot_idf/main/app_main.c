@@ -13,6 +13,7 @@
 #include "led.h"
 #include "motors.h"
 #include "ota.h"
+#include "rgb.h"
 #include "servo.h"
 #include "pin_config.h"
 #include "telemetry.h"
@@ -67,6 +68,7 @@ void app_main(void) {
     motors_init(&pins);
     encoders_init(&pins);
     servo_init(pins.servo);
+    rgb_init(pins.rgb_r, pins.rgb_g, pins.rgb_b);
 
     // fw-info reflects the cap surface; built once after caps are up.
     // Changes (camera profile, pin config) reboot, so a fresh boot
