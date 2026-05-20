@@ -137,6 +137,13 @@ const C3_PINS_BOT = [
 //                        flash on DevKit, flash + SPI on C3). The editor
 //                        blocks save on any assignment to these — must
 //                        stay in lock-step with pin_config.c.
+//   maxGpio            — firmware-side PIN_MAX mirror (39 on esp32, 21 on
+//                        esp32c3). The editor blocks save on any pin above
+//                        this; without it, the dashboard happily writes a
+//                        too-high GPIO to a C3, the firmware drops the
+//                        whole pin_config_handle_write call silently, and
+//                        the user sees a "save & restart" that quietly
+//                        does nothing.
 export const BOARDS = [
   {
     id: "aithinker_cam",
@@ -155,6 +162,7 @@ export const BOARDS = [
     footerNote: "Camera pins are fixed by the AI-Thinker board layout (15 GPIOs) and can't be reassigned. PSRAM CS/CLK (IO16/IO17) and SPI flash (IO6–IO11) are also off-limits.",
     cameraReservedGpios: [0, 5, 18, 19, 21, 22, 23, 25, 26, 27, 32, 34, 35, 36, 39],
     forbiddenGpios: [0, 5, 6, 7, 8, 9, 10, 11, 16, 17, 18, 19, 21, 22, 23, 25, 26, 27, 32, 34, 35, 36, 39],
+    maxGpio: 39,
   },
   {
     id: "devkit",
@@ -170,6 +178,7 @@ export const BOARDS = [
     footerNote: "DevKitV1 exposes ~25 usable GPIOs across both edges. Strapping pins (IO2, IO12, IO15) work fine as outputs after boot; IO34–IO39 are input-only; SPI flash pins (IO6–IO11) are forbidden.",
     cameraReservedGpios: [],
     forbiddenGpios: [6, 7, 8, 9, 10, 11],
+    maxGpio: 39,
   },
   {
     id: "c3_supermini",
@@ -184,6 +193,7 @@ export const BOARDS = [
     footerNote: "C3 SuperMini has ~11 usable GPIOs. IO8 doubles as the onboard LED, IO9 as the BOOT button; IO18–IO21 are the USB-CDC and UART0 console lines.",
     cameraReservedGpios: [],
     forbiddenGpios: [11, 12, 13, 14, 15, 16, 17],
+    maxGpio: 21,
   },
 ];
 
@@ -214,4 +224,13 @@ export function cameraReservedSet(boardId) {
 export function boardForbiddenSet(boardId) {
   const b = boardById(boardId);
   return new Set(b ? b.forbiddenGpios : []);
+}
+
+// Per-board upper bound on GPIO IDs — mirrors PIN_MAX in pin_config.c.
+// Used by the editor to flag out-of-range pins before the BLE write,
+// because firmware silently drops the entire pin_config write if any
+// candidate is > PIN_MAX (no NVS commit, no restart) — without the
+// dashboard catching it, "save & restart" looks like a no-op.
+export function boardMaxGpio(boardId) {
+  return boardById(boardId)?.maxGpio ?? 39;
 }

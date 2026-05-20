@@ -1,7 +1,7 @@
 import { $, escapeHtml } from "./dom.js";
 import { SERVICE_UUID, PIN_CONFIG_CHAR_UUID, encodeJson } from "./ble.js";
 import { beginMotorsCalibration } from "./motors-calibrate.js";
-import { boardById, cameraReservedSet, boardForbiddenSet } from "./boards.js";
+import { boardById, cameraReservedSet, boardForbiddenSet, boardMaxGpio } from "./boards.js";
 import { flattenPins, wireUpMotorChains, clearPinHighlight } from "./pinout-shared.js";
 
 // Pin layouts, labels, footer notes, and camera-reserved sets come from
@@ -385,6 +385,9 @@ function cameraReservedFor(entry) {
 function forbiddenFor(entry) {
   return boardForbiddenSet(entry?.fwInfo?.board);
 }
+function maxGpioFor(entry) {
+  return boardMaxGpio(entry?.fwInfo?.board);
+}
 // Static AI-Thinker camera set for esp32PinNote — the read-only pin
 // notes default to the AI-Thinker context where the camera surface is
 // the most common confusion. DevKit/C3 don't render notes through this
@@ -480,6 +483,7 @@ function renderEsp32Edit(entry) {
   const dup = Object.entries(usedBy).filter(([, v]) => v.length > 1);
   const cameraReserved = cameraReservedFor(entry);
   const forbidden = forbiddenFor(entry);
+  const maxGpio = maxGpioFor(entry);
   const cameraHits = ALL_KEYS.flatMap(k => {
     const p = c[k];
     return (p >= 0 && cameraReserved.has(p)) ? [[k, p]] : [];
@@ -492,11 +496,19 @@ function renderEsp32Edit(entry) {
     const p = c[k];
     return (p >= 0 && forbidden.has(p) && !cameraReserved.has(p)) ? [[k, p]] : [];
   });
+  // Out-of-range pins (above the chip's PIN_MAX — 21 on C3, 39 elsewhere).
+  // The firmware drops the entire pin_config write on the first out-of-
+  // range candidate, so flag and block save here to avoid a silent no-op.
+  const rangeHits = ALL_KEYS.flatMap(k => {
+    const p = c[k];
+    return (p > maxGpio) ? [[k, p]] : [];
+  });
 
   const flagged = new Set();
   for (const [, v] of dup) for (const k of v) if (c[k] >= 0) flagged.add(c[k]);
   for (const [, p] of cameraHits) flagged.add(p);
   for (const [, p] of hardwareHits) flagged.add(p);
+  for (const [, p] of rangeHits) flagged.add(p);
 
   // C3 LEDC budget — 6 channels total, no HS mode. Motors in PWM-on-
   // direction claim 4 (one per IN pin), servo 1, leaving channel 4 free.
@@ -520,12 +532,15 @@ function renderEsp32Edit(entry) {
     hardwareHits.length
       ? `<div class="pinout-warn">Hardware-reserved: ${hardwareHits.map(([k, p]) => `GPIO ${p} (${k})`).join("; ")} — PSRAM CS/CLK or internal SPI flash; firmware refuses these.</div>`
       : "",
+    rangeHits.length
+      ? `<div class="pinout-warn">Out of range: ${rangeHits.map(([k, p]) => `GPIO ${p} (${k})`).join("; ")} — this chip exposes GPIO 0–${maxGpio}.</div>`
+      : "",
     c3RgbBlocked
       ? `<div class="pinout-warn pinout-warn-info">RGB won't activate on C3 with motors in PWM-on-direction mode — they're using 4 of the chip's 6 LEDC channels, leaving only 1 free (RGB needs 3). Free 2 by wiring the L298N's ENA/ENB to MCU pins, then fill Left enable / Right enable. Pins below will save either way, but the cap stays disabled until channels are available.</div>`
       : "",
   ].filter(Boolean).join("");
 
-  const blocked = dup.length > 0 || cameraHits.length > 0 || hardwareHits.length > 0;
+  const blocked = dup.length > 0 || cameraHits.length > 0 || hardwareHits.length > 0 || rangeHits.length > 0;
   // Synthesize a transient entry-shaped object so renderEsp32BoardWithDriver
   // can derive claims from the in-progress edit. fwInfo carries over from
   // the live entry so the board-aware layout dispatch keeps using the
@@ -672,12 +687,16 @@ function highlightEsp32PinFromInput(el) {
 async function saveEsp32Edit(entry) {
   // Range check (firmware also validates, but reject early so the user
   // gets a focused error instead of a silent ignore over BLE). -1 means
-  // "cap disabled" — accepted; only out-of-range positives reject.
-  for (const key of ["led", "flash", "m_l_fwd", "m_l_bwd", "m_r_fwd", "m_r_bwd", "enc_l", "enc_r", "servo", "rgb_r", "rgb_g", "rgb_b"]) {
+  // "cap disabled" — accepted; only out-of-range positives reject. Bound
+  // is board-aware: PIN_MAX is 21 on C3, 39 on classic ESP32. Without
+  // this, the dashboard happily writes e.g. GPIO 25 to a C3, the firmware
+  // drops the whole pin_config call, and the chip never restarts.
+  const maxGpio = maxGpioFor(entry);
+  for (const key of ["led", "flash", "m_l_fwd", "m_l_bwd", "m_r_fwd", "m_r_bwd", "m_ena", "m_enb", "enc_l", "enc_r", "servo", "rgb_r", "rgb_g", "rgb_b"]) {
     const v = editConfig[key];
     if (!Number.isInteger(v) || v === -1) continue;
-    if (v < 0 || v > 39) {
-      alert(`${key}: GPIO ${v} is out of range [0, 39] (or leave blank to disable).`);
+    if (v < 0 || v > maxGpio) {
+      alert(`${key}: GPIO ${v} is out of range [0, ${maxGpio}] (or leave blank to disable).`);
       return;
     }
   }
