@@ -34,7 +34,12 @@ const PULSE_PERIOD_MS   = 500;
 const DONE_DURATION_MS  = 800;
 
 // RGB animates at rAF rate (~60 Hz); throttle BLE writes to ~30 Hz so
-// the GATT queue doesn't back up and surface as visible jitter.
+// the GATT queue doesn't back up and surface as visible jitter. The RGB
+// and SERVO chars only declare F_WRITE (with response) in firmware
+// gatt_svr.c — Chrome rejects writeValueWithoutResponse on a char that
+// doesn't advertise WRITE_WITHOUT_RESPONSE, so we use with-response here.
+// Per-write ATT round-trip is ~10–15 ms over BLE 5, well inside the
+// throttle window.
 const MIN_WRITE_INTERVAL_MS = 30;
 
 let currentState = "idle";
@@ -139,7 +144,7 @@ async function writeRgbThrottled(entry, rgb) {
   try {
     const ch = await ensureChar(entry, "rgb");
     if (!ch) return;
-    await ch.writeValueWithoutResponse(new Uint8Array([rgb.r, rgb.g, rgb.b]));
+    await ch.writeValueWithResponse(new Uint8Array([rgb.r, rgb.g, rgb.b]));
   } catch {
     // Disconnect, missing cap, GATT teardown — LED is best-effort. Clear
     // both the char handle and the last-rgb so a reconnect re-resolves
@@ -156,7 +161,7 @@ async function writeServo(entry, angle) {
   try {
     const ch = await ensureChar(entry, "servo");
     if (!ch) return;
-    await ch.writeValueWithoutResponse(new Uint8Array([angle]));
+    await ch.writeValueWithResponse(new Uint8Array([angle]));
   } catch {
     cache.servoChar = null;
     cache.lastServo = null;
