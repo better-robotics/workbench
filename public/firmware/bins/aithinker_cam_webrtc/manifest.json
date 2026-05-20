@@ -1,8 +1,8 @@
 {
   "board": "aithinker_cam_webrtc",
   "chip": "esp32",
-  "version": "f56a3bc",
-  "built_at": "2026-05-19T17:01:20Z",
+  "version": "ec77d48",
+  "built_at": "2026-05-20T16:47:15Z",
   "files": [
     { "path": "bootloader.bin",  "offset": "0x1000" },
     { "path": "partitions.bin",  "offset": "0x8000" },
