@@ -217,7 +217,7 @@ const ALL_TOOLS = [
   },
   {
     name: "start_robot_watcher",
-    description: "Start a continuous closed-vocab MediaPipe COCO reflex on the robot's camera (~10ms/frame, 3s cool-down between fires). On every detection, runs the action then re-arms. Once armed, you do NOT need to also poll view_robot_frame for the same target — a [reflex-fire] block appears in your next tool_result when it catches. Idempotent: a second call replaces any prior. `classes` must come from the COCO-80 enum below.",
+    description: "Start a continuous closed-vocab MediaPipe COCO reflex on the robot's camera (~10ms/frame, 3s cool-down between fires). On every detection, runs the action then re-arms. Once armed, you do NOT need to also poll view_robot_frame for the same target — a [reflex-fire] block appears in your next tool_result when it catches. Idempotent: a second call replaces any prior. `classes` must come from the COCO-80 enum below. By default the halt action also speaks 'stopped, X' / 'resuming' aloud — set silent:true if your own logic narrates these events to avoid two voices overlapping.",
     input_schema: {
       type: "object",
       properties: {
@@ -232,6 +232,10 @@ const ALL_TOOLS = [
           type: "string",
           enum: ACTION_NAMES,
           description: "halt = zero-speed motor pulse; speak = announce label; notify = console log. Defaults to halt.",
+        },
+        silent: {
+          type: "boolean",
+          description: "When true, suppress the watcher's built-in 'stopped, X' / 'resuming' speech. Use this when your own loop announces the events (otherwise both voices race + overlap).",
         },
       },
       required: ["id", "classes"],
@@ -488,8 +492,9 @@ async function dispatch(name, input) {
       const classes = Array.isArray(input.classes) ? input.classes.map(String).map(s => s.trim()).filter(Boolean) : [];
       if (classes.length === 0) return { error: "classes is required (e.g. ['stop sign'])" };
       const action = ACTION_NAMES.includes(input.action) ? input.action : "halt";
-      startWatcher(e, { classes, action });
-      return { ok: true, watching: classes, action };
+      const silent = !!input.silent;
+      startWatcher(e, { classes, action, silent });
+      return { ok: true, watching: classes, action, silent };
     }
     case "stop_robot_watcher": {
       const e = state.devices.get(input.id);

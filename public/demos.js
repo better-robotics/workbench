@@ -302,6 +302,9 @@ async function stopsignPatrol(ctx) {
     id: ctx.id,
     classes: ["stop sign"],
     action: "halt",
+    silent: true,  // demo's debounced "Whoa — stop sign" line narrates
+                   // the catch; without this the watcher's own "stopped,
+                   // stop sign" speech races and you hear both voices.
   });
 
   // Per-cycle latch — fires when the watcher catches "stop sign" this
@@ -383,6 +386,7 @@ async function stopsignPatrol(ctx) {
       // a fresh "Stop sign detected" reads as stuttering, not as
       // attention.
       if (firedThisCycle) {
+        let announcedThisCatch = false;
         const now = Date.now();
         const sinceLast = now - (lastAnnounceTs || 0);
         if (sinceLast > 10000) {
@@ -393,6 +397,7 @@ async function stopsignPatrol(ctx) {
                      :                    "Alright, I see it. Holding here.";
           await ctx.exec("speak", { text: line });
           lastAnnounceTs = now;
+          announcedThisCatch = true;
         }
         // Else: silent debounce — the operator's still holding the sign
         // from the last catch; the firmware halt already stopped us.
@@ -406,9 +411,14 @@ async function stopsignPatrol(ctx) {
           await ctx.sleep(3000);
         }
         if (ctx.shouldAbort?.()) break;
-        // Only narrate the resume on the first 1-2 catches; after that
-        // the operator knows the loop.
-        if (catchCount <= 2) await ctx.exec("speak", { text: "Off again." });
+        // Match resume narration to catch narration — if we silenced the
+        // catch (debounce), silence the resume too; otherwise the user
+        // hears "Off again." with no preceding "Whoa", which reads odd.
+        // Also keep the 1-2 catch ceiling so a long sign-holding session
+        // doesn't get chatty.
+        if (announcedThisCatch && catchCount <= 2) {
+          await ctx.exec("speak", { text: "Off again." });
+        }
         firedThisCycle = false;
         continue;
       }
