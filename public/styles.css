@@ -978,6 +978,14 @@ details.tray.has-alert > summary::after {
   color: #7a2400;
   font-size: 13px;
 }
+/* Informational variant — config is valid but a constraint elsewhere
+   will silently disable the cap (e.g. C3 LEDC channels exhausted when
+   RGB is assigned but motors are in PWM-on-direction). Amber tint
+   distinguishes "you'll want to know this" from the red "fix this". */
+.pinout-warn-info {
+  background: #fef3c7;
+  color: #78350f;
+}
 /* Toolbar above the SVG — three caps (LED / Motors / Camera) live here as
    compact toggles. LED carries its GPIO input inline because it's a single
    pin direct to a single LED; the SVG below stays focused on the H-bridge,

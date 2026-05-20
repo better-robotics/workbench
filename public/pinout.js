@@ -1560,6 +1560,18 @@ function renderEsp32Edit(entry) {
   for (const [, p] of cameraHits) flagged.add(p);
   for (const [, p] of hardwareHits) flagged.add(p);
 
+  // C3 LEDC budget — 6 channels total, no HS mode. Motors in PWM-on-
+  // direction claim 4 (one per IN pin), servo 1, leaving channel 4 free.
+  // RGB needs 3, so the cap silently stays disabled in firmware (rgb_init
+  // refuses to claim channels) even though the pins-in-NVS write went
+  // through. The trap from the user's perspective: type pins → save →
+  // chip restarts → inputs come back empty (fw-info doesn't list rgb).
+  // Teach the constraint at the moment of assignment.
+  const isC3 = entry?.fwInfo?.chip === "esp32c3";
+  const rgbAssigned = c.rgb_r >= 0 || c.rgb_g >= 0 || c.rgb_b >= 0;
+  const motorsModeDir = c.m_ena < 0 || c.m_enb < 0;
+  const c3RgbBlocked = isC3 && rgbAssigned && motorsModeDir;
+
   const warn = [
     dup.length
       ? `<div class="pinout-warn">Conflict: ${dup.map(([g, v]) => `GPIO ${g} assigned to ${v.join(" + ")}`).join("; ")}</div>`
@@ -1569,6 +1581,9 @@ function renderEsp32Edit(entry) {
       : "",
     hardwareHits.length
       ? `<div class="pinout-warn">Hardware-reserved: ${hardwareHits.map(([k, p]) => `GPIO ${p} (${k})`).join("; ")} — PSRAM CS/CLK or internal SPI flash; firmware refuses these.</div>`
+      : "",
+    c3RgbBlocked
+      ? `<div class="pinout-warn pinout-warn-info">RGB won't activate on C3 with motors in PWM-on-direction mode — they're using 4 of the chip's 6 LEDC channels, leaving only 1 free (RGB needs 3). Free 2 by wiring the L298N's ENA/ENB to MCU pins, then fill Left enable / Right enable. Pins below will save either way, but the cap stays disabled until channels are available.</div>`
       : "",
   ].filter(Boolean).join("");
 
