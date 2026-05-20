@@ -252,12 +252,12 @@ function runHaltLoop(entry, cfg) {
       // re-engages with no loop alive to release it and motor tools hang
       // until the 10s timeout.
       if (stopped) return;
-      ttsSpeak(`stopped, ${hit.label}`);
+      if (!cfg.silent) ttsSpeak(`stopped, ${hit.label}`);
       setGateBlocked(entry.id);
       emitFire(entry, { ...cfg.lastDetection }, "fire");
       renderEntry(entry);
     } else if (!hit && wasBlocked) {
-      ttsSpeak("resuming");
+      if (!cfg.silent) ttsSpeak("resuming");
       releaseGate(entry.id);
       emitFire(entry, cfg.lastDetection, "clear");
       renderEntry(entry);
@@ -277,6 +277,13 @@ export function startWatcher(entry, opts = {}) {
     if (cleaned.length) cfg.classes = cleaned;
   }
   if (opts.action && ACTIONS[opts.action]) cfg.action = opts.action;
+  // silent: suppresses the watcher's built-in "stopped, X" / "resuming"
+  // narration. Demos that provide their own announcements (e.g.
+  // stopsign with its debounced + escalating phrasing) set silent:true
+  // so the two voices don't race + overlap. Standalone watchers (no
+  // demo orchestrating) default to silent:false to keep the audible
+  // reflex narration the operator hears.
+  if (typeof opts.silent === "boolean") cfg.silent = opts.silent;
   stopWatcher(entry, { silent: true });
   cfg.enabled = true;
   if (cfg.action === "halt") runHaltLoop(entry, cfg);
