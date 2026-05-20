@@ -23,7 +23,7 @@
 //   commit. For an intentional bump unrelated to assets (e.g. server-side
 //   change in an API contract), edit any cached asset (a comment will do)
 //   and the hook will pick up a new hash.
-const VERSION = "e0e87029";
+const VERSION = "562b584d";
 const CACHE = `dashboard-${VERSION}`;
 
 // Cached at install time so the dashboard can cold-boot offline AND
@@ -55,17 +55,17 @@ const BOOTSTRAP = [
 // each tab open. @peculiar (DTLS cert, webrtc-cert.js) same shape.
 function isCacheableCrossOrigin(url) {
   if (url.hostname === "storage.googleapis.com" && url.pathname.includes("/mediapipe-models/")) return true;
-  if (url.hostname !== "cdn.jsdelivr.net") return false;
-  if (url.pathname.includes("@peculiar/")) return true;
-  if (url.pathname.includes("@mediapipe/")) return true;
-  // CodeMirror 6 (scripts.js dynamic-imports). The /+esm bundles are
-  // immutable per version; durable cache keeps the script editor warm
-  // across sessions even when offline.
-  if (url.pathname.includes("/codemirror@") || url.pathname.includes("/@codemirror/")) return true;
-  // CM6's internal package graph (e.g. @lezer/javascript, @lezer/highlight)
-  // resolves through jsdelivr's /+esm with separate fetch URLs. Cache the
-  // /@lezer/ namespace too so the script editor cold-boots offline.
-  if (url.pathname.includes("/@lezer/")) return true;
+  if (url.hostname === "cdn.jsdelivr.net") {
+    if (url.pathname.includes("@peculiar/")) return true;
+    if (url.pathname.includes("@mediapipe/")) return true;
+    return false;
+  }
+  // CodeMirror 6 (scripts.js). Loaded from esm.sh (not jsdelivr) because
+  // esm.sh deduplicates @codemirror/state across packages, which fixes the
+  // "multiple instances of @codemirror/state" extension-set error that
+  // jsdelivr's /+esm produces. Cache everything esm.sh serves to keep the
+  // script editor cold-bootable offline once visited.
+  if (url.hostname === "esm.sh") return true;
   return false;
 }
 

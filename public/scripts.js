@@ -24,14 +24,19 @@ async function ensureCodeMirror() {
   if (_cm) return _cm;
   if (!_cmLoading) {
     _cmLoading = (async () => {
-      // codemirror umbrella re-exports EditorView + basicSetup only; keymap
-      // (and the rest of the editor toolkit) lives in @codemirror/view.
-      // Splitting the import keeps the call shape obvious to a future reader.
+      // Loaded from esm.sh — jsdelivr's /+esm bundles each CM6 package as
+      // self-contained, which gives you N copies of @codemirror/state and
+      // an "Unrecognized extension value... multiple instances of
+      // @codemirror/state are loaded" error on EditorState.create. esm.sh
+      // resolves all @codemirror/state imports to one canonical URL across
+      // packages, so the browser's module cache yields a single instance.
+      // The codemirror umbrella re-exports EditorView + basicSetup only;
+      // keymap lives in @codemirror/view.
       const [cmCore, cmView, cmJs, cmDark] = await Promise.all([
-        import("https://cdn.jsdelivr.net/npm/codemirror@6/+esm"),
-        import("https://cdn.jsdelivr.net/npm/@codemirror/view@6/+esm"),
-        import("https://cdn.jsdelivr.net/npm/@codemirror/lang-javascript@6/+esm"),
-        import("https://cdn.jsdelivr.net/npm/@codemirror/theme-one-dark@6/+esm"),
+        import("https://esm.sh/codemirror@6"),
+        import("https://esm.sh/@codemirror/view@6"),
+        import("https://esm.sh/@codemirror/lang-javascript@6"),
+        import("https://esm.sh/@codemirror/theme-one-dark@6"),
       ]);
       const { EditorView, basicSetup } = cmCore;
       const { keymap } = cmView;
