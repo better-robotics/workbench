@@ -23,7 +23,7 @@
 //   commit. For an intentional bump unrelated to assets (e.g. server-side
 //   change in an API contract), edit any cached asset (a comment will do)
 //   and the hook will pick up a new hash.
-const VERSION = "04a230ac";
+const VERSION = "e0e87029";
 const CACHE = `dashboard-${VERSION}`;
 
 // Cached at install time so the dashboard can cold-boot offline AND
@@ -62,6 +62,10 @@ function isCacheableCrossOrigin(url) {
   // immutable per version; durable cache keeps the script editor warm
   // across sessions even when offline.
   if (url.pathname.includes("/codemirror@") || url.pathname.includes("/@codemirror/")) return true;
+  // CM6's internal package graph (e.g. @lezer/javascript, @lezer/highlight)
+  // resolves through jsdelivr's /+esm with separate fetch URLs. Cache the
+  // /@lezer/ namespace too so the script editor cold-boots offline.
+  if (url.pathname.includes("/@lezer/")) return true;
   return false;
 }
 

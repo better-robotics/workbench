@@ -24,12 +24,17 @@ async function ensureCodeMirror() {
   if (_cm) return _cm;
   if (!_cmLoading) {
     _cmLoading = (async () => {
-      const [cmCore, cmJs, cmDark] = await Promise.all([
+      // codemirror umbrella re-exports EditorView + basicSetup only; keymap
+      // (and the rest of the editor toolkit) lives in @codemirror/view.
+      // Splitting the import keeps the call shape obvious to a future reader.
+      const [cmCore, cmView, cmJs, cmDark] = await Promise.all([
         import("https://cdn.jsdelivr.net/npm/codemirror@6/+esm"),
+        import("https://cdn.jsdelivr.net/npm/@codemirror/view@6/+esm"),
         import("https://cdn.jsdelivr.net/npm/@codemirror/lang-javascript@6/+esm"),
         import("https://cdn.jsdelivr.net/npm/@codemirror/theme-one-dark@6/+esm"),
       ]);
-      const { EditorView, basicSetup, keymap } = cmCore;
+      const { EditorView, basicSetup } = cmCore;
+      const { keymap } = cmView;
       const host = $("scripts-editor");
       host.innerHTML = "";
       _cm = new EditorView({
