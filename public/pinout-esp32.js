@@ -1,7 +1,7 @@
 import { $, escapeHtml } from "./dom.js";
 import { SERVICE_UUID, PIN_CONFIG_CHAR_UUID, encodeJson } from "./ble.js";
 import { beginMotorsCalibration } from "./motors-calibrate.js";
-import { boardById, cameraReservedSet, boardForbiddenSet, boardMaxGpio } from "./boards.js";
+import { boardById, cameraReservedSet, boardForbiddenSet, boardMaxGpio, boardPinDefaults } from "./boards.js";
 import { flattenPins, wireUpMotorChains, clearPinHighlight } from "./pinout-shared.js";
 
 // Pin layouts, labels, footer notes, and camera-reserved sets come from
@@ -624,6 +624,7 @@ function renderEsp32Edit(entry) {
     </div>
     <div class="modal-footer">
       <button class="secondary sm" id="pinout-cancel-btn">Cancel</button>
+      <button class="secondary sm" id="pinout-defaults-btn">Use defaults</button>
       <button class="secondary sm" id="pinout-calibrate-btn">Calibrate motors</button>
       <button class="sm" id="pinout-save-btn" ${blocked ? "disabled" : ""}>Save &amp; restart</button>
     </div>
@@ -644,6 +645,13 @@ function renderEsp32Edit(entry) {
   });
   $("pinout-cancel-btn").addEventListener("click", () => {
     editMode = false; editConfig = null; renderEsp32View(entry);
+  });
+  // Restore the board's firmware defaults — useful after the user drifts
+  // off canonical pins (e.g., typed an AI-Thinker LED on a C3 and the
+  // firmware silently rejected the save).
+  $("pinout-defaults-btn").addEventListener("click", () => {
+    editConfig = boardPinDefaults(entry?.fwInfo?.board);
+    renderEsp32Edit(entry);
   });
   $("pinout-calibrate-btn")?.addEventListener("click", () => {
     beginMotorsCalibration({

@@ -144,6 +144,13 @@ const C3_PINS_BOT = [
 //                        whole pin_config_handle_write call silently, and
 //                        the user sees a "save & restart" that quietly
 //                        does nothing.
+//   pinDefaults        — firmware-side pin_config_load() mirror. Used by
+//                        the "Use defaults" button in the editor to
+//                        restore the board's canonical assignments after
+//                        the user has drifted off them. Must stay in
+//                        lock-step with pin_config.c's per-board block.
+//                        -1 = capability disabled (encoders, servo, RGB,
+//                        and ENA/ENB are off by default on every board).
 export const BOARDS = [
   {
     id: "aithinker_cam",
@@ -163,6 +170,13 @@ export const BOARDS = [
     cameraReservedGpios: [0, 5, 18, 19, 21, 22, 23, 25, 26, 27, 32, 34, 35, 36, 39],
     forbiddenGpios: [0, 5, 6, 7, 8, 9, 10, 11, 16, 17, 18, 19, 21, 22, 23, 25, 26, 27, 32, 34, 35, 36, 39],
     maxGpio: 39,
+    pinDefaults: {
+      led: 33, flash: 4,
+      m_l_fwd: 14, m_l_bwd: 15, m_r_fwd: 13, m_r_bwd: 12,
+      m_ena: -1, m_enb: -1,
+      enc_l: -1, enc_r: -1,
+      servo: -1, rgb_r: -1, rgb_g: -1, rgb_b: -1,
+    },
   },
   {
     id: "devkit",
@@ -179,6 +193,13 @@ export const BOARDS = [
     cameraReservedGpios: [],
     forbiddenGpios: [6, 7, 8, 9, 10, 11],
     maxGpio: 39,
+    pinDefaults: {
+      led: 2, flash: -1,
+      m_l_fwd: 16, m_l_bwd: 17, m_r_fwd: 18, m_r_bwd: 19,
+      m_ena: -1, m_enb: -1,
+      enc_l: -1, enc_r: -1,
+      servo: -1, rgb_r: -1, rgb_g: -1, rgb_b: -1,
+    },
   },
   {
     id: "c3_supermini",
@@ -194,6 +215,13 @@ export const BOARDS = [
     cameraReservedGpios: [],
     forbiddenGpios: [11, 12, 13, 14, 15, 16, 17],
     maxGpio: 21,
+    pinDefaults: {
+      led: 8, flash: -1,
+      m_l_fwd: 3, m_l_bwd: 4, m_r_fwd: 5, m_r_bwd: 6,
+      m_ena: -1, m_enb: -1,
+      enc_l: -1, enc_r: -1,
+      servo: -1, rgb_r: -1, rgb_g: -1, rgb_b: -1,
+    },
   },
 ];
 
@@ -233,4 +261,12 @@ export function boardForbiddenSet(boardId) {
 // dashboard catching it, "save & restart" looks like a no-op.
 export function boardMaxGpio(boardId) {
   return boardById(boardId)?.maxGpio ?? 39;
+}
+
+// Per-board firmware defaults — mirrors pin_config_load() in pin_config.c.
+// Returned fresh each call so callers can mutate without bleeding into the
+// shared BOARDS entry. Falls back to AI-Thinker via boardById's fallback;
+// returns a copy in every case.
+export function boardPinDefaults(boardId) {
+  return { ...boardById(boardId).pinDefaults };
 }
