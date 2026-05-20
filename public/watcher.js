@@ -91,18 +91,37 @@ const FOLLOW_ANNOUNCE_COOLDOWN_MS = 3000;
 // the classifier's `categoryScore` in [0,1].
 const FOLLOW_GESTURE_SPEAK_THRESHOLD = 0.7;
 const FOLLOW_GESTURE_SPEAK_COOLDOWN_MS = 1500;
-// Pointing-direction threshold. We classify a "Pointing_Up" detection
-// as left/right when the index-finger vector (landmark 5 MCP → landmark
-// 8 tip) is dominantly horizontal (|dx| > |dy| × ratio). Below this
-// ratio the finger is too vertical or ambiguous — fall through to
-// default palm-centroid tracking. 0.8 means "horizontal component must
-// be at least 80% of vertical" — pointing straight sideways clears it,
-// a 45° upward point doesn't.
-const FOLLOW_POINTING_HORIZ_RATIO = 0.8;
-// Skip announcing Thumb_Down — GestureBot benchmark measured 70.7%
-// accuracy vs >90% for the other gesture classes, and a Thumb_Down
-// misfire is the kind of false positive that lands wrong in a demo.
-const FOLLOW_GESTURE_SPEAK_SKIP = new Set(["Thumb_Down", "None"]);
+// Pointing detection: GEOMETRIC, not classifier-based. The Gesture
+// Recognizer's "Pointing_Up" class is tuned for VERTICAL index-up and
+// fires inconsistently on horizontal pointing — exactly when we need
+// it most for left/right steering. Instead we check the landmark
+// geometry directly: index dominantly extended from the wrist relative
+// to the other fingers. Same pattern as lm-arena.github.io's
+// HandBackground for middle-finger detection — the squared-distance
+// trick is reliable across hand orientations because it doesn't care
+// which way the hand points, only that one finger is much further from
+// the wrist than the others.
+//   - INDEX_DOMINANCE: index-tip wrist-distance² must exceed each other
+//     finger's by this multiplier. 2× is the lm-arena default; ours
+//     keeps it for parity.
+//   - HORIZ_RATIO: once index is extended, the MCP→tip vector must be
+//     dominantly horizontal to register as a left/right point.
+//     0.6 lets a 30°-off-horizontal point still register (operators
+//     don't hold their arm perfectly level), 0.8 was too strict and
+//     missed most natural pointing gestures in the first demo run.
+const FOLLOW_INDEX_DOMINANCE = 2.0;
+const FOLLOW_POINTING_HORIZ_RATIO = 0.6;
+// "None" is the recognizer's no-confident-gesture label — never speak
+// it. All other classes get announced when confident; we trust the
+// score threshold to gate out false positives even on the noisier
+// Thumb_Down class (also wired below as the "drive backwards" override
+// so the operator can deliberately invoke it).
+const FOLLOW_GESTURE_SPEAK_SKIP = new Set(["None"]);
+// Backward-drive pulse parameters for the Thumb_Down override. Symmetric
+// with the forward drive in default tracking — same speed, same
+// duration, just sign-flipped.
+const FOLLOW_REVERSE_MS = FOLLOW_DRIVE_MS;
+const FOLLOW_REVERSE_SPEED = FOLLOW_DRIVE_SPEED;
 
 // Fire-event listeners — assistant.js subscribes so it can inject a
 // synthetic observation into Pip's active turn (L2 "harness pushes state
@@ -412,26 +431,52 @@ function runFollowLoop(entry, cfg) {
       }
     }
 
-    // (3) Pointing-direction override. Compute only when the recognizer
-    // says Pointing_Up with confidence — the class fires when the index
-    // is extended and other fingers curled, which is exactly the
-    // "pointing" pose we want to read direction from.
+    // (3) Pointing-direction override. Detect "the user is pointing" by
+    // landmark GEOMETRY, not the Gesture Recognizer's Pointing_Up class
+    // — that class is tuned for vertical index-up and misses most
+    // horizontal pointing (the actual demo case). Same trick lm-arena's
+    // HandBackground uses for middle-finger detection: index tip's
+    // squared distance from the wrist must dominate every other finger
+    // tip's squared distance by a margin. Robust across hand
+    // orientations because it doesn't care which way the finger points,
+    // only that one finger is much further from the wrist than the
+    // others. Once we know it's an index-point, the MCP→tip vector
+    // gives direction; require dominantly horizontal so a vertical
+    // point doesn't accidentally trigger a sideways spin.
     let pointingDir = null;
-    if (det && det.gesture === "Pointing_Up" && det.score >= FOLLOW_GESTURE_SPEAK_THRESHOLD) {
+    if (det) {
       const lm = det.landmarks;
-      const mcp = lm[5];   // index MCP — base knuckle
-      const tip = lm[8];   // index fingertip
-      if (mcp && tip) {
-        const dx = tip.x - mcp.x;
-        const dy = tip.y - mcp.y;
-        // Dominantly horizontal? Use sign of dx for direction. Otherwise
-        // (finger pointing up, down, or diagonal-ish) skip the override
-        // and let palm-centroid tracking decide.
-        if (Math.abs(dx) > Math.abs(dy) * FOLLOW_POINTING_HORIZ_RATIO) {
-          pointingDir = dx > 0 ? "right" : "left";
+      const wrist = lm[0];
+      const tips = [lm[8], lm[12], lm[16], lm[20]];   // index, middle, ring, pinky
+      if (wrist && tips.every(t => t)) {
+        const dSq = (a, b) => (a.x - b.x) ** 2 + (a.y - b.y) ** 2;
+        const exts = tips.map(t => dSq(t, wrist));
+        const [iExt, mExt, rExt, pExt] = exts;
+        const indexDominant =
+          iExt > mExt * FOLLOW_INDEX_DOMINANCE &&
+          iExt > rExt * FOLLOW_INDEX_DOMINANCE &&
+          iExt > pExt * FOLLOW_INDEX_DOMINANCE;
+        if (indexDominant) {
+          const mcp = lm[5];
+          const tip = lm[8];
+          const dx = tip.x - mcp.x;
+          const dy = tip.y - mcp.y;
+          if (Math.abs(dx) > Math.abs(dy) * FOLLOW_POINTING_HORIZ_RATIO) {
+            pointingDir = dx > 0 ? "right" : "left";
+          }
         }
       }
     }
+
+    // (3b) Reverse-drive override. Thumb_Down at confidence drives the
+    // robot backwards instead of palm-tracking. Paired semantically with
+    // the gesture's natural "no / go back" reading — and rescues the
+    // class from being purely an announcement target, giving the
+    // operator a deliberate way to invoke it (which also makes the
+    // ~70% accuracy less of a concern: false positives still just nudge
+    // backwards by one pulse, which the operator can correct with any
+    // other gesture or by lowering the hand).
+    const reverse = det && det.gesture === "Thumb_Down" && det.score >= FOLLOW_GESTURE_SPEAK_THRESHOLD;
 
     // (1) Movement. If pointing-direction override fires, spin that way
     // at max turn speed. Otherwise default to palm-centroid P-tracking.
@@ -447,7 +492,9 @@ function runFollowLoop(entry, cfg) {
       lostCount = 0;
       cfg.lastDetection = { label: "hand", score: det.score, ts: Date.now() };
 
-      if (pointingDir === "left") {
+      if (reverse) {
+        try { await pulseMotors(entry.id, -FOLLOW_REVERSE_SPEED, -FOLLOW_REVERSE_SPEED, FOLLOW_REVERSE_MS); } catch {}
+      } else if (pointingDir === "left") {
         try { await pulseMotors(entry.id, -FOLLOW_MAX_TURN_SPEED, FOLLOW_MAX_TURN_SPEED, FOLLOW_TURN_MS); } catch {}
       } else if (pointingDir === "right") {
         try { await pulseMotors(entry.id, FOLLOW_MAX_TURN_SPEED, -FOLLOW_MAX_TURN_SPEED, FOLLOW_TURN_MS); } catch {}
@@ -588,14 +635,15 @@ function renderSection(entry) {
   const datalistOpts = COCO_CLASSES.map(c => `<option value="${c}">`).join("");
   const cocoListHtml = COCO_CLASSES.map(c => escapeHtml(c)).join(", ");
   // Follow mode swaps the "Watch for" combobox for a behavior cheat-
-  // sheet: the robot tracks the hand by default, points-left/right
-  // override to spin that way, any confident gesture gets spoken aloud.
-  // No pause/halt gestures — the operator drops their hand to stop, and
-  // Stop button / "stop" voice command stay as the hard kill paths.
+  // sheet. Default: track the hand. Overrides: index-point left/right
+  // steers that way; thumbs-down drives backward. Every recognized
+  // gesture also gets spoken aloud. No pause/halt — drop your hand to
+  // stop, or use Stop button / "stop" voice command for a hard kill.
   const followCheatSheet = `
     <div class="watcher-gestures">
       <div class="watcher-gesture-row"><strong>Show a hand</strong> · robot tracks toward it</div>
-      <div class="watcher-gesture-row"><strong>Point left / right</strong> · steer that way (overrides tracking)</div>
+      <div class="watcher-gesture-row"><strong>Point left / right</strong> · steer that way</div>
+      <div class="watcher-gesture-row"><strong>Thumbs down</strong> · drive backwards</div>
       <div class="watcher-gesture-row"><strong>Any clear gesture</strong> · robot speaks what it sees</div>
       <div class="meta">Drop your hand to stop. Press Stop or say "stop" for a hard kill.</div>
     </div>

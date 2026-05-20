@@ -204,7 +204,7 @@ async function handFollow(ctx) {
   // pass a sentinel that makes intent obvious in the audit pill.
   await ctx.exec("start_robot_watcher", { id: ctx.id, classes: ["hand"], action: "follow" });
   await ctx.sleep(800);
-  await speakAndWait(ctx, "Point left or right to steer. Drop your hand to stop.");
+  await speakAndWait(ctx, "Point left or right to steer. Thumbs down to go back. Drop your hand to stop.");
 }
 
 // 7 — Introduce. Multi-section self-introduction with audience

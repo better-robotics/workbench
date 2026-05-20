@@ -1047,11 +1047,21 @@ function wireMicButton() {
   // before restart so audio-system AEC has a chance to settle (without
   // this, the very tail of the just-played utterance can be picked up
   // as a phantom one-syllable command).
+  //
+  // Visual: while muted-by-TTS, swap the listening pulse for a static
+  // muted class — operator can SEE the mic is intentionally suspended
+  // instead of guessing whether it's dead.
   onSpeakingChange((speaking) => {
     if (speaking) {
+      btn.classList.add("muted-tts");
+      btn.title = "Muted while robot speaks — will resume after";
       if (_dictation) stop({ cancel: true });  // drop the partial; don't commit phantom audio
-    } else if (_micSticky && !_dictation) {
-      setTimeout(() => { if (_micSticky && !_dictation && !isSpeaking()) start(); }, 300);
+    } else {
+      btn.classList.remove("muted-tts");
+      btn.title = "Voice input — click on; stays on across commands (click again or Escape to stop)";
+      if (_micSticky && !_dictation) {
+        setTimeout(() => { if (_micSticky && !_dictation && !isSpeaking()) start(); }, 300);
+      }
     }
   });
 }
