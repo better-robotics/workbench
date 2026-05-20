@@ -41,15 +41,30 @@ let currentState = "idle";
 let stateEnteredAt = 0;
 let rafHandle = null;
 
+// Pip-tool override. Set when Pip's set_rgb tool fires; agent-light pauses
+// its RGB painting for the rest of the turn so the breath animation doesn't
+// stomp the color Pip chose. Cleared on the next turn boundary.
+let pipRgbOverride = false;
+export function notePipRgbOverride() { pipRgbOverride = true; }
+
 // Per-device char-handle cache. rebuilt lazily; cleared on write failure
 // so a reconnect doesn't strand the LED on a stale handle.
 const deviceCache = new Map();
 
 export function setAgentState(next) {
   if (currentState === next) return;
+  const prev = currentState;
   currentState = next;
   stateEnteredAt = performance.now();
-  applyServoForState(next);
+  // A fresh turn (idle/done → thinking) revokes Pip's RGB override —
+  // each turn starts with agent-light back in control.
+  if ((prev === "idle" || prev === "done") && next === "thinking") {
+    pipRgbOverride = false;
+    // Cached "what we last wrote" goes stale across an override — clear
+    // so the first animation tick of the new turn actually writes.
+    for (const c of deviceCache.values()) c.lastRgb = null;
+  }
+  applyServoForState(next, prev);
   ensureAnimating();
 }
 
@@ -57,9 +72,14 @@ function connectedRobots() {
   return [...state.devices.values()].filter(e => e.status === "connected");
 }
 
-function applyServoForState(s) {
-  const angle = s === "asking" ? SERVO_ENGAGED : SERVO_REST;
-  for (const entry of connectedRobots()) writeServo(entry, angle);
+function applyServoForState(s, prev) {
+  // Only the asking transitions move the servo. Other state changes leave
+  // it alone, so Pip's set_servo writes survive a tool-call boundary.
+  if (s === "asking") {
+    for (const entry of connectedRobots()) writeServo(entry, SERVO_ENGAGED);
+  } else if (prev === "asking") {
+    for (const entry of connectedRobots()) writeServo(entry, SERVO_REST);
+  }
 }
 
 function ensureAnimating() {
@@ -109,6 +129,7 @@ function scale(c, k) {
 function rgbEqual(a, b) { return a.r === b.r && a.g === b.g && a.b === b.b; }
 
 async function writeRgbThrottled(entry, rgb) {
+  if (pipRgbOverride) return;
   const cache = ensureCache(entry.id);
   const now = performance.now();
   if (cache.lastRgb && rgbEqual(cache.lastRgb, rgb)) return;

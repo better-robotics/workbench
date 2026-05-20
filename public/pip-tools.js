@@ -7,6 +7,9 @@ import {
   listHelpers, startHelperCamera, stopHelperCamera, takeHelperSnapshot,
 } from "./phone-helpers.js";
 import { pulseMotors } from "./capabilities/runtime/signed-pair.js";
+import { setRgbValue } from "./capabilities/runtime/rgb.js";
+import { setLevelValue } from "./capabilities/runtime/level.js";
+import { notePipRgbOverride } from "./agent-light.js";
 import {
   listCameraSources,
   captureFrameDataUrl,
@@ -302,6 +305,34 @@ const ALL_TOOLS = [
       required: ["text"],
     },
     annotations: { readOnlyHint: false, idempotentHint: false, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "set_rgb",
+    description: "Set the robot's RGB LED color. Use for explicit visual cues — light shows, celebration, ambience, matching speech with mood. R/G/B 0-255 per channel; {r:0,g:0,b:0} turns the LED off. Stays set for the rest of the turn (the dashboard's ambient agent-state animation pauses while your color is active). Returns { ok, applied:{r,g,b} } or { ok:false, error } when the robot has no RGB cap configured.",
+    input_schema: {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        r:  { type: "number", minimum: 0, maximum: 255 },
+        g:  { type: "number", minimum: 0, maximum: 255 },
+        b:  { type: "number", minimum: 0, maximum: 255 },
+      },
+      required: ["id", "r", "g", "b"],
+    },
+    annotations: { readOnlyHint: false, idempotentHint: true, destructiveHint: false, openWorldHint: false },
+  },
+  {
+    name: "set_servo",
+    description: "Set the robot's servo to an absolute angle in degrees [0, 180]. On C3/AI-Thinker builds the RGB LED is typically mounted on the servo arm, so this also points where the light shines. ~74° is firmware rest; 0° = full one way, 180° = full the other. Returns { ok, applied:{angle} } or { ok:false, error }.",
+    input_schema: {
+      type: "object",
+      properties: {
+        id:    { type: "string" },
+        angle: { type: "number", minimum: 0, maximum: 180 },
+      },
+      required: ["id", "angle"],
+    },
+    annotations: { readOnlyHint: false, idempotentHint: true, destructiveHint: false, openWorldHint: false },
   },
   {
     name: "ask_human",
@@ -813,6 +844,29 @@ async function dispatch(name, input) {
       // a tool-side error if the playback itself errors.
       await voiceSpeak(text).catch(() => {});
       return { ok: true };
+    }
+    case "set_rgb": {
+      const e = state.devices.get(input.id);
+      if (!e) return { error: `no robot with id ${input.id}` };
+      if (!e.rgbChar) return { error: "robot has no RGB cap configured" };
+      const r = Math.max(0, Math.min(255, Math.round(Number(input.r) || 0)));
+      const g = Math.max(0, Math.min(255, Math.round(Number(input.g) || 0)));
+      const b = Math.max(0, Math.min(255, Math.round(Number(input.b) || 0)));
+      // Mark the override BEFORE the BLE write — agent-light's animation
+      // tick may fire between this and the write completing; the flag
+      // makes it bail instead of racing the color we're about to set.
+      notePipRgbOverride();
+      const hex = "#" + [r, g, b].map(n => n.toString(16).padStart(2, "0")).join("");
+      await setRgbValue(e, hex);
+      return { ok: true, applied: { r, g, b } };
+    }
+    case "set_servo": {
+      const e = state.devices.get(input.id);
+      if (!e) return { error: `no robot with id ${input.id}` };
+      if (!e.servoChar) return { error: "robot has no servo cap configured" };
+      const angle = Math.max(0, Math.min(180, Math.round(Number(input.angle) || 0)));
+      await setLevelValue(e, "servo", angle);
+      return { ok: true, applied: { angle } };
     }
     case "ask_human": {
       const question = String(input.question || "").trim();
