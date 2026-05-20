@@ -13,6 +13,7 @@
 #include "led.h"
 #include "motors.h"
 #include "ota.h"
+#include "servo.h"
 #include "pin_config.h"
 #include "telemetry.h"
 #ifdef CONFIG_BR_WEBRTC_ESP_PEER
@@ -65,6 +66,7 @@ void app_main(void) {
     flash_init(pins.flash);
     motors_init(&pins);
     encoders_init(&pins);
+    servo_init(pins.servo);
 
     // fw-info reflects the cap surface; built once after caps are up.
     // Changes (camera profile, pin config) reboot, so a fresh boot

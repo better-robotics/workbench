@@ -16,6 +16,7 @@
 #include "motors.h"
 #include "ota.h"
 #include "pin_config.h"
+#include "servo.h"
 #include "snapshot.h"
 #include "telemetry.h"
 #include "uuids.h"
@@ -30,6 +31,7 @@ static ble_uuid128_t s_service_uuid;
 static ble_uuid128_t s_led_uuid;
 static ble_uuid128_t s_flash_uuid;
 static ble_uuid128_t s_motor_uuid;
+static ble_uuid128_t s_servo_uuid;
 static ble_uuid128_t s_pin_config_uuid;
 static ble_uuid128_t s_wifi_scan_uuid;
 static ble_uuid128_t s_wifi_join_uuid;
@@ -48,6 +50,7 @@ static ble_uuid128_t s_signal_uuid;
 static uint16_t s_led_handle;
 static uint16_t s_flash_handle;
 static uint16_t s_motor_handle;
+static uint16_t s_servo_handle;
 static uint16_t s_wifi_scan_handle;
 static uint16_t s_wifi_status_handle;
 static uint16_t s_ota_status_handle;
@@ -127,6 +130,22 @@ static int motor_access(uint16_t conn, uint16_t attr,
         motors_get(&l, &r);
         uint8_t v[2] = { (uint8_t)l, (uint8_t)r };
         return os_mbuf_append(ctxt->om, v, 2) == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+    return BLE_ATT_ERR_UNLIKELY;
+}
+
+static int servo_access(uint16_t conn, uint16_t attr,
+                        struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        uint8_t b = 0;
+        uint16_t copied = 0;
+        ble_hs_mbuf_to_flat(ctxt->om, &b, 1, &copied);
+        if (copied >= 1) servo_apply(b);
+        return 0;
+    }
+    if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+        uint8_t v = servo_angle();
+        return os_mbuf_append(ctxt->om, &v, 1) == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
     }
     return BLE_ATT_ERR_UNLIKELY;
 }
@@ -343,6 +362,12 @@ static const struct ble_gatt_chr_def s_chars[] = {
         .val_handle = &s_motor_handle,
     },
     {
+        .uuid = &s_servo_uuid.u,
+        .access_cb = servo_access,
+        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_NOTIFY,
+        .val_handle = &s_servo_handle,
+    },
+    {
         .uuid = &s_pin_config_uuid.u,
         .access_cb = pin_config_access,
         .flags = BLE_GATT_CHR_F_WRITE,
@@ -430,6 +455,7 @@ void gatt_svr_init(void) {
     parse_uuid128(LED_CHAR_UUID,         &s_led_uuid);
     parse_uuid128(FLASH_CHAR_UUID,       &s_flash_uuid);
     parse_uuid128(MOTOR_CHAR_UUID,       &s_motor_uuid);
+    parse_uuid128(SERVO_CHAR_UUID,       &s_servo_uuid);
     parse_uuid128(PIN_CONFIG_CHAR_UUID,  &s_pin_config_uuid);
     parse_uuid128(OPS_CHAR_UUID,         &s_ops_uuid);
     parse_uuid128(WIFI_SCAN_CHAR_UUID,   &s_wifi_scan_uuid);
@@ -455,6 +481,7 @@ void gatt_svr_init(void) {
 void gatt_svr_notify_led(void)         { if (s_led_handle)         ble_gatts_chr_updated(s_led_handle); }
 void gatt_svr_notify_flash(void)       { if (s_flash_handle)       ble_gatts_chr_updated(s_flash_handle); }
 void gatt_svr_notify_motor(void)       { if (s_motor_handle)       ble_gatts_chr_updated(s_motor_handle); }
+void gatt_svr_notify_servo(void)       { if (s_servo_handle)       ble_gatts_chr_updated(s_servo_handle); }
 void gatt_svr_notify_wifi_scan(void)   { if (s_wifi_scan_handle)   ble_gatts_chr_updated(s_wifi_scan_handle); }
 void gatt_svr_notify_wifi_status(void) { if (s_wifi_status_handle) ble_gatts_chr_updated(s_wifi_status_handle); }
 void gatt_svr_notify_ota_status(void)  { if (s_ota_status_handle)  ble_gatts_chr_updated(s_ota_status_handle); }

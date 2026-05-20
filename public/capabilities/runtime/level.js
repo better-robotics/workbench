@@ -45,6 +45,7 @@ export function makeLevelCap(schema) {
   const valueField = `${name}Level`;
   const action = `level-${name}`;
   const range = schema.range || [0, 100];
+  const unit = schema.unit || "%";
   const label = name.length <= 3 ? name.toUpperCase()
     : name[0].toUpperCase() + name.slice(1);
 
@@ -72,7 +73,7 @@ export function makeLevelCap(schema) {
           const sec = entry.node?.querySelector(`.cap-section[data-cap-name="${name}"]`);
           if (sec) {
             const stateEl = sec.querySelector(".cap-state");
-            if (stateEl) stateEl.textContent = `${entry[valueField]}%`;
+            if (stateEl) stateEl.textContent = `${entry[valueField]}${unit}`;
             const sl = sec.querySelector(`input[data-action="${action}"]`);
             // Only move the thumb when the user isn't dragging.
             if (sl && document.activeElement !== sl) sl.value = entry[valueField];
@@ -97,7 +98,7 @@ export function makeLevelCap(schema) {
       return capSection({
         name,
         label,
-        state: `${v}%`,
+        state: `${v}${unit}`,
         action: `<input type="range" class="level-slider" data-action="${action}"
                    min="${range[0]}" max="${range[1]}" value="${v}">`,
         transport: "ble",

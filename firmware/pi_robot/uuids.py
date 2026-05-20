@@ -22,6 +22,7 @@ SNAPSHOT_DATA_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da1"
 FLASH_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da3"
 PIN_CONFIG_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da4"
 SIGNAL_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da5"
+SERVO_CHAR_UUID = "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da6"
 
 # heartbeat_service
 HEARTBEAT_SVC_UUID = "b6e8d5f3-2c9d-4bba-ae5e-6f9b8c7d5eb0"
