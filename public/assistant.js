@@ -1,4 +1,5 @@
 import { ask, askWithTools, askAboutFrame, activeModelForBackend } from "./claude.js";
+import { escapeHtml } from "./dom.js";
 import { getTools, executor, setAskInChatHandler, isVisionAvailable } from "./pip-tools.js";
 import { labelTool, summarizeTool } from "./format.js";
 import { settings, saveSettings } from "./settings.js";
@@ -118,7 +119,7 @@ function appendStepPill(turnEl, name) {
   el.innerHTML =
     `<div class="pip-step-head">` +
       CHEVRON_SVG +
-      `<span class="pip-step-label">${escHtml(labelTool(name))} …</span>` +
+      `<span class="pip-step-label">${escapeHtml(labelTool(name))} …</span>` +
       `<span class="pip-step-elapsed"></span>` +
       `<button class="pip-step-toggle" type="button" hidden>Details</button>` +
     `</div>` +
@@ -145,10 +146,6 @@ function safeJson(obj, maxStr = 240) {
   }, 2);
 }
 
-function escHtml(s) {
-  return String(s ?? "").replace(/[&<>"']/g, c =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
 
 function finishStepPill(el, name, input, result, error, durationMs) {
   if (!el) return;
@@ -168,10 +165,10 @@ function finishStepPill(el, name, input, result, error, durationMs) {
   }
   const detail = el.querySelector(".pip-step-detail");
   const sections = [
-    input ? `<div class="pip-step-section"><span class="pip-step-detail-label">args</span><pre class="pip-step-pre">${escHtml(safeJson(input))}</pre></div>` : "",
+    input ? `<div class="pip-step-section"><span class="pip-step-detail-label">args</span><pre class="pip-step-pre">${escapeHtml(safeJson(input))}</pre></div>` : "",
     isError
-      ? `<div class="pip-step-section"><span class="pip-step-detail-label">error</span><pre class="pip-step-pre">${escHtml(String(error?.message || error))}</pre></div>`
-      : (result != null ? `<div class="pip-step-section"><span class="pip-step-detail-label">result</span><pre class="pip-step-pre">${escHtml(safeJson(result))}</pre></div>` : ""),
+      ? `<div class="pip-step-section"><span class="pip-step-detail-label">error</span><pre class="pip-step-pre">${escapeHtml(String(error?.message || error))}</pre></div>`
+      : (result != null ? `<div class="pip-step-section"><span class="pip-step-detail-label">result</span><pre class="pip-step-pre">${escapeHtml(safeJson(result))}</pre></div>` : ""),
   ].filter(Boolean).join("");
   if (sections) {
     detail.innerHTML = sections;
@@ -365,8 +362,6 @@ async function runTurn(text, turnEl) {
   // command verb (drive, turn, stop…) or a demo name, dispatch
   // immediately and skip the LLM round-trip. Mycroft / OpenVoiceOS
   // pattern: regex intent gate first, LLM fallback for everything else.
-  const pickRobot = () =>
-    [...state.devices.values()].find(e => e.status === "connected")?.id;
   // Shared step-executor that renders a pill per tool call — same
   // affordance as LLM-driven tool calls, so direct commands and demo
   // sequences are visually indistinguishable from agent work.
@@ -392,7 +387,7 @@ async function runTurn(text, turnEl) {
 
   const cmd = tryMatchCommand(text);
   if (cmd) {
-    const robotId = pickRobot();
+    const robotId = pickRobotId();
     if (!robotId) return noRobot();
     await runStep(cmd.tool, { id: robotId, ...cmd.partialInput }).catch(() => {});
     return "";
@@ -404,7 +399,7 @@ async function runTurn(text, turnEl) {
   // button cut a long demo (follow especially) mid-sequence.
   const demo = tryMatchDemo(text);
   if (demo) {
-    const robotId = pickRobot();
+    const robotId = pickRobotId();
     if (!robotId) return noRobot();
     const ctx = {
       id: robotId,

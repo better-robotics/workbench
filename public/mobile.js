@@ -1,6 +1,6 @@
 import { $ } from "./dom.js";
 import { joinPairingRoom } from "./pairing.js";
-import { attachJoypad, mix } from "./joypad.js";
+import { attachJoypad } from "./joypad.js";
 import { getMyPubkeyB64 } from "./signal-sdk/v1/peer-key.js";
 import { makeTrustStore } from "./trust.js";
 import {

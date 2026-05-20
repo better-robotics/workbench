@@ -1,4 +1,4 @@
-import { $ } from "./dom.js";
+import { $, fetchWithTimeout } from "./dom.js";
 import { state, loadKnown } from "./state.js";
 
 // Probe each paired robot's :81/health endpoint to show "BR-XXXX on wifi"
@@ -15,14 +15,11 @@ let wifiRobots = [];
 let probeTimer = null;
 
 async function probeUrl(url) {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), PROBE_TIMEOUT_MS);
   try {
-    const res = await fetch(url, { mode: "cors", signal: ctrl.signal });
+    const res = await fetchWithTimeout(url, { mode: "cors" }, PROBE_TIMEOUT_MS);
     if (!res.ok) return null;
     return await res.json();
   } catch { return null; }
-  finally { clearTimeout(timer); }
 }
 
 async function probeRobot(known) {
@@ -51,6 +48,12 @@ async function probeTick() {
     if (!health) return;
     found.push({ id: r.id, name: r.name, ...health });
   }));
+  // Skip the render when the set didn't change — common case is the same
+  // single Pi every 30s, and there's no reason to rewrite badge.textContent
+  // to the same string forever.
+  const sameSet = found.length === wifiRobots.length
+    && found.every((r, i) => r.id === wifiRobots[i].id && r.name === wifiRobots[i].name);
+  if (sameSet) return;
   wifiRobots = found;
   renderRobotPresence();
 }

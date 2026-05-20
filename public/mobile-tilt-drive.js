@@ -29,6 +29,7 @@ let tiltGamma = 0;                   // last orientation event's left-right roll
 let tiltBeta = 0;                    // front-back tilt (used in landscape)
 let tiltThrottle = 0;                // -1, 0, +1 from pedal state
 let tiltSendTimer = null;
+let tiltSendLastZero = false;
 let tiltOrientationOn = false;
 let tiltMotionPermission = "unknown"; // "granted" | "denied" | "unknown"
 
@@ -107,9 +108,9 @@ function sendTick() {
   const { l, r } = tiltMix();
   // Skip the send when both motors would be zero AND we already sent zero
   // last tick — common case (phone flat, no pedal). Saves bandwidth.
-  if (l === 0 && r === 0 && tiltSendTimer?._lastZero) return;
+  if (l === 0 && r === 0 && tiltSendLastZero) return;
   try { peer.send({ type: "drive", l, r }); } catch {}
-  tiltSendTimer._lastZero = (l === 0 && r === 0);
+  tiltSendLastZero = (l === 0 && r === 0);
 }
 
 function orientationHandler(e) {
