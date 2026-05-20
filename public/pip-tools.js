@@ -23,16 +23,20 @@ import { startWatcher, stopWatcher, ACTION_NAMES, watcherStatus, COCO_CLASSES, a
 import { speak as voiceSpeak } from "./voice.js";
 
 // Motor-tool gate. Blocks a tool call while the reflex watcher's halt
-// gate is engaged (stop-sign-or-equivalent visible). 10s cap so a
-// forgotten sign can't freeze the planner forever; assistant.js's onAbort
-// calls releaseAllGates() to cut through immediately when the operator
-// hits Stop. Returns null if motion is permitted, or an error object the
-// tool case can return directly.
+// gate is engaged (a halt class visible, or a pause gesture held). 10s
+// cap so a forgotten trigger can't freeze the planner forever;
+// assistant.js's onAbort calls releaseAllGates() to cut through
+// immediately when the operator hits Stop. Returns null if motion is
+// permitted, or an error object the tool case can return directly. The
+// error message includes the actual trigger label (the class or gesture
+// that engaged the gate) so the planner doesn't read a hardcoded "stop
+// sign" line when a person or a gesture was the real cause.
 async function awaitMotorGate(id) {
   if (!isReflexGated(id)) return null;
   const r = await awaitReflexGate(id, { maxMs: 10000 });
   if (r.released === "timeout") {
-    return { ok: false, error: "reflex: stop sign blocked motion for 10s — clear the sign or call ask_human" };
+    const what = r.label || "reflex trigger";
+    return { ok: false, error: `reflex: "${what}" blocked motion for 10s — remove the trigger or call ask_human` };
   }
   return null;
 }
@@ -217,7 +221,7 @@ const ALL_TOOLS = [
   },
   {
     name: "start_robot_watcher",
-    description: "Start a continuous reflex on the robot's camera. Two model paths: (a) `halt`/`speak`/`notify` actions run MediaPipe COCO closed-vocab object detection on `classes` (~10ms/frame, 3s cool-down between fires); (b) `follow` action runs MediaPipe Gesture Recognizer for hand tracking — `classes` is ignored, and built-in gestures double as commands (Open_Palm/Closed_Fist pause+halt, Pointing_Up resumes). A [reflex-fire] / [reflex-clear] block appears in your next tool_result when something triggers. Idempotent: a second call replaces any prior. By default halt/follow speak narration aloud — set silent:true if your own logic narrates these events to avoid two voices overlapping.",
+    description: "Start a continuous reflex on the robot's camera. Two model paths: (a) `halt`/`speak`/`notify` actions run MediaPipe COCO closed-vocab object detection on `classes` (~10ms/frame, 3s cool-down between fires); (b) `follow` action runs MediaPipe Gesture Recognizer for hand tracking — `classes` is ignored, and built-in gestures double as commands (Open_Palm/Closed_Fist pause+halt, Thumb_Up resumes). A [reflex-fire] / [reflex-clear] block appears in your next tool_result when something triggers. Idempotent: a second call replaces any prior. By default halt/follow speak narration aloud — set silent:true if your own logic narrates these events to avoid two voices overlapping.",
     input_schema: {
       type: "object",
       properties: {

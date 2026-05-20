@@ -85,11 +85,16 @@ async function dance(ctx) {
 async function patrol(ctx) {
   await ctx.exec("speak", { text: "Patrolling. Keep an eye out." });
   for (let i = 0; i < 2; i++) {
-    await sustainedDrive(ctx, SPEED, SPEED, 2);  // ~4s straight
+    // 4× MAX (~8s) of straight cruising — long enough to read as
+    // "actually patrolling" rather than "shuffle, spin, shuffle, spin."
+    // Firmware dist_cm clip still saves us at walls. The look-around
+    // spins between cruises are what sells the "checking the room"
+    // beat, but they shouldn't dominate the wall-clock budget.
+    await sustainedDrive(ctx, SPEED, SPEED, 4);
     await ctx.sleep(300);
-    await pulse(ctx, -SPEED,  SPEED, MAX);       // big spin one way
+    await pulse(ctx, -SPEED,  SPEED, MAX);
     await ctx.sleep(200);
-    await pulse(ctx,  SPEED, -SPEED, MAX);       // big spin back
+    await pulse(ctx,  SPEED, -SPEED, MAX);
     await ctx.sleep(200);
   }
   await ctx.exec("speak", { text: "Sweep done." });
@@ -111,22 +116,28 @@ async function react(ctx) {
   await ctx.exec("start_robot_camera", { id: ctx.id });
   await ctx.exec("speak", { text: "Hmm, who's around..." });
 
-  // Scan-and-check loop. 8 ticks × ~700ms spin = ~5.5s of motion + ~8
-  // detections = ~16s wall clock. Stops as soon as a person is found.
+  // Scan-and-check loop. Tighter than before — 400ms spins instead of
+  // 700ms — so the "actively looking" beat feels deliberate but not
+  // sleepy. 14 ticks × 400ms = ~5.5s motion budget, same total wall
+  // clock, more detection passes within it.
   let found = null;
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 14; i++) {
     if (ctx.shouldAbort?.()) return;
     const r = await ctx.exec("get_robot_detections", { id: ctx.id, queries: ["person"] });
     const hits = r?.detections || (Array.isArray(r) ? r : []);
     const hit = hits.find(d => (d?.score ?? 0) > 0.4);
     if (hit) { found = hit; break; }
-    await pulse(ctx, -SPEED, SPEED, 700);  // small scan-spin
+    await pulse(ctx, -SPEED, SPEED, 400);
   }
 
   if (!found) {
     await ctx.exec("speak", { text: "Nobody around. I'll keep an eye out." });
-    // Backstop: arm the watcher so a later visitor still gets caught.
-    await ctx.exec("start_robot_watcher", { id: ctx.id, classes: ["person"], action: "halt" });
+    // Backstop: arm the watcher so a later visitor still gets noticed.
+    // `speak` (not halt) — halt now engages the motor gate, which would
+    // block any subsequent demo's motor calls for 10s while a person is
+    // visible. The intent here is "robot announces visitors," not "robot
+    // locks up around its audience."
+    await ctx.exec("start_robot_watcher", { id: ctx.id, classes: ["person"], action: "speak" });
     return;
   }
 
@@ -147,7 +158,9 @@ async function react(ctx) {
   }
   await ctx.exec("speak", { text: greeting || "Hello there!" });
   // Keep the watcher armed for future visitors after the demo ends.
-  await ctx.exec("start_robot_watcher", { id: ctx.id, classes: ["person"], action: "halt" });
+  // `speak` (not halt) for the same reason as above — see the no-person
+  // branch comment.
+  await ctx.exec("start_robot_watcher", { id: ctx.id, classes: ["person"], action: "speak" });
 }
 
 // 6 — Follow. Closed-loop detection-driven approach. Longer drive
@@ -191,7 +204,7 @@ async function handFollow(ctx) {
   // pass a sentinel that makes intent obvious in the audit pill.
   await ctx.exec("start_robot_watcher", { id: ctx.id, classes: ["hand"], action: "follow" });
   await ctx.sleep(800);
-  await speakAndWait(ctx, "Open palm to pause. Pointing up to resume.");
+  await speakAndWait(ctx, "Open palm to pause. Thumbs up to resume.");
 }
 
 // 7 — Introduce. Multi-section self-introduction with audience

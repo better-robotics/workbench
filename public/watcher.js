@@ -50,33 +50,51 @@ const HALT_POLL_MS = 200;
 // is paced by the pulse, not the poll. 150ms gives near-real-time
 // gesture pickup without redundant detector spam between pulses.
 const FOLLOW_POLL_MS = 150;
-// Visual-servo defaults (Hiwonder MentorPi + GestureBot references):
-//   - Deadband 0.1 (10% of frame width) — under this, no turn pulse,
-//     just drive straight forward.
-//   - Turn pulse 200ms — long enough to register, short enough that
-//     overshoot is bounded.
-//   - Forward pulse 600ms — covers ground without committing past the
-//     next perception tick.
+// Visual-servo defaults (Hiwonder MentorPi + GestureBot references,
+// retuned after first real-world run showed bang-bang overshoot — the
+// robot turned past the hand on every detection, lost it out of FOV,
+// then reacquired and overshot the other way):
+//   - Deadband 0.15 (15% of frame width) — wider than the 0.1 reference
+//     because our turn pulses produce more angular displacement per ms
+//     than MentorPi's gimbal; the tighter band created twitch.
+//   - Turn speed PROPORTIONAL to centroid offset (P-controller, not
+//     bang-bang). Hand barely off-center → MIN_TURN; hand at frame edge
+//     → MAX_TURN. Without this any offset > deadband triggers a full
+//     28-speed pulse and overshoots a hand near the camera.
+//   - Turn pulse 120ms — short enough that a single correction can't
+//     swing past a close-range hand. Drive pulse 400ms — covers ground
+//     when far without committing past the next perception tick.
 //   - bboxArea 0.30 = "close enough, hold position." Above this the
 //     palm-detector also starts losing the hand (it needs surrounding
 //     context to localize), so trying to drive closer would lose track.
-const FOLLOW_DEADBAND = 0.10;
-const FOLLOW_TURN_MS  = 200;
-const FOLLOW_DRIVE_MS = 600;
+const FOLLOW_DEADBAND = 0.15;
+const FOLLOW_TURN_MS  = 120;
+const FOLLOW_DRIVE_MS = 400;
 const FOLLOW_HOLD_AREA = 0.30;
-const FOLLOW_TURN_SPEED  = 28;
+const FOLLOW_MIN_TURN_SPEED = 15;
+const FOLLOW_MAX_TURN_SPEED = 28;
 const FOLLOW_DRIVE_SPEED = 32;
 // How many consecutive null detections before we announce "lost hand"
 // and switch from drive/turn to a passive idle. Single dropouts are
 // common when the hand crosses the FOV edge — don't react to noise.
 const FOLLOW_LOST_TICKS = 4;
+// Cool-down on lost/reacquire announcements. Without this, the natural
+// "hand briefly at edge of FOV → lost streak → back in frame" cycle
+// triggers an announcement every few seconds. 3s lands between "still
+// feels live" and "not whip-sawing chat for noise."
+const FOLLOW_ANNOUNCE_COOLDOWN_MS = 3000;
 // Gesture command map. Open_Palm and Closed_Fist are the most reliably
-// classified across the literature; Pointing_Up is the cleanest
-// re-engage signal. Thumb_Down explicitly excluded — known failure mode.
+// classified across the literature for the pause role. Thumb_Up replaced
+// the original Pointing_Up resume choice after the floor-mounted robot
+// run showed Pointing_Up is awkward from above (operator looking down
+// at robot doesn't naturally point an index finger UP at it). Thumb_Up
+// is the natural "go / continue" gesture and benchmarks reliably above
+// 90% in the GestureBot data. Thumb_Down explicitly skipped — 70.7% in
+// the same benchmark, confuses with similar poses.
 const FOLLOW_GESTURE_COMMANDS = {
   Open_Palm:   "pause",
   Closed_Fist: "pause",
-  Pointing_Up: "resume",
+  Thumb_Up:    "resume",
 };
 
 // Fire-event listeners — assistant.js subscribes so it can inject a
@@ -109,17 +127,23 @@ const _gates = new Map();
 function ensureGate(entryId) {
   let g = _gates.get(entryId);
   if (!g) {
-    g = { blocked: false, promise: Promise.resolve(), resolve: () => {}, sinceMs: 0 };
+    g = { blocked: false, promise: Promise.resolve(), resolve: () => {}, sinceMs: 0, label: null };
     _gates.set(entryId, g);
   }
   return g;
 }
 
-function setGateBlocked(entryId) {
+// label = what engaged the gate ("stop sign", "person", "Open_Palm", ...).
+// Surfaced through the awaitReflexGate result + the motor-tool timeout
+// error so the planner / operator see what's actually blocking motion
+// instead of a hardcoded literal that lies whenever the gate-trigger
+// isn't a stop sign.
+function setGateBlocked(entryId, label = null) {
   const g = ensureGate(entryId);
   if (g.blocked) return;
   g.blocked = true;
   g.sinceMs = Date.now();
+  g.label = label;
   g.promise = new Promise((resolve) => { g.resolve = resolve; });
 }
 
@@ -150,6 +174,7 @@ const DEFAULT_GATE_TIMEOUT_MS = 10000;
 export async function awaitReflexGate(entryId, { maxMs = DEFAULT_GATE_TIMEOUT_MS, isAborted = () => false } = {}) {
   const g = _gates.get(entryId);
   if (!g || !g.blocked) return { blocked: false };
+  const label = g.label;
   const started = Date.now();
   return new Promise((resolve) => {
     let done = false;
@@ -157,7 +182,7 @@ export async function awaitReflexGate(entryId, { maxMs = DEFAULT_GATE_TIMEOUT_MS
       if (done) return;
       done = true;
       clearInterval(poll);
-      resolve({ blocked: true, released });
+      resolve({ blocked: true, released, label });
     };
     const poll = setInterval(() => {
       if (done) return;
@@ -294,7 +319,7 @@ function runHaltLoop(entry, cfg) {
       // until the 10s timeout.
       if (stopped) return;
       if (!cfg.silent) ttsSpeak(`stopped, ${hit.label}`);
-      setGateBlocked(entry.id);
+      setGateBlocked(entry.id, hit.label);
       emitFire(entry, { ...cfg.lastDetection }, "fire");
       renderEntry(entry);
     } else if (!hit && wasBlocked) {
@@ -332,6 +357,7 @@ function runFollowLoop(entry, cfg) {
   let paused = false;
   let lostCount = 0;
   let lastGesture = null;
+  let lastAnnounceTs = 0;
   const stopFn = () => {
     if (stopped) return;
     stopped = true;
@@ -372,7 +398,7 @@ function runFollowLoop(entry, cfg) {
         try { await pulseMotors(entry.id, 0, 0, 200); } catch {}
         if (stopped) return;
         if (!cfg.silent) ttsSpeak(`paused, ${g.toLowerCase().replace(/_/g, " ")}`);
-        setGateBlocked(entry.id);
+        setGateBlocked(entry.id, `gesture ${g}`);
         emitFire(entry, { gesture: g, ts: Date.now() }, "gesture-pause");
       } else if (cmd === "resume" && paused) {
         paused = false;
@@ -390,31 +416,50 @@ function runFollowLoop(entry, cfg) {
       if (!det) {
         lostCount++;
         if (lostCount === FOLLOW_LOST_TICKS) {
-          if (!cfg.silent) ttsSpeak("lost the hand");
-          emitFire(entry, { ts: Date.now() }, "follow-lost");
-          renderEntry(entry);
+          const now = Date.now();
+          if (now - lastAnnounceTs > FOLLOW_ANNOUNCE_COOLDOWN_MS) {
+            if (!cfg.silent) ttsSpeak("lost the hand");
+            emitFire(entry, { ts: now }, "follow-lost");
+            lastAnnounceTs = now;
+            renderEntry(entry);
+          }
         }
       } else {
         if (lostCount >= FOLLOW_LOST_TICKS) {
-          if (!cfg.silent) ttsSpeak("found you");
-          emitFire(entry, { ts: Date.now() }, "follow-reacquire");
+          const now = Date.now();
+          if (now - lastAnnounceTs > FOLLOW_ANNOUNCE_COOLDOWN_MS) {
+            if (!cfg.silent) ttsSpeak("found you");
+            emitFire(entry, { ts: now }, "follow-reacquire");
+            lastAnnounceTs = now;
+          }
         }
         lostCount = 0;
         cfg.lastDetection = { label: "hand", score: det.score, ts: Date.now() };
         const cx = det.palmCentroid.cx;
         const area = det.bboxArea;
+        const offset = cx - 0.5;          // -0.5 (far left) … +0.5 (far right)
+        const absOffset = Math.abs(offset);
+
         if (area >= FOLLOW_HOLD_AREA) {
           // Close enough — hold. No pulse, no narration. Keeps the
           // operator in the "I can move my hand around without dragging
           // the robot in" sweet spot the audience reads as "it knows
           // I'm close." Lower than this and we'd overshoot the hand;
           // higher and the palm detector starts losing context.
-        } else if (cx < 0.5 - FOLLOW_DEADBAND) {
-          try { await pulseMotors(entry.id, -FOLLOW_TURN_SPEED, FOLLOW_TURN_SPEED, FOLLOW_TURN_MS); } catch {}
-        } else if (cx > 0.5 + FOLLOW_DEADBAND) {
-          try { await pulseMotors(entry.id, FOLLOW_TURN_SPEED, -FOLLOW_TURN_SPEED, FOLLOW_TURN_MS); } catch {}
-        } else {
+        } else if (absOffset < FOLLOW_DEADBAND) {
           try { await pulseMotors(entry.id, FOLLOW_DRIVE_SPEED, FOLLOW_DRIVE_SPEED, FOLLOW_DRIVE_MS); } catch {}
+        } else {
+          // Proportional turn — small offset → small pulse, edge of
+          // frame → max pulse. Linear ramp from MIN_TURN at the deadband
+          // boundary to MAX_TURN at the frame edge. Without this, every
+          // off-center hand triggered a full-speed pulse and the robot
+          // overshot a near-camera hand on a single tick.
+          const overshoot = absOffset - FOLLOW_DEADBAND;
+          const ramp = Math.min(1, overshoot / (0.5 - FOLLOW_DEADBAND));
+          const speed = Math.round(FOLLOW_MIN_TURN_SPEED + ramp * (FOLLOW_MAX_TURN_SPEED - FOLLOW_MIN_TURN_SPEED));
+          const lMot = offset < 0 ? -speed :  speed;
+          const rMot = offset < 0 ?  speed : -speed;
+          try { await pulseMotors(entry.id, lMot, rMot, FOLLOW_TURN_MS); } catch {}
         }
         if (stopped) return;
         renderEntry(entry);
@@ -525,15 +570,16 @@ function renderSection(entry) {
   const cocoListHtml = COCO_CLASSES.map(c => escapeHtml(c)).join(", ");
   // Follow mode swaps the "Watch for" combobox for a gesture cheat-sheet
   // so the audience knows which hand shapes do anything. Listed in
-  // priority order — pause verbs first, resume verb after, then the
-  // ignored-but-recognized ones for completeness. Demo tip: a hint about
-  // having your hand visible BEFORE pressing Start to avoid the "why
-  // isn't it doing anything" moment when the recognizer has no input.
+  // priority order — pause verbs first, resume verb after. Resume is
+  // Thumb_Up rather than Pointing_Up because the operator is typically
+  // looking DOWN at a floor-mounted robot, and an upward-pointing index
+  // finger is awkward from that angle; thumbs-up reads naturally as
+  // "good, continue."
   const followCheatSheet = `
     <div class="watcher-gestures">
       <div class="watcher-gesture-row"><strong>Open palm</strong> · pause + halt</div>
       <div class="watcher-gesture-row"><strong>Closed fist</strong> · pause + halt</div>
-      <div class="watcher-gesture-row"><strong>Pointing up</strong> · resume tracking</div>
+      <div class="watcher-gesture-row"><strong>Thumbs up</strong> · resume tracking</div>
       <div class="meta">Show a hand near the camera; gestures fire on transition (one announcement per pose change).</div>
     </div>
   `;
