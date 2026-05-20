@@ -1,6 +1,6 @@
 import { $, escapeHtml } from "./dom.js";
-import { log, logFor } from "./log.js";
-import { settings, saveSettings } from "./settings.js";
+import { log } from "./log.js";
+import { settings } from "./settings.js";
 import { state } from "./state.js";
 import { ALL as CAPABILITIES, setCapabilityRenderer } from "./capabilities/index.js";
 import { setOpen as capSetOpen } from "./capabilities/runtime/cap-section.js";
@@ -21,8 +21,8 @@ import { initMotorsKeyboard } from "./capabilities/runtime/signed-pair.js";
 import { initAuthUI, fingerprint as dashFingerprint, pubkeySsh, onKeyChange } from "./auth.js";
 import { initPasswordsUI } from "./passwords.js";
 import { initAssistant } from "./assistant.js";
-import { initPhones, broadcastTargetInfo } from "./phones.js";
-import { initHelpers, setHelpersRobotRenderer, renderHelpers } from "./phone-helpers.js";
+import { initPhones } from "./phones.js";
+import { initHelpers, setHelpersRobotRenderer } from "./phone-helpers.js";
 // aruco.js is wired through phone-helpers.js — phone helpers can be designated
 // as the overhead camera; detection runs against the helper's existing
 // preview tile. No init call here.
@@ -37,12 +37,7 @@ import { wireLogDialog } from "./log-dialog.js";
 
 setCapabilityRenderer((entry) => renderEntry(entry));
 setHelpersRobotRenderer((entry) => renderEntry(entry));
-setBleRenderers({
-  renderEntry: (entry) => renderEntry(entry),
-  render: () => render(),
-  patchSecondaryRow: (entry) => patchSecondaryRow(entry),
-  patchRobotStateLine: (entry) => patchRobotStateLine(entry),
-});
+setBleRenderers({ renderEntry, render, patchSecondaryRow, patchRobotStateLine });
 
 // A phone helper's camera mounted on this robot (phone-as-eye). The video
 // element is discoverable by camera-frame.js's findCameraElement enumerator
@@ -175,11 +170,6 @@ function patchRobotStateLine(entry) {
   const prefix = sticky ? "was " : "";
   line.textContent = s.msg ? `${prefix}${s.st} — ${s.msg}` : `${prefix}${s.st}`;
 }
-
-// Ops-response dispatch registry lives in ops-response.js so pip-tools.js
-// (a registrar) doesn't need to import app.js (a caller) and create a cycle.
-// Imported locally (app.js registers its own handlers) and re-exported for
-// back-compat with anything else that imported it from app.
 
 // Per-robot expand/collapse preference. Persisted so a user's choice sticks
 // across sessions. Absence of a key = fall back to smart default (see

@@ -100,6 +100,10 @@ export async function startNearbyDiscovery() {
   const hintTimer = setTimeout(() => {
     if (emptyHint && wrap.hidden) emptyHint.hidden = false;
   }, 10000);
+  // Diff against the last-rendered pubkey set so 60s-TTL ad churn doesn't
+  // tear down + rebuild the list (with fresh click listeners) on every
+  // re-publish when nothing changed.
+  let lastKey = "";
   _lobby.onChange((ads) => {
     const macs = ads.filter(a => a.data && a.data.app === "better-robotics-mac" && a.data._pubkey);
     // Multiple tabs in the same browser profile share an Ed25519 identity
@@ -109,6 +113,9 @@ export async function startNearbyDiscovery() {
     const byPubkey = new Map();
     for (const ad of macs) if (!byPubkey.has(ad.data._pubkey)) byPubkey.set(ad.data._pubkey, ad);
     const unique = [...byPubkey.values()];
+    const key = unique.map(a => `${a.data._pubkey}|${a.data.label || ""}`).sort().join(";");
+    if (key === lastKey) return;
+    lastKey = key;
     list.innerHTML = "";
     if (!unique.length) { wrap.hidden = true; return; }
     clearTimeout(hintTimer);

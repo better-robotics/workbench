@@ -14,9 +14,6 @@ import { broadcastTargetInfo } from "./phones.js";
 import { renderHelpers } from "./phone-helpers.js";
 import { stopWatcher } from "./watcher.js";
 
-// Renderers are injected from app.js so this module doesn't need to know
-// about the DOM-building layer. Same registration shape as
-// setCapabilityRenderer / setHelpersRobotRenderer.
 let renderers = {
   renderEntry: () => {},
   render: () => {},
@@ -27,9 +24,7 @@ export function setBleRenderers(r) {
   renderers = { ...renderers, ...r };
 }
 
-// state.js fires this callback when a gatt 'disconnected' event lands.
-// onDisconnected is defined below; setDisconnectHandler hoists the
-// registration to module-load.
+// Hoisted indirection so the registration sees onDisconnected (defined below).
 setDisconnectHandler((id) => onDisconnected(id));
 
 // gatt.connect() has no browser-exposed timeout; a wedged robot can leave the

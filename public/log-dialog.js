@@ -7,6 +7,9 @@ let logTimeoutId = null;
 let logTailRobotId = null;   // robot whose log dialog is currently open
 let logTailChannel = null;   // open WebRTC logs channel, if tailing
 
+// DOM refs captured once in wireLogDialog (DOMContentLoaded is past by then).
+let dialog, title, body, tailBtn, statusEl;
+
 function stopLogTail() {
   if (logTailChannel) {
     try { logTailChannel.send(JSON.stringify({ type: "stop" })); } catch {}
@@ -17,48 +20,53 @@ function stopLogTail() {
     // Lazy-import to keep webrtc-robot.js out of the eager bundle.
     import("./webrtc-robot.js").then((m) => m.closePeer(logTailRobotId)).catch(() => {});
   }
-  $("log-dialog-status").hidden = true;
-  $("log-dialog-tail").textContent = "Tail live";
+  statusEl.hidden = true;
+  tailBtn.textContent = "Tail live";
 }
 
 // Robot menu fires the open; deps inject the menu's current target +
 // dismiss so the log dialog doesn't have to know about menu state.
 export function wireLogDialog({ getMenuTargetId, closeMenu }) {
+  dialog = $("log-dialog");
+  title = $("log-dialog-title");
+  body = $("log-dialog-body");
+  tailBtn = $("log-dialog-tail");
+  statusEl = $("log-dialog-status");
+
   $("menu-log").addEventListener("click", () => {
     const id = getMenuTargetId();
     closeMenu();
     const entry = state.devices.get(id);
     if (!entry?.opsChar) return;
     logTailRobotId = id;
-    $("log-dialog-title").textContent = `Log · ${entry?.name || "robot"}`;
-    $("log-dialog-body").textContent = "Loading…";
+    title.textContent = `Log · ${entry?.name || "robot"}`;
+    body.textContent = "Loading…";
     // Tail-live is Pi-only (journalctl) and needs a name to find the WebRTC
     // peer's room. Hide the button on robots that don't qualify.
-    $("log-dialog-tail").hidden = !(entry?.fwType === "pi" && entry?.name);
-    $("log-dialog-tail").textContent = "Tail live";
-    $("log-dialog-status").hidden = true;
-    $("log-dialog").showModal();
+    tailBtn.hidden = !(entry?.fwType === "pi" && entry?.name);
+    tailBtn.textContent = "Tail live";
+    statusEl.hidden = true;
+    dialog.showModal();
     if (logTimeoutId) clearTimeout(logTimeoutId);
     // Reply arrives as a single get-log notify; if none lands within 10 s the
     // robot likely silently dropped the request (no ops-response handler,
     // stalled service, link congestion). Surface it instead of hanging.
     logTimeoutId = setTimeout(() => {
       logTimeoutId = null;
-      if ($("log-dialog").open && $("log-dialog-body").textContent === "Loading…") {
-        $("log-dialog-body").textContent = "(timed out — no response from robot)";
+      if (dialog.open && body.textContent === "Loading…") {
+        body.textContent = "(timed out — no response from robot)";
       }
     }, 10000);
     getLog(id);
   });
-  $("log-dialog-tail").addEventListener("click", async () => {
+  tailBtn.addEventListener("click", async () => {
     if (logTailChannel) { stopLogTail(); return; }
     const id = logTailRobotId;
     if (!id) return;
     const entry = state.devices.get(id);
     if (!entry) return;
-    $("log-dialog-status").hidden = false;
-    $("log-dialog-tail").textContent = "Stop";
-    const body = $("log-dialog-body");
+    statusEl.hidden = false;
+    tailBtn.textContent = "Stop";
     body.textContent = "Connecting to live log…\n";
     try {
       const { openChannel } = await import("./webrtc-robot.js");
@@ -87,11 +95,11 @@ export function wireLogDialog({ getMenuTargetId, closeMenu }) {
   $("log-dialog-close").addEventListener("click", () => {
     if (logTimeoutId) { clearTimeout(logTimeoutId); logTimeoutId = null; }
     stopLogTail();
-    $("log-dialog").close();
+    dialog.close();
   });
   onOpsResponse("get-log", (entry, msg) => {
-    if (!$("log-dialog").open) return;
+    if (!dialog.open) return;
     if (logTimeoutId) { clearTimeout(logTimeoutId); logTimeoutId = null; }
-    $("log-dialog-body").textContent = msg.text || "(empty)";
+    body.textContent = msg.text || "(empty)";
   });
 }

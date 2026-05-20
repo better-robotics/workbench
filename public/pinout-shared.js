@@ -1,6 +1,3 @@
-// Shared helpers between pinout-pi.js and pinout-esp32.js. Two downstream
-// consumers earn this file (audit-before-add bar in CLAUDE.md).
-
 // Supports both flat {role: gpio} and nested {left: {forward: 17, backward: 27}} shapes.
 export function flattenPins(obj, prefix = "") {
   const out = [];
