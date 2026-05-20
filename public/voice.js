@@ -37,7 +37,12 @@ const OPENAI_TTS_INSTRUCTIONS =
 const OPENAI_TTS_FORMAT = "pcm";
 const OPENAI_TTS_SAMPLE_RATE = 24000;
 const OPENAI_API = "https://api.openai.com";
-const CACHE_NAME = "tts-v1";
+// Bump on any change to model / voice / instructions / format, OR to
+// invalidate accumulated bad renders (e.g. when peppy instructions
+// cause gpt-4o-mini-tts to vocalize punctuation as "dot" — once a bad
+// render is cached we replay it forever, so the cleanest invalidation
+// is a fresh cache namespace).
+const CACHE_NAME = "tts-v2";
 
 // ─ AudioContext (lazy, gesture-bound) ───────────────────────────────
 

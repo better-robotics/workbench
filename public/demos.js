@@ -211,39 +211,47 @@ async function follow(ctx, target = "person") {
 //     against the TTS line that just played so the choreography
 //     stays in sync: short line → short move, long line → bigger move.
 async function introduce(ctx) {
-  // Opening — a small "lean in" forward as we greet, like a person
+  // No trailing periods or ellipses in any speak() string — expressive
+  // TTS instructions ("peppy, excited") can cause gpt-4o-mini-tts to
+  // vocalize punctuation ("around dot"). Cadence comes from the words.
+  //
+  // Opening — small "lean in" forward as we greet, like a person
   // taking a small step toward the audience to start a presentation.
-  await ctx.exec("speak", { text: "Hey." });
-  await pulse(ctx, SPEED, SPEED, 250);  // small lean-forward
-  await ctx.sleep(550);  // beat for the "Hey" to land + dramatic pause
+  await ctx.exec("speak", { text: "Hey" });
+  await pulse(ctx, SPEED, SPEED, 250);
+  await ctx.sleep(450);
 
   // First line + face left side of the room
-  await speakAndWait(ctx, "I'm a little wheeled robot.");
+  await speakAndWait(ctx, "I'm a little wheeled robot");
   await pulse(ctx, -SPEED, SPEED, 700);   // ~90° left to "address" that side
   await ctx.sleep(150);
 
   // Second line + sweep across to the right side
-  await speakAndWait(ctx, "I've got a camera, two motors, and a distance sensor.");
+  await speakAndWait(ctx, "I've got a camera, two motors, and a distance sensor");
   await pulse(ctx,  SPEED, -SPEED, 1400); // ~180° spin to address the other side
   await ctx.sleep(150);
 
-  // Third line + return to facing forward
-  await speakAndWait(ctx, "I can drive...");
-  await pulse(ctx, SPEED, SPEED, 700);    // quick forward burst to punctuate "drive"
+  // Capability demo — each verb illustrated by its motion
+  await speakAndWait(ctx, "I can drive");
+  await pulse(ctx, SPEED, SPEED, 700);    // forward burst to punctuate "drive"
 
-  await speakAndWait(ctx, "spin...");
-  // Empirically: 1 max pulse at speed 40 ≈ 180° on this chassis (the
-  // earlier "full 360" comment was wrong). Two chained pulses for a
+  await speakAndWait(ctx, "spin");
+  // Empirically 1 max pulse ≈ 180° on this chassis; 2 chained = a
   // proper full rotation that lands back facing the audience.
   await pulse(ctx, -SPEED, SPEED, MAX);
   await pulse(ctx, -SPEED, SPEED, MAX);
 
-  await speakAndWait(ctx, "and follow you around.");
-  await pulse(ctx,  SPEED, -SPEED, 700);  // settle back to facing forward
-  await ctx.sleep(200);
+  // "follow you around" → smooth S-curve forward instead of a settle
+  // spin. Spin already happened above; the closing should illustrate
+  // a different capability. Two gentle arcs in opposite directions
+  // both move forward, reading as "I'd come this way to find you."
+  await speakAndWait(ctx, "and follow you around");
+  await pulse(ctx, SPEED,       SPEED * 0.55, 1400);  // gentle right arc forward
+  await pulse(ctx, SPEED * 0.55, SPEED,       1400);  // gentle left arc forward
 
-  // Closing — open invitation, brief pause for emphasis
-  await speakAndWait(ctx, "So... what should we try?");
+  await ctx.sleep(250);
+  // Closing — open invitation, comma for natural prosody
+  await speakAndWait(ctx, "So, what should we try?");
 }
 
 // 8 — Wiggle. Quick "tail-wag" emote — Cozmo-grade personality. 3
