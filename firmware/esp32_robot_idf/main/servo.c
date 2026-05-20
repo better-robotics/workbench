@@ -2,6 +2,8 @@
 
 #include "driver/ledc.h"
 #include "esp_log.h"
+#include "esp_timer.h"
+#include "nvs.h"
 
 #include "gatt_svr.h"
 #include "pin_config.h"
@@ -24,6 +26,12 @@ static const char *TAG = "servo";
 #define SERVO_PERIOD_TICKS   16384
 #define SERVO_MIN_US         500
 #define SERVO_MAX_US         2500
+
+// Rest position auto-save. Wherever the slider lands becomes the boot
+// angle next power-cycle. Debounce protects flash: drag freely, the
+// chip only commits NVS once the slider has been idle for this long.
+#define REST_SAVE_DEBOUNCE_MS  1500
+
 // 50Hz · 16384 ticks = 819200 ticks/sec → 0.8192 ticks/µs. Use integer
 // math: (us * SERVO_PERIOD_TICKS * SERVO_FREQ_HZ) / 1e6 keeps everything
 // in u32 land.
@@ -31,9 +39,30 @@ static uint32_t us_to_duty(uint32_t us) {
     return (us * SERVO_PERIOD_TICKS * SERVO_FREQ_HZ) / 1000000U;
 }
 
+static uint32_t angle_to_duty(uint8_t angle) {
+    uint32_t us = SERVO_MIN_US + ((uint32_t)angle * (SERVO_MAX_US - SERVO_MIN_US)) / 180U;
+    return us_to_duty(us);
+}
+
 static int s_pin = -1;
 static bool s_attached = false;
-static uint8_t s_angle = 90;   // mid-travel default; matches typical servo rest pose
+static uint8_t s_angle = 90;   // mid-travel default until NVS or BLE write overrides
+static esp_timer_handle_t s_save_timer;
+static uint8_t s_last_saved = 90;   // skip redundant NVS commits
+
+static void save_rest_to_nvs(void *arg) {
+    if (s_angle == s_last_saved) return;
+    nvs_handle_t h;
+    if (nvs_open("servo", NVS_READWRITE, &h) != ESP_OK) {
+        ESP_LOGW(TAG, "nvs_open failed; rest position not persisted");
+        return;
+    }
+    if (nvs_set_u8(h, "rest", s_angle) == ESP_OK && nvs_commit(h) == ESP_OK) {
+        s_last_saved = s_angle;
+        ESP_LOGI(TAG, "rest angle saved: %u°", (unsigned)s_angle);
+    }
+    nvs_close(h);
+}
 
 void servo_init(int pin) {
     s_pin = pin;
@@ -41,6 +70,19 @@ void servo_init(int pin) {
         ESP_LOGI(TAG, "pin -1, cap disabled");
         return;
     }
+    // Load persisted rest position before LEDC init so the servo's first
+    // commanded duty is the user's saved angle, not a flash of mid-travel.
+    nvs_handle_t h;
+    if (nvs_open("servo", NVS_READONLY, &h) == ESP_OK) {
+        uint8_t saved = 0;
+        if (nvs_get_u8(h, "rest", &saved) == ESP_OK) {
+            if (saved > 180) saved = 180;
+            s_angle = saved;
+            s_last_saved = saved;
+        }
+        nvs_close(h);
+    }
+
     ledc_timer_config_t tcfg = {
         .speed_mode = SERVO_MODE,
         .timer_num = SERVO_TIMER,
@@ -57,7 +99,7 @@ void servo_init(int pin) {
         .speed_mode = SERVO_MODE,
         .channel = SERVO_CHANNEL,
         .timer_sel = SERVO_TIMER,
-        .duty = us_to_duty(SERVO_MIN_US + (SERVO_MAX_US - SERVO_MIN_US) / 2),
+        .duty = angle_to_duty(s_angle),
         .hpoint = 0,
     };
     if (ledc_channel_config(&ch) != ESP_OK) {
@@ -65,17 +107,23 @@ void servo_init(int pin) {
         return;
     }
     s_attached = true;
-    ESP_LOGI(TAG, "ready on GPIO %d (50Hz, 0–180°)", pin);
+    esp_timer_create_args_t sargs = { .callback = save_rest_to_nvs, .name = "servo_save" };
+    esp_timer_create(&sargs, &s_save_timer);
+    ESP_LOGI(TAG, "ready on GPIO %d (50Hz, 0–180°), rest=%u°", pin, (unsigned)s_angle);
 }
 
 void servo_apply(uint8_t angle) {
     if (angle > 180) angle = 180;
     s_angle = angle;
     if (!s_attached) { gatt_svr_notify_servo(); return; }
-    uint32_t us = SERVO_MIN_US + ((uint32_t)angle * (SERVO_MAX_US - SERVO_MIN_US)) / 180U;
-    uint32_t duty = us_to_duty(us);
-    ledc_set_duty(SERVO_MODE, SERVO_CHANNEL, duty);
+    ledc_set_duty(SERVO_MODE, SERVO_CHANNEL, angle_to_duty(angle));
     ledc_update_duty(SERVO_MODE, SERVO_CHANNEL);
+    // Debounced persist: restart the timer on every write so flash only
+    // commits after the slider has been still for REST_SAVE_DEBOUNCE_MS.
+    if (s_save_timer) {
+        esp_timer_stop(s_save_timer);
+        esp_timer_start_once(s_save_timer, (uint64_t)REST_SAVE_DEBOUNCE_MS * 1000);
+    }
     gatt_svr_notify_servo();
 }
 
