@@ -208,11 +208,12 @@ works is the worst kind of scope drift.
   angles, marker pixel position is good enough as a proxy. Larger
   paths earn a homography (4 known floor points OR phone IMU +
   marker scale) — defer until path length actually demands it.
-- **Detector latency budget.** If Grounding DINO ever needs to ride
-  the same loop (e.g. "drive toward the yellow cup"), 150-300 ms
-  inference is too slow for 5 Hz. A faster reflex-tier detector
-  (YOLO26n or similar) earns its way only when this specific use
-  case lands — until then the ArUco-pose loop is self-contained.
+- **Detector latency budget.** Open-vocab "drive toward the yellow
+  cup" routes through Claude vision (~1–2 s round-trip), too slow
+  for a 5 Hz loop. A reflex-tier open-vocab detector earns its way
+  only when that specific use case lands — until then the ArUco-
+  pose loop is self-contained and MediaPipe COCO handles closed-
+  vocab reflex needs.
 
 ## What this list doesn't include
 

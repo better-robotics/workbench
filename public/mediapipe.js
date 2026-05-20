@@ -1,8 +1,10 @@
-// Closed-vocab reflex object detection via MediaPipe Tasks API. Sits
-// alongside grounding.js (open-vocab planner tool): grounding is for Pip's
-// semantic queries at ~150–300ms; this is for user-code reflex loops at
-// ~10–30ms on the GPU path, ~30–80ms on CPU. Output shape matches grounding:
+// Closed-vocab reflex object detection via MediaPipe Tasks API. Powers
+// the watcher's halt/speak/notify reactions and approach_until's target-
+// centering loop at ~10–30 ms on the GPU path, ~30–80 ms on CPU. Output:
 // [{ label, score, bbox: { x, y, w, h, cx, cy } }] with normalized coords.
+// Open-vocab queries ("find the orange book on the bag") are handled by
+// the planner via view_robot_frame to Claude — no in-browser open-vocab
+// model is needed once the LLM is vision-capable.
 //
 // Model: EfficientDet-Lite0 float16, ~4MB, 80 COCO classes (stop sign,
 // person, traffic light, ...). Bump to Lite2 if Lite0's accuracy fails
@@ -10,8 +12,8 @@
 
 import { drawFrameToCanvas } from "./camera-frame.js";
 
-// Unversioned tracks current 0.10.x — same pattern grounding.js uses for
-// transformers.js. WASM bundle path matches the imported JS version.
+// Unversioned tracks current 0.10.x — WASM bundle path matches the
+// imported JS version.
 const TASKS_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision";
 const WASM_URL  = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm";
 const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/latest/efficientdet_lite0.tflite";
@@ -27,8 +29,8 @@ let _detectorFailed = false;
 export function isMediapipeFailed() { return _detectorFailed; }
 
 // GPU is ~10× faster but some drivers refuse shader compile or silently
-// fall back. CPU path is ~30–80ms — still well below grounding for the
-// reflex use case. Same fail-fast cascade shape as grounding.js.
+// fall back. CPU path is ~30–80ms — still well below detection budget
+// for the reflex use case. Fail-fast cascade across delegates.
 const INIT_ATTEMPTS = [
   { delegate: "GPU" },
   { delegate: "CPU" },
@@ -94,7 +96,7 @@ export async function detectOnce(entry, { classes, source = null, threshold } = 
   try {
     raw = det.detectForVideo(canvas, performance.now());
   } catch (err) {
-    // Mirror grounding's policy: a mid-session inference failure kills
+    // A mid-session inference failure kills
     // the detector for the rest of the session so callers don't loop on
     // a broken pipeline.
     _detectorFailed = true;

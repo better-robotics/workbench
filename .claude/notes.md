@@ -156,7 +156,7 @@ Your "line-follow" script errored on BLE drop last Thursday.
 Heartbeat shipped — worth retrying?
 
 You've paired Pi-03 twice but never opened the camera capability.
-Want me to walk through grounding?
+Want me to walk through it?
 
 Firmware on Pi-01 is 4 versions behind. New pulse caps landed in
 between — OTA when convenient?
@@ -212,31 +212,17 @@ Loads at runtime but not confirmed end-to-end against hardware. Kept out of `REA
 
 **Why bother.** Sub-pixel deterministic pose for a tagged object is the only roadmap primitive that closes the visual-servo loop without a depth sensor — and the substrate for the multi-robot-orchestration direction in `.claude/CLAUDE.md`. Drives `entry.arucoPosition` which the motion controller consumes as ground truth (subject to its staleness gate — `aruco.js` does NOT clear stale entries when a robot leaves frame; consumer's job).
 
-## Grounding DINO open-vocab detector (`public/grounding.js`) — disabled
+## Grounding DINO open-vocab detector — deleted (May 2026)
 
-**What's wired.**
-- Grounding DINO tiny via `@huggingface/transformers`, ONNX, q4f16 quant (~151 MB cached). WebGPU init cascade falls through to WASM CPU. Pipeline kind `zero-shot-object-detection`.
-- `detectOnce(entry, queries, { threshold, topk, source })` accepts up to 5 noun phrases per call, concatenates into a period-separated prompt (Grounding DINO's ONNX export pins batch=1), returns `{ label, score, bbox }` normalized to the input canvas.
-- Was the backing of the `get_robot_detections` Pip tool. Tool is now hidden from `getTools()` via the `GROUNDING_ENABLED` flag.
+Lived in `public/grounding.js` as the open-vocab fallback when MediaPipe COCO's 80 classes couldn't cover a target. Disabled after real-world false positives (medium-confidence "stop sign.[SEP]" matches against a robot-vacuum dock — BERT separator token leaking through the post-processor). Deleted entirely once Claude vision via `view_robot_frame` was confirmed to fill the same role with scene reasoning the bbox-only detector couldn't do.
 
-**What failed in real-world testing.**
-- Returned a medium-confidence (0.60) match labeled `"stop sign.[SEP]"` against a robot-vacuum dock — no stop sign in the frame. The `[SEP]` token is a BERT separator that should never surface as a label; it's the post-processor leaking internal tokens when the model can't bind the query to a real phrase. Pip trusted the score and declared "stop sign found."
-- Default threshold of 0.25 is too loose for actionable decisions (false-positive heavy), but raising it hurts recall on legitimate hits — open-vocab models are calibrated for "find a thing matching this phrase," not "is the thing present yes/no."
+**Why deleting rather than fixing.** The role this module filled — "give Pip a way to localize 'the yellow can' or 'the book on the bag'" — is now served by the planner itself. Pip sends a frame to Claude, Claude reads the scene, plans the next action. No bbox needed when the planner can reason. Re-arming the closed-vocab variant would duplicate the role with worse semantics (no scene context, false-positive history) AND keep a 151 MB model download in the asset graph.
 
-**To re-arm.**
-1. Sanitize labels in `grounding.js` — strip `[SEP]`/`[CLS]`/`[PAD]` tokens, drop detections whose cleaned label is empty. `[SEP]` in a label is the smoking gun for a junk match.
-2. Raise default threshold to ~0.5 and document per-call override semantics in the Pip tool description.
-3. Re-shape the `get_robot_detections` tool description to push Pip toward `start_robot_watcher` (closed-vocab MediaPipe COCO) for known classes and treat open-vocab results as "suggestive, not certain" below ~0.7.
-4. Validate against a fixed scene set — 10 frames known-positive, 10 frames known-negative — with the new threshold + label sanitizer. Promote back to default-on only when negative recall hits zero false positives across the set.
-
-**Why bother keeping it.**
-Open-vocab text-prompt detection is a real capability gap when filled — MediaPipe's 80 classes don't cover "the yellow can" or "doorway." The wedge "browser-resident model serving for arbitrary queries" depends on this primitive working. Disabling is a tactical retreat for the upcoming demo, not a strategy shift.
+**What to revisit if it comes back.** A future need for sub-second open-vocab bboxes at the rate the LLM can't serve (Claude vision is ~1–2 s round-trip; bbox-rate use cases want ~100 ms). At that point: re-evaluate Grounding DINO 1.5, owlv2, or YOLO-World — but only after a use case earns it. Reactive open-vocab is not on the wedge today.
 
 ## YOLO26n closed-vocab detector (not built)
 
-Considered as a faster sibling to Grounding DINO for reactive-tier use cases (visual servo, gamepad-overlay tracking). No `yolo.js` exists. Don't promise externally until it ships *and* validates against a use case Grounding DINO can't serve.
-
-"Detector eval mode" (swap detectors on the same frame, render side-by-side) is interesting infrastructure but only earns its way in when there are two backends worth comparing.
+Considered as a faster sibling for reactive-tier use cases (visual servo, gamepad-overlay tracking). No `yolo.js` exists. The COCO-class niche is filled by MediaPipe EfficientDet-Lite0 today; YOLO earns its way in only if MediaPipe's accuracy or class coverage becomes the bottleneck.
 
 ---
 

@@ -13,7 +13,6 @@
 // @peculiar/x509 self-signs an X.509 cert from a WebCrypto keypair without
 // pulling Node crypto. Dynamic-imported so we pay the ~60 KB + asn1-schema
 // dep only when WebRTC actually starts (cached by the SW after first run).
-// Same CDN pattern as transformers.js / grounding.js.
 const X509_URL = "https://cdn.jsdelivr.net/npm/@peculiar/x509@1.12.3/+esm";
 let _x509 = null;
 

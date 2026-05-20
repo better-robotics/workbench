@@ -576,6 +576,13 @@ async function dispatch(name, input) {
       // common during a turn; two could be a frame race). DJI ActiveTrack
       // / TurtleBot Nav2 use the same N-strike pattern.
       const MAX_LOST = 3;
+      // Distinct cap for "never seen it at all" — MediaPipe's closed-vocab
+      // detector whiffs on real-world targets (floor-level angle, occlusion,
+      // unusual lighting) often enough that streaks of zero hits are common.
+      // Without this, never-seen targets scan-spin for the full max_seconds.
+      // ~8 ticks × 230ms ≈ 2s before bailing so Pip can tell the user "I
+      // can't find it" and try view_robot_frame or ask_human instead.
+      const MAX_NEVER_SEEN = 8;
       // Long pulse far away, short pulse when target is already moderately
       // big in frame — keeps us from overshooting the last 20cm when the
       // ultrasonic isn't a reliable stop (small / short / off-axis targets
@@ -642,12 +649,34 @@ async function dispatch(name, input) {
                 reason = `target '${target}' lost (${MAX_LOST} consecutive misses, was seen before — likely overshot or below camera)`;
                 break;
               }
+              // Stop predicate #4: target was never seen even once. The
+              // detector probably can't recognize it at this angle / under
+              // this occlusion / in this lighting. No amount of scan-
+              // spinning will surface it — bail and let Pip narrate the
+              // dead end (try view_robot_frame, reposition, ask_human).
+              if (!everSeen && lostCount >= MAX_NEVER_SEEN) {
+                reason = `target '${target}' never detected in ${MAX_NEVER_SEEN} scan attempts — MediaPipe's closed-vocab detector likely can't see it at this angle / occlusion / lighting. Try view_robot_frame to confirm it's actually in view, or approach manually with move_motor.`;
+                break;
+              }
               // Small scan-spin to try re-acquiring; don't drive forward
               // blindly when we just lost the thing we're chasing.
+              // Alternate direction every SCAN_FLIP_EVERY misses so we
+              // sweep both sides of the FOV instead of rotating one way
+              // forever — UBC LTS/LTRA literature on bounded recovery
+              // sweeps. Without this the robot would scan-spin left for
+              // 15s if the target was to the right.
+              const SCAN_FLIP_EVERY = 4;
               const turnMs = 200;
-              await pulseMotors(input.id, -speed, speed, turnMs);
+              const turnLeft = Math.floor((lostCount - 1) / SCAN_FLIP_EVERY) % 2 === 0;
+              const lMot = turnLeft ? -speed :  speed;
+              const rMot = turnLeft ?  speed : -speed;
+              await pulseMotors(input.id, lMot, rMot, turnMs);
               e.lastMotorActionAt = Date.now();
-              trajectory.push({ action: "scan-spin", lost_streak: lostCount, ms: turnMs });
+              trajectory.push({
+                action: turnLeft ? "scan-spin-left" : "scan-spin-right",
+                lost_streak: lostCount,
+                ms: turnMs,
+              });
               await new Promise(res => setTimeout(res, turnMs + 30));
               continue;
             }

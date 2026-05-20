@@ -137,9 +137,6 @@ log("done");
 // Drive forward in short pulses; halt the cruise the moment a stop sign
 // shows up in the robot's camera. \`watchFor\` runs in parallel with the
 // drive loop so the script linearizes around the next sighting.
-//
-// Sits next to grounding (open-vocab, planner-paced) — see CLAUDE.md
-// "Model discipline" for which detector goes where.
 
 if (!robot) { log("Pair a robot first."); return; }
 

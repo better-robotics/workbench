@@ -61,7 +61,7 @@ When BLE pairing won't go through and SSH isn't reachable (firmware crash-loopin
 ## When to reach for what
 
 - Pairing hangs or fails silently → open the Diagnostics dialog (menu) and Refresh — captures STUN probe + last pair attempt's `getStats()` + connected-robot telemetry into one JSON. If even the unilateral probe returns no `srflx`, the network is blocking outbound STUN/UDP — pair will fail before it starts.
-- Spatial grounding (which way to turn toward a target) → `get_robot_detections` Pip tool. Returns normalized bboxes. Model loads on first call (~30–60s, cached).
+- Spatial grounding (which way to turn toward a target) → `get_robot_detections` Pip tool, backed by MediaPipe COCO (~10–30 ms on GPU, ~80 ms on CPU). Returns normalized bboxes for the 80 closed-vocab classes. For open-vocab queries ("the orange book on the bag") use `view_robot_frame` — sends the raw frame to Claude, which reasons about the scene without needing a bbox.
 
 ## House rules
 
