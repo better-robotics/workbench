@@ -1400,6 +1400,7 @@ function esp32PinsFromFwInfo(entry) {
   const flash    = caps.find(c => c.name === "flash")?.pin;
   const motors   = caps.find(c => c.name === "motors")?.pins;
   const encoders = caps.find(c => c.name === "encoders")?.pins;
+  const servo    = caps.find(c => c.name === "servo")?.pin;
   return {
     led:     led    ?? 33,
     // No-cap fallback: -1 (disabled). C3/DevKit firmware doesn't advertise
@@ -1418,6 +1419,9 @@ function esp32PinsFromFwInfo(entry) {
     // pressure on ESP32-CAM makes a sensible default infeasible.
     enc_l:   encoders?.left  ?? -1,
     enc_r:   encoders?.right ?? -1,
+    // Servo (SG90-class) — disabled by default; user assigns a free GPIO
+    // when wired. Same -1 idiom as encoders.
+    servo:   servo  ?? -1,
   };
 }
 
@@ -1485,6 +1489,7 @@ function renderEsp32View(entry) {
         ${row("Right enable",   "m_enb")}
         ${row("Encoder left",   "enc_l")}
         ${row("Encoder right",  "enc_r")}
+        ${row("Servo",          "servo")}
       </div>
     </div>
     <div class="row" style="margin-top: 12px;">
@@ -1514,7 +1519,7 @@ function renderEsp32Edit(entry) {
   // Excluding it from ALL_KEYS on no-flash boards keeps the conflict guard
   // from flagging a phantom claim against the real motor/LED assignments.
   const hasFlash = (entry?.fwInfo?.caps || []).some(c => c.name === "flash");
-  const ALL_KEYS = ["led", ...(hasFlash ? ["flash"] : []), "m_l_fwd", "m_l_bwd", "m_r_fwd", "m_r_bwd", "m_ena", "m_enb", "enc_l", "enc_r"];
+  const ALL_KEYS = ["led", ...(hasFlash ? ["flash"] : []), "m_l_fwd", "m_l_bwd", "m_r_fwd", "m_r_bwd", "m_ena", "m_enb", "enc_l", "enc_r", "servo"];
   const usedBy = {};
   for (const k of ALL_KEYS) {
     if (c[k] < 0) continue;  // -1 = disabled, multiple disables don't conflict
@@ -1584,6 +1589,7 @@ function renderEsp32Edit(entry) {
         name: "encoders",
         pins: { left: c.enc_l >= 0 ? c.enc_l : -1, right: c.enc_r >= 0 ? c.enc_r : -1 },
       }] : []),
+      ...(c.servo >= 0 ? [{ name: "servo", type: "level", pin: c.servo }] : []),
     ],
   };
   // Toolbar carries LED + Flash because they don't belong to any chip
@@ -1591,8 +1597,10 @@ function renderEsp32Edit(entry) {
   // GPIO4). Motors + encoders edit inline on the SVG below.
   const ledV   = c.led < 0   ? "" : String(c.led);
   const flashV = c.flash < 0 ? "" : String(c.flash);
+  const servoV = c.servo < 0 ? "" : String(c.servo);
   const ledCls   = c.led   >= 0 && flagged.has(c.led)   ? " conflict" : "";
   const flashCls = c.flash >= 0 && flagged.has(c.flash) ? " conflict" : "";
+  const servoCls = c.servo >= 0 && flagged.has(c.servo) ? " conflict" : "";
 
   $("pinout-body").innerHTML = `
     <div class="pinout-toolbar">
@@ -1606,6 +1614,14 @@ function renderEsp32Edit(entry) {
         <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input${flashCls}"
                data-key="flash" value="${flashV}" placeholder="—">
       </label>` : ""}
+      <label class="toolbar-toggle">
+        <span>Servo</span>
+        <!-- SG90-class hobby servo signal pin. Blank = no servo wired.
+             Power the servo from the board's 5V/VIN rail (3.3V from the
+             GPIO is logic-level only; the SG90 itself wants 5V). -->
+        <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input${servoCls}"
+               data-key="servo" value="${servoV}" placeholder="—">
+      </label>
     </div>
     ${renderEsp32BoardWithDriver(previewEntry, { editable: true, editConfig: c, flagged })}
     ${warn}
@@ -1687,7 +1703,7 @@ async function saveEsp32Edit(entry) {
   // Range check (firmware also validates, but reject early so the user
   // gets a focused error instead of a silent ignore over BLE). -1 means
   // "cap disabled" — accepted; only out-of-range positives reject.
-  for (const key of ["led", "flash", "m_l_fwd", "m_l_bwd", "m_r_fwd", "m_r_bwd", "enc_l", "enc_r"]) {
+  for (const key of ["led", "flash", "m_l_fwd", "m_l_bwd", "m_r_fwd", "m_r_bwd", "enc_l", "enc_r", "servo"]) {
     const v = editConfig[key];
     if (!Number.isInteger(v) || v === -1) continue;
     if (v < 0 || v > 39) {

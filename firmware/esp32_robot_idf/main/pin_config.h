@@ -26,6 +26,7 @@ typedef struct {
     int motor_enb;   // optional; -1 = PWM-on-direction mode
     int enc_l;
     int enc_r;
+    int servo;       // -1 = no servo wired. Signal pin for SG90-class hobby servo.
 } pin_config_t;
 
 bool pin_valid(int pin);

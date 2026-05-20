@@ -11,6 +11,7 @@
 #include "flash.h"
 #include "led.h"
 #include "motors.h"
+#include "servo.h"
 
 static const char *TAG = "fw_info";
 
@@ -118,6 +119,14 @@ void fw_info_init(const pin_config_t *pins) {
     // tick-count cap has no dashboard runtime (yet) — RUNTIMES[type]
     // falls through to no-op; claimsFromEntry still picks up `pins` for
     // the pinout view. Ticks reach the dashboard via telemetry.
+    if (servo_enabled()) {
+        // SG90-class hobby servo. Reuses the level runtime (slider 0..180);
+        // firmware applies as 500–2500µs pulse-width at 50Hz.
+        // unit "\u00b0" (°) so the slider card reads "90°" instead of "90%".
+        o += snprintf(s_buf + o, FW_INFO_BUF_SIZE - o,
+            ",{\"name\":\"servo\",\"type\":\"level\",\"range\":[0,180],\"unit\":\"\\u00b0\",\"pin\":%d}",
+            pins->servo);
+    }
     if (encoders_enabled()) {
         o += snprintf(s_buf + o, FW_INFO_BUF_SIZE - o,
             ",{\"name\":\"encoders\",\"type\":\"tick-count\","

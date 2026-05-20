@@ -4,7 +4,7 @@
 // characteristic; both firmwares pull from the same source.
 export * from "./uuids.js";
 import {
-  LED_CHAR_UUID, FLASH_CHAR_UUID, MOTOR_CHAR_UUID,
+  LED_CHAR_UUID, FLASH_CHAR_UUID, MOTOR_CHAR_UUID, SERVO_CHAR_UUID,
   WIFI_SCAN_CHAR_UUID, WIFI_JOIN_CHAR_UUID, WIFI_STATUS_CHAR_UUID,
   OTA_DATA_CHAR_UUID, OTA_STATUS_CHAR_UUID,
   CAMERA_SIGNAL_CHAR_UUID, CAMERA_STATUS_CHAR_UUID,
@@ -22,6 +22,7 @@ export const UUIDS_BY_CAP = {
   led:    LED_CHAR_UUID,
   flash:  FLASH_CHAR_UUID,
   motors: MOTOR_CHAR_UUID,
+  servo:  SERVO_CHAR_UUID,
   wifi:   { scan: WIFI_SCAN_CHAR_UUID, join: WIFI_JOIN_CHAR_UUID, status: WIFI_STATUS_CHAR_UUID },
   ota:    { data: OTA_DATA_CHAR_UUID, status: OTA_STATUS_CHAR_UUID },
   camera: { signal: CAMERA_SIGNAL_CHAR_UUID, status: CAMERA_STATUS_CHAR_UUID },

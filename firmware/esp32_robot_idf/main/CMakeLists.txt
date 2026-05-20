@@ -30,6 +30,7 @@ set(BR_SRCS
     "flash.c"
     "motors.c"
     "encoders.c"
+    "servo.c"
     "ota.c"
     "camera.c"
     "snapshot.c"

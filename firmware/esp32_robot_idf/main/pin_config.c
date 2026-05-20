@@ -130,6 +130,10 @@ void pin_config_load(pin_config_t *out) {
     // wherever the driver leaves them). User picks via dashboard.
     out->enc_l = -1;
     out->enc_r = -1;
+    // Servo (SG90-class) — disabled by default on every board. Picking a
+    // default would clash on ESP32-CAM (already pin-pressured) and isn't
+    // informative on DevKit/C3 either; user assigns explicitly when wired.
+    out->servo = -1;
 
     nvs_handle_t h;
     if (nvs_open("pins", NVS_READONLY, &h) != ESP_OK) return;
@@ -143,6 +147,7 @@ void pin_config_load(pin_config_t *out) {
     out->motor_enb   = nvs_get_pin(h, "m_enb",   out->motor_enb);
     out->enc_l       = nvs_get_pin(h, "enc_l",   out->enc_l);
     out->enc_r       = nvs_get_pin(h, "enc_r",   out->enc_r);
+    out->servo       = nvs_get_pin(h, "servo",   out->servo);
     nvs_close(h);
 }
 
@@ -189,9 +194,10 @@ void pin_config_handle_write(const uint8_t *json_bytes, size_t len) {
     int m_enb  = extract_int_key(json, len, "m_enb");
     int enc_l  = extract_int_key(json, len, "enc_l");
     int enc_r  = extract_int_key(json, len, "enc_r");
+    int servo  = extract_int_key(json, len, "servo");
 
-    int candidates[10] = { led, flash, l_fwd, l_bwd, r_fwd, r_bwd, m_ena, m_enb, enc_l, enc_r };
-    for (int i = 0; i < 10; i++) {
+    int candidates[11] = { led, flash, l_fwd, l_bwd, r_fwd, r_bwd, m_ena, m_enb, enc_l, enc_r, servo };
+    for (int i = 0; i < 11; i++) {
         int p = candidates[i];
         if (p == PIN_ABSENT || p == -1) continue;
         if (p < 0 || p > PIN_MAX) {
@@ -202,7 +208,7 @@ void pin_config_handle_write(const uint8_t *json_bytes, size_t len) {
             ESP_LOGW(TAG, "GPIO %d is board-forbidden, ignored", p);
             return;
         }
-        for (int j = i + 1; j < 10; j++) {
+        for (int j = i + 1; j < 11; j++) {
             if (candidates[j] == p) {
                 ESP_LOGW(TAG, "GPIO %d assigned twice, ignored", p);
                 return;
@@ -225,10 +231,11 @@ void pin_config_handle_write(const uint8_t *json_bytes, size_t len) {
     if (m_enb  != PIN_ABSENT) nvs_set_i32(h, "m_enb",   m_enb);
     if (enc_l  != PIN_ABSENT) nvs_set_i32(h, "enc_l",   enc_l);
     if (enc_r  != PIN_ABSENT) nvs_set_i32(h, "enc_r",   enc_r);
+    if (servo  != PIN_ABSENT) nvs_set_i32(h, "servo",   servo);
     nvs_commit(h);
     nvs_close(h);
 
-    ESP_LOGI(TAG, "saved (led=%d flash=%d L=%d/%d R=%d/%d ena=%d enb=%d enc=%d/%d)",
-             led, flash, l_fwd, l_bwd, r_fwd, r_bwd, m_ena, m_enb, enc_l, enc_r);
+    ESP_LOGI(TAG, "saved (led=%d flash=%d L=%d/%d R=%d/%d ena=%d enb=%d enc=%d/%d servo=%d)",
+             led, flash, l_fwd, l_bwd, r_fwd, r_bwd, m_ena, m_enb, enc_l, enc_r, servo);
     schedule_restart(500);
 }
