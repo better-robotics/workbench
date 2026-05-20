@@ -2028,6 +2028,20 @@ dialog[open]::backdrop { opacity: 1; }
 .pip-mic-btn:hover  { color: var(--ink); }
 .pip-mic-btn:active { color: var(--ink); opacity: 0.7; transform: translateY(-50%); }
 .pip-mic-btn.listening { color: #d93b3b; }
+/* Muted-while-TTS: dimmed grey, no listening pulse. Distinct from idle
+   (which is the default neutral color) AND from listening (red pulse) —
+   operator sees "intentionally suspended, will resume" instead of
+   guessing whether the mic is dead. */
+.pip-mic-btn.muted-tts {
+  color: var(--mute, #888);
+  opacity: 0.55;
+}
+.pip-mic-btn.muted-tts.listening {
+  /* If somehow both flags land, mute wins visually so the user sees the
+     accurate state. */
+  color: var(--mute, #888);
+  opacity: 0.55;
+}
 /* Extra right-padding so typed text doesn't slide under the mic. Send is
    at 4..28px from the right edge, mic at 32..56px — 64px clears both. */
 .pip-form--mic .pip-input { padding-right: 64px; }
