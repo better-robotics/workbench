@@ -320,6 +320,19 @@ async function onSubmit(text, { turnEl }) {
   _abort = false;
   // pip-core auto-toggles responding state around onSubmit, which morphs
   // the right-edge slot (send → stop). Just clear the abort flag here.
+  //
+  // _activeTurnEl MUST be cleared on every exit path, or the next voice
+  // utterance (sticky mic) gets routed to injectVoiceMidTurn against the
+  // stale turn and pushed onto _pendingObservations — which nothing is
+  // reading once the turn (demo, direct-command, or LLM run) has ended,
+  // so the utterance vanishes. Bug shipped twice: once for the demo
+  // branch, once for the direct-command branch. The LLM branch already
+  // cleared it inline at the bottom, but a single try/finally covers
+  // all current and future return paths uniformly.
+  return await runTurn(text, turnEl).finally(() => { _activeTurnEl = null; });
+}
+
+async function runTurn(text, turnEl) {
 
   // Hide pip's default empty reply slot — we own the flow now.
   const defaultReply = turnEl.querySelector(".pip-reply");
@@ -471,7 +484,9 @@ async function onSubmit(text, { turnEl }) {
     shouldAbort: () => _abort,
     getPendingObservations: () => _pendingObservations.splice(0),
   });
-  _activeTurnEl = null;
+  // _activeTurnEl clearing handled by onSubmit's try/finally — every
+  // exit path of runTurn (this LLM branch, the demo branch, the direct-
+  // command branch, the noRobot early-return) lands in that finally.
 
   // Backend returned nothing usable → render the failure inline since
   // we've hidden pip's default reply. actOnFailure can also drive an
