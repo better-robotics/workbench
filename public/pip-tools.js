@@ -5,7 +5,7 @@ import { getLog, getConfig, restartService } from "./capabilities/runtime/comman
 import { listPhones, askHuman } from "./phones.js";
 import {
   listHelpers, startHelperCamera, stopHelperCamera, takeHelperSnapshot,
-} from "./helpers.js";
+} from "./phone-helpers.js";
 import { pulseMotors } from "./capabilities/runtime/signed-pair.js";
 import {
   listCameraSources,

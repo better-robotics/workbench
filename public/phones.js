@@ -11,7 +11,7 @@ import { log } from "./log.js";
 import { hostPairingRoom } from "./pairing.js";
 import { sendPairById, pickMotorsTarget } from "./capabilities/runtime/signed-pair.js";
 import { state } from "./state.js";
-import { setPhoneStream } from "./helpers.js";
+import { setPhoneStream } from "./phone-helpers.js";
 import { discover } from "./signal-sdk/v1/discover.js";
 import { getMyPubkeyB64 } from "./signal-sdk/v1/peer-key.js";
 import { makeTrustStore } from "./trust.js";
@@ -411,7 +411,7 @@ function _registerPairedPhone(id, peer, defaultLabel) {
   });
   // Phone camera comes in through peer.onTrack — user taps "Share camera"
   // on phone.html, pairing.js renegotiates, track lands here. Stream
-  // flows to helpers.js and renders as a helper card with inline video.
+  // flows to phone-helpers.js and renders as a helper card with inline video.
   peer.onTrack((e) => {
     const stream = e.streams?.[0] || new MediaStream([e.track]);
     setPhoneStream(id, stream);

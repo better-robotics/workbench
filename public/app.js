@@ -22,8 +22,8 @@ import { initAuthUI, fingerprint as dashFingerprint, pubkeySsh, onKeyChange } fr
 import { initPasswordsUI } from "./passwords.js";
 import { initAssistant } from "./assistant.js";
 import { initPhones, broadcastTargetInfo } from "./phones.js";
-import { initHelpers, setHelpersRobotRenderer, renderHelpers } from "./helpers.js";
-// aruco.js is wired through helpers.js — phone helpers can be designated
+import { initHelpers, setHelpersRobotRenderer, renderHelpers } from "./phone-helpers.js";
+// aruco.js is wired through phone-helpers.js — phone helpers can be designated
 // as the overhead camera; detection runs against the helper's existing
 // preview tile. No init call here.
 import "./aruco.js";

@@ -1,7 +1,7 @@
 // Headless overhead ArUco localization. Reads frames from a designated
 // <video> element (a phone helper's shared camera, or any other live
 // source), detects markers, writes metric robot positions to
-// entry.arucoPosition. No UI surface — the consumer (helpers.js) wires
+// entry.arucoPosition. No UI surface — the consumer (phone-helpers.js) wires
 // the source via setOverheadSource(videoEl, { onResult }) and renders
 // the overlay against its own preview tile.
 //

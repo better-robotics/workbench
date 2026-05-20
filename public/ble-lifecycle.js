@@ -11,7 +11,7 @@ import { ALL as CAPABILITIES } from "./capabilities/index.js";
 import { RUNTIMES } from "./capabilities/runtime/index.js";
 import { dispatchOpsResponse } from "./ops-response.js";
 import { broadcastTargetInfo } from "./phones.js";
-import { renderHelpers } from "./helpers.js";
+import { renderHelpers } from "./phone-helpers.js";
 import { stopWatcher } from "./watcher.js";
 
 // Renderers are injected from app.js so this module doesn't need to know
