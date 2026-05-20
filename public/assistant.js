@@ -1,4 +1,5 @@
 import { ask, askWithTools, askAboutFrame, activeModelForBackend } from "./claude.js";
+import { setAgentState } from "./agent-light.js";
 import { escapeHtml } from "./dom.js";
 import { getTools, executor, setAskInChatHandler, isVisionAvailable } from "./pip-tools.js";
 import { labelTool, summarizeTool } from "./format.js";
@@ -95,8 +96,11 @@ const turn = {
   abort: false,
   observations: [],
   isActive() { return !!this.el; },
-  start(el) { this.el = el; this.abort = false; this.observations.length = 0; },
-  end() { this.el = null; },
+  start(el) {
+    this.el = el; this.abort = false; this.observations.length = 0;
+    setAgentState("thinking");
+  },
+  end() { this.el = null; setAgentState("done"); },
   cancel() { this.abort = true; },
   pushObservation(text) { this.observations.push(text); },
   drainObservations() { return this.observations.splice(0); },
@@ -114,6 +118,7 @@ const CHEVRON_SVG =
   `</svg>`;
 
 function appendStepPill(turnEl, name) {
+  setAgentState(name === "ask_human" ? "asking" : "working");
   const el = document.createElement("div");
   el.className = "pip-step running";
   el.innerHTML =
@@ -148,6 +153,7 @@ function safeJson(obj, maxStr = 240) {
 
 
 function finishStepPill(el, name, input, result, error, durationMs) {
+  setAgentState("thinking");
   if (!el) return;
   el.classList.remove("running");
   const isError = !!error;
