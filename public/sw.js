@@ -23,7 +23,7 @@
 //   commit. For an intentional bump unrelated to assets (e.g. server-side
 //   change in an API contract), edit any cached asset (a comment will do)
 //   and the hook will pick up a new hash.
-const VERSION = "74a25873";
+const VERSION = "3ba0d491";
 const CACHE = `dashboard-${VERSION}`;
 
 // Cached at install time so the dashboard can cold-boot offline AND
@@ -42,6 +42,9 @@ const BOOTSTRAP = [
   // Scripts / Pinout / ESP serial / SD prep loads from cache, and works
   // offline.
   "./recovery.js", "./prepare.js", "./scripts.js", "./pinout.js", "./esp-serial.js",
+  // pinout.js statically imports these — precache so the dynamic-import
+  // arc for Pinout still warms the whole module graph in one shot.
+  "./pinout-pi.js", "./pinout-esp32.js", "./pinout-shared.js",
 ];
 
 // Cross-origin URLs we DO cache. Default is pass-through (host owns
