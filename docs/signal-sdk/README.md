@@ -22,7 +22,7 @@ Intermediate state: this directory ships the same files as `signal.neevs.io`. Bo
    `https://signal.neevs.io/sdk/v1/X.js`. Verify the dashboard still
    loads cleanly (extra DNS+TLS to signal.neevs.io on first visit;
    cached after).
-4. Once verified, delete `public/signal-sdk/v1/` from this repo. The
+4. Once verified, delete `docs/signal-sdk/v1/` from this repo. The
    `README.md` (this file) can stay as a pointer.
 
 ## Versioning

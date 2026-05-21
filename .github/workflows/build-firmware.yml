@@ -1,7 +1,7 @@
 name: Build firmware
 
 # Trigger on firmware source changes or when the workflow itself is updated.
-# `paths` filter keeps CI from running on its own commits back to public/ —
+# `paths` filter keeps CI from running on its own commits back to docs/ —
 # publish-* outputs live there, and firmware/** is the authoritative source.
 on:
   push:
@@ -42,7 +42,7 @@ jobs:
         # the same push range. Real example: a multi-board firmware
         # commit pushed alongside a pip-only commit ran detect on
         # pip↔firmware, saw no firmware/**, and skipped the matrix —
-        # leaving public/firmware/bins/<variant>/ unpublished.
+        # leaving docs/firmware/bins/<variant>/ unpublished.
         #
         # workflow_dispatch: always run the full matrix (forced rebuild
         # is the whole point of dispatching).
@@ -114,7 +114,7 @@ jobs:
       - name: Build firmware
         # build.sh picks the target + composes SDKCONFIG_DEFAULTS for the
         # board, then stages bins + manifest.json to
-        # public/firmware/bins/<board>/.
+        # docs/firmware/bins/<board>/.
         #
         # BOARD is inlined into the command string, not passed via env:.
         # espressif/esp-idf-ci-action runs `command` inside its Docker
@@ -145,7 +145,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: firmware-${{ matrix.board }}
-          path: public/firmware/bins/${{ matrix.board }}/
+          path: docs/firmware/bins/${{ matrix.board }}/
           if-no-files-found: error
 
   publish:
@@ -174,7 +174,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           pattern: firmware-*
-          path: public/firmware/bins/
+          path: docs/firmware/bins/
           merge-multiple: false
 
       - name: Flatten artifact dirs
@@ -188,7 +188,7 @@ jobs:
         # from a previous publish.
         if: needs.detect.outputs.esp_changed == 'true' && needs.build.result == 'success'
         run: |
-          cd public/firmware/bins
+          cd docs/firmware/bins
           for d in firmware-*; do
             [ -d "$d" ] || continue
             target="${d#firmware-}"
@@ -213,7 +213,7 @@ jobs:
           for attempt in 1 2 3 4 5; do
             git fetch origin main
             git reset --mixed origin/main
-            git add public/firmware/
+            git add docs/firmware/
             if git diff --staged --quiet; then
               echo 'No artifact changes — nothing to publish.'
               exit 0

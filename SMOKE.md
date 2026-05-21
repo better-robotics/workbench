@@ -54,7 +54,7 @@ Pure-function tests live in `tests/`; run with `make smoke`. Below needs hardwar
 ## Offline / PWA
 
 - [ ] First load online → DevTools Network → Offline → reload → dashboard still loads.
-- [ ] Bump `VERSION` in public/sw.js → deploy → visit → "New dashboard version available" banner appears.
+- [ ] Bump `VERSION` in docs/sw.js → deploy → visit → "New dashboard version available" banner appears.
 - [ ] Click Reload on the banner → page reloads with new version, no stale assets.
 - [ ] Dismiss banner with × → no reload, banner gone for the session.
 

@@ -13,7 +13,7 @@ const net     = require('net');
 const { spawn, execSync } = require('child_process');
 
 const PORT = 8080;
-const ROOT = path.join(__dirname, '..', 'public');
+const ROOT = path.join(__dirname, '..', 'docs');
 
 const MIME = {
   '.html':  'text/html; charset=utf-8',

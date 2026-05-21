@@ -3,7 +3,7 @@
 PORT        ?= $(shell ls /dev/cu.usbserial-* /dev/cu.usbmodem* 2>/dev/null | head -1)
 IDF_DIR     := firmware/esp32_robot_idf
 IDF_BUILD   := $(IDF_DIR)/build
-PUBLISH_DIR := public/firmware/bins
+PUBLISH_DIR := docs/firmware/bins
 
 # Source the IDF environment only if idf.py isn't already on PATH. Lets a
 # user who pre-sourced (`get_idf`) keep their warm shell without paying
@@ -34,8 +34,8 @@ help:
 	@echo ""
 	@echo "\033[2mDashboard & publishing (what the browser serves + OTA fetches)\033[0m"
 	@echo "  \033[36mpreview\033[0m             Serve dashboard at http://localhost:8080 (local)"
-	@echo "  \033[36mpublish-firmware\033[0m    Stage ESP32 bins in public/firmware/bins/ for web flashing + ESP32 OTA"
-	@echo "  \033[36mpublish-pi-firmware\033[0m Stage Pi firmware + wheels in public/firmware/pi_robot/ for SD-prep + Pi OTA"
+	@echo "  \033[36mpublish-firmware\033[0m    Stage ESP32 bins in docs/firmware/bins/ for web flashing + ESP32 OTA"
+	@echo "  \033[36mpublish-pi-firmware\033[0m Stage Pi firmware + wheels in docs/firmware/pi_robot/ for SD-prep + Pi OTA"
 	@echo "  \033[36mpublish\033[0m             Both publish targets — run before pushing to deploy"
 	@echo "  \033[36mpush\033[0m                Pull-rebase then push — closes the local-vs-deployed gap (CI commits firmware bins back, so plain push tends to reject)"
 	@echo ""
@@ -110,23 +110,23 @@ publish-firmware: compile
 	@echo "Firmware bins copied to $(PUBLISH_DIR). Commit and push to deploy."
 
 publish-pi-firmware: gen-uuids
-	@mkdir -p public/firmware/pi_robot/wheels
+	@mkdir -p docs/firmware/pi_robot/wheels
 	# Copy every regular file from firmware/pi_robot/ — avoids the trap of
 	# adding a new helper (usb-gadget-setup.sh, ota-manifest.json, …) and
 	# forgetting to update this list.
 	find firmware/pi_robot/ -maxdepth 1 -type f \
 		-not -name 'README.md' \
 		-not -name 'SHELL.md' \
-		-exec cp {} public/firmware/pi_robot/ \;
-	rm -f public/firmware/pi_robot/wheels/*.whl
-	pip download --no-deps --platform manylinux2014_aarch64 --python-version 311 --implementation cp --only-binary=:all: -d public/firmware/pi_robot/wheels/ bless bleak dbus-fast dbus-next typing-extensions
-	pip download --no-deps --platform manylinux2014_aarch64 --python-version 313 --implementation cp --only-binary=:all: -d public/firmware/pi_robot/wheels/ bless bleak dbus-fast dbus-next typing-extensions
-	@python3 -c "import json, pathlib; d = pathlib.Path('public/firmware/pi_robot/wheels'); (d/'manifest.json').write_text(json.dumps({'wheels': sorted(p.name for p in d.glob('*.whl'))}, indent=2) + '\n')"
+		-exec cp {} docs/firmware/pi_robot/ \;
+	rm -f docs/firmware/pi_robot/wheels/*.whl
+	pip download --no-deps --platform manylinux2014_aarch64 --python-version 311 --implementation cp --only-binary=:all: -d docs/firmware/pi_robot/wheels/ bless bleak dbus-fast dbus-next typing-extensions
+	pip download --no-deps --platform manylinux2014_aarch64 --python-version 313 --implementation cp --only-binary=:all: -d docs/firmware/pi_robot/wheels/ bless bleak dbus-fast dbus-next typing-extensions
+	@python3 -c "import json, pathlib; d = pathlib.Path('docs/firmware/pi_robot/wheels'); (d/'manifest.json').write_text(json.dumps({'wheels': sorted(p.name for p in d.glob('*.whl'))}, indent=2) + '\n')"
 	@# Stamp commit SHA so fw-info.version and ota-manifest.commit can tell you
 	@# what's running vs what you're about to flash.
 	@SHA=$$(git rev-parse --short=7 HEAD 2>/dev/null || echo "dev"); \
-		echo "SHA = \"$$SHA\"" > public/firmware/pi_robot/version.py; \
-		python3 -c "import json; p='public/firmware/pi_robot/ota-manifest.json'; m=json.load(open(p)); m['commit']='$$SHA'; open(p,'w').write(json.dumps(m, indent=2) + '\n')"; \
+		echo "SHA = \"$$SHA\"" > docs/firmware/pi_robot/version.py; \
+		python3 -c "import json; p='docs/firmware/pi_robot/ota-manifest.json'; m=json.load(open(p)); m['commit']='$$SHA'; open(p,'w').write(json.dumps(m, indent=2) + '\n')"; \
 		echo "Stamped version: $$SHA"
 	@echo ""
 	@echo "Pi firmware + wheels published. Commit and push to deploy."
@@ -134,7 +134,7 @@ publish-pi-firmware: gen-uuids
 publish: publish-firmware publish-pi-firmware
 
 # Pure-function smoke tests — fast, no hardware. Hardware/UI checks live in
-# SMOKE.md (manual). New formatters / utilities in public/format.js earn a
+# SMOKE.md (manual). New formatters / utilities in docs/format.js earn a
 # row in tests/format.test.js.
 smoke:
 	node --test tests/*.test.js

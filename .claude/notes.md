@@ -182,7 +182,7 @@ Shipping a scheduled pipeline before the state-aware layer exists pays pipeline 
 
 When the state-aware layer saturates — Pip has mined what the browser knows and the ceiling becomes *"Pip doesn't know about the new ESP32-S3 cam module that would unblock the perception loop."* Then:
 
-1. GitHub Action on the `pulse` pattern — public-API-only, no-auth, committing JSON to `public/feed/`. Sources: Reddit `.json`, HN Algolia, GitHub trending by topic, Hackaday/Adafruit/Sparkfun RSS, ArXiv. **Not X**: free tier died.
+1. GitHub Action on the `pulse` pattern — public-API-only, no-auth, committing JSON to `docs/feed/`. Sources: Reddit `.json`, HN Algolia, GitHub trending by topic, Hackaday/Adafruit/Sparkfun RSS, ArXiv. **Not X**: free tier died.
 2. Feed is a **secondary input to the same filter** reading project state. Filter stays in the browser; the Action is dumb by design.
 3. Observations referencing external content still clear *"and here's why it matters for your current work."*
 
@@ -194,12 +194,12 @@ State-aware layer first, let it saturate, then add the corpus.
 
 Loads at runtime but not confirmed end-to-end against hardware. Kept out of `README.md`, `DEV.md`, and the GitHub repo About. Promote into user docs only after a real run confirms the path.
 
-## Overhead ArUco localization (`public/aruco.js`)
+## Overhead ArUco localization (`docs/aruco.js`)
 
 **What's wired.**
 - Headless detection service — no UI panel. Helper-card "Camera role" select on each paired phone offers `Operator / Overhead localization / Mount on <robot>`. Choosing Overhead sets `settings.arucoOverheadPhoneId` (persisted) and points the detection loop at that phone's existing preview tile in the helpers card. No second video element, no second decoder.
 - SVG overlay paints detected markers directly on the helper's preview (`patchArucoOverlay`-style — same shape as the deleted phone-on-robot tracker, retargeted at the helpers tile).
-- Detection via `js-aruco2` from jsDelivr (`cv.js` + `aruco.js` + `posit1.js`), dictionary `ARUCO_4X4_50`. Printable marker sheets in `public/assets/aruco_markers_0.pdf` and `_1.pdf`. Pose via `POS.Posit` using `settings.arucoMarkerSizeMm` + focal-length heuristic (`max(w,h) * 0.85`) — no calibration file.
+- Detection via `js-aruco2` from jsDelivr (`cv.js` + `aruco.js` + `posit1.js`), dictionary `ARUCO_4X4_50`. Printable marker sheets in `docs/assets/aruco_markers_0.pdf` and `_1.pdf`. Pose via `POS.Posit` using `settings.arucoMarkerSizeMm` + focal-length heuristic (`max(w,h) * 0.85`) — no calibration file.
 - Marker → robot binding: prefers explicit `entry.arucoMarkerId` (persisted in localStorage; set via `window.bindArucoMarker(robotId, markerId)`). Falls back to positional `entries[m.id]` only when NO entry has claimed that id. Hits write `entry.arucoPosition = { x, y, headingDeg, markerSizeMm, updatedAt }`.
 
 **What hasn't been confirmed.**
@@ -213,15 +213,15 @@ Loads at runtime but not confirmed end-to-end against hardware. Kept out of `REA
 
 ## Grounding DINO open-vocab detector — deleted (May 2026)
 
-Lived in `public/grounding.js` as the open-vocab fallback when MediaPipe COCO's 80 classes couldn't cover a target. Disabled after real-world false positives (medium-confidence "stop sign.[SEP]" matches against a robot-vacuum dock — BERT separator token leaking through the post-processor). Deleted entirely once Claude vision via `view_robot_frame` was confirmed to fill the same role with scene reasoning the bbox-only detector couldn't do.
+Lived in `docs/grounding.js` as the open-vocab fallback when MediaPipe COCO's 80 classes couldn't cover a target. Disabled after real-world false positives (medium-confidence "stop sign.[SEP]" matches against a robot-vacuum dock — BERT separator token leaking through the post-processor). Deleted entirely once Claude vision via `view_robot_frame` was confirmed to fill the same role with scene reasoning the bbox-only detector couldn't do.
 
 **Why deleting rather than fixing.** The role this module filled — "give Pip a way to localize 'the yellow can' or 'the book on the bag'" — is now served by the planner itself. Pip sends a frame to Claude, Claude reads the scene, plans the next action. No bbox needed when the planner can reason. Re-arming the closed-vocab variant would duplicate the role with worse semantics (no scene context, false-positive history) AND keep a 151 MB model download in the asset graph.
 
 **What to revisit if it comes back.** A future need for sub-second open-vocab bboxes at the rate the LLM can't serve (Claude vision is ~1–2 s round-trip; bbox-rate use cases want ~100 ms). At that point: re-evaluate Grounding DINO 1.5, owlv2, or YOLO-World — but only after a use case earns it. Reactive open-vocab is not on the wedge today.
 
-## YOLO26n closed-vocab detector (`public/yolo26.js`)
+## YOLO26n closed-vocab detector (`docs/yolo26.js`)
 
-Faster sibling for reactive-tier use cases (visual servo, gamepad-overlay tracking). Wired behind `/detector yolo26` with the registry in `public/detectors.js`; MediaPipe stays the default. ONNX runtime via WebGPU EP with WASM fallback, ~10 MB COCO model fetched from HuggingFace on first use.
+Faster sibling for reactive-tier use cases (visual servo, gamepad-overlay tracking). Wired behind `/detector yolo26` with the registry in `docs/detectors.js`; MediaPipe stays the default. ONNX runtime via WebGPU EP with WASM fallback, ~10 MB COCO model fetched from HuggingFace on first use.
 
 **What hasn't been confirmed.** End-to-end accuracy vs MediaPipe EfficientDet-Lite0 on the same scenes, WebGPU EP stability across the Chrome/Edge versions students will run, first-fetch UX on classroom WiFi (10 MB ONNX + onnxruntime-web bytes). Promote to default — or remove from the registry — only after a side-by-side run. Out of `README.md` and `DEV.md` until then.
 

@@ -1,6 +1,6 @@
 // signal.neevs.io SDK v1 — source of truth.
 // Mirrored to https://signal.neevs.io/sdk/v1/pair-request.js. See
-// public/signal-sdk/README.md for the migration plan.
+// docs/signal-sdk/README.md for the migration plan.
 //
 // Request/accept protocol over the /discover lobby.
 //

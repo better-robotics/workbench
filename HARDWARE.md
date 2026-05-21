@@ -2,7 +2,7 @@
 
 ## Current: ESP32-CAM-MB
 
-The kit ships with the **ESP32-CAM-MB**: AI Thinker ESP32-CAM on a programmer carrier with a USB micro-B port. Plug in, flash from the dashboard. Published binaries in `public/firmware/bins/` target this board; nothing else has prebuilt artifacts yet.
+The kit ships with the **ESP32-CAM-MB**: AI Thinker ESP32-CAM on a programmer carrier with a USB micro-B port. Plug in, flash from the dashboard. Published binaries in `docs/firmware/bins/` target this board; nothing else has prebuilt artifacts yet.
 
 **Bare ESP32-CAM ≠ ESP32-CAM-MB.** Two SKUs ship under the same name. The bare module has no USB; flashing requires an external FTDI/CP2102 adapter wired to U0R/U0T/GND with IO0 grounded for boot. The MB carrier *is* the USB-to-serial bridge. Buy the kit version unless you want the wiring exercise.
 

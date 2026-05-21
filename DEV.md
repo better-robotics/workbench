@@ -23,7 +23,7 @@ Switch via:
   insertion order — same as the card list).
 
 Active disconnects → auto-pick re-runs on the next key/joypad event.
-Implementation: `public/capabilities/runtime/signed-pair.js`. State key:
+Implementation: `docs/capabilities/runtime/signed-pair.js`. State key:
 `state.activeMotorsRobotId` (session-only, not persisted).
 
 ## Window handles (DevTools console)
@@ -38,7 +38,7 @@ Live on both desktop and phone while `pairing.js` is loaded.
 ## Robot endpoints
 
 - `:81/health` (per-Pi HTTP) — wifi-presence probe. JSON `{ok, type, robotId, ip, uptime_s, pi_robot_service}`. Implementation: `firmware/pi_robot/pi_robot_health.py`. PNA preflight supported.
-- **WebRTC peer** (per-Pi). The dashboard writes a chunked SDP offer to the BLE `SIGNAL` characteristic; `pi_robot.py` (root) reassembles and forwards to a local aiortc daemon (`pi_robot_rtc.py`, non-root) over `/run/pi-robot-rtc.sock`. The daemon answers non-trickle (all candidates inline); pi_robot.py chunks the answer back via BLE notify. Used by `public/webrtc-robot.js` for the Shell dialog, OTA bundle staging, and log tail. No internet rendezvous — BLE pair is the signal substrate.
+- **WebRTC peer** (per-Pi). The dashboard writes a chunked SDP offer to the BLE `SIGNAL` characteristic; `pi_robot.py` (root) reassembles and forwards to a local aiortc daemon (`pi_robot_rtc.py`, non-root) over `/run/pi-robot-rtc.sock`. The daemon answers non-trickle (all candidates inline); pi_robot.py chunks the answer back via BLE notify. Used by `docs/webrtc-robot.js` for the Shell dialog, OTA bundle staging, and log tail. No internet rendezvous — BLE pair is the signal substrate.
 
 ## Pi serial console
 

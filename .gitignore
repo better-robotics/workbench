@@ -18,7 +18,7 @@ build/
 # ** to cover the per-board sub-directories (aithinker_cam/, devkit/,
 # c3_supermini/, …) — single-star globs only re-allow at one depth and
 # silently dropped the multi-board bins from CI commits.
-!public/firmware/bins/**/*.bin
+!docs/firmware/bins/**/*.bin
 
 # Local config
 config.mk

@@ -6,7 +6,7 @@ Source: protocol/uuids.json
 Outputs:
     firmware/esp32_robot_idf/main/uuids.h    — `#define X "uuid"`
     firmware/pi_robot/uuids.py      — `X = "uuid"`
-    public/uuids.js                 — `export const X = "uuid";`
+    docs/uuids.js                 — `export const X = "uuid";`
 
 The generated files include a banner that says they're generated; editing
 them by hand is wasted effort because the next build will overwrite. Run
@@ -101,7 +101,7 @@ def main():
     targets = [
         ("firmware/esp32_robot_idf/main/uuids.h", gen_c),
         ("firmware/pi_robot/uuids.py",   gen_py),
-        ("public/uuids.js",              gen_js),
+        ("docs/uuids.js",              gen_js),
     ]
     changed = []
     for rel, gen in targets:

@@ -21,8 +21,8 @@ The **browser-native robotics dev environment** — vibe-code robots in a tab, r
 
 # Project layout
 
-- `docs/` is a symlink to `public/`. GitHub Pages serves `docs/`; the site content lives in `public/`. Repo-level docs (HARDWARE.md, SMOKE.md, etc.) live at the root or inside subsystems.
-- `public/` is flat by design — file count is manageable, naming prefixes carry the subsystem boundary. Promote a subsystem to its own folder (like `capabilities/`) once it passes ~5 files whose internals shouldn't leak outside.
+- `docs/` is the GitHub Pages publish root — the dashboard's static ES modules live here directly. (Repo-level docs like HARDWARE.md, SMOKE.md, etc. live at the root or inside subsystems, not in `docs/`.)
+- `docs/` is flat by design — file count is manageable, naming prefixes carry the subsystem boundary. Promote a subsystem to its own folder (like `capabilities/`) once it passes ~5 files whose internals shouldn't leak outside.
 
 # Subsystem map
 
@@ -43,7 +43,7 @@ Two layers, kept cheap:
 
 Pattern for new pure helpers: extract from `app.js` / cap runtime into `format.js`, import where used, add a test.
 
-`make install-hooks` wires `.githooks/` as `core.hooksPath`. Pre-commit runs `make smoke`, the gen-uuids drift check (when `protocol/uuids.json` is staged), and the sw.js VERSION stamp (when `public/*` excluding firmware bins / sw.js is staged — folds the stamp into the user's commit so the dashboard "Reload to update" banner fires on the right commit instead of a CI follow-up). Bypassable with `--no-verify`; CI is the binding layer.
+`make install-hooks` wires `.githooks/` as `core.hooksPath`. Pre-commit runs `make smoke`, the gen-uuids drift check (when `protocol/uuids.json` is staged), and the sw.js VERSION stamp (when `docs/*` excluding firmware bins / sw.js is staged — folds the stamp into the user's commit so the dashboard "Reload to update" banner fires on the right commit instead of a CI follow-up). Bypassable with `--no-verify`; CI is the binding layer.
 
 # Comment discipline
 
@@ -139,7 +139,7 @@ completes" or "camera_acquire fails after WebRTC opens." Firmware-side
 constraints (DTLS role, mbedTLS Kconfig, PSRAM malloc) are documented in
 firmware/esp32_robot_idf/components/espressif__esp_peer/src/dtls_srtp.c
 and sdkconfig.defaults.esp32; dashboard-side constraints (cert push, SDP
-rewriting) in public/webrtc-cert.js and public/webrtc-robot.js.
+rewriting) in docs/webrtc-cert.js and docs/webrtc-robot.js.
 
 **Sunset path.** mbedTLS PR #10623 (3.6 backport of the fragmented DTLS-
 ClientHello reassembly fix, first released in 3.6.6 / 4.1.0, March 2026)
@@ -163,7 +163,7 @@ latent warnings.
 v5.5.5 is the fallback if v6.0.2 is slow. On v5.5.5, the manual cleanup
 is: revert chip-as-CLIENT in dtls_srtp.c (lines 75 and 161), restore
 HelloVerifyRequest cookies (line 95). In either case, drop the
-`setup:passive`→`setup:active` flip from public/webrtc-robot.js. Patches
+`setup:passive`→`setup:active` flip from docs/webrtc-robot.js. Patches
 2 (dashboard ECDSA cert), 4 (mbedTLS Kconfig) and 5 (PSRAM malloc) stay
 — those are WebRTC-spec or chip-shape, not mbedTLS-bug workarounds.
 
