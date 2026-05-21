@@ -1,4 +1,4 @@
-// Tests for the differential-mix function in public/joypad.js.
+// Tests for the differential-mix function in docs/joypad.js.
 // Regression coverage for the "throttle flickering across zero produces
 // non-deterministic turn direction" bug — small Y-noise on the pad center
 // combined with the sign-flip-on-reverse made pure-left/right turns
@@ -6,7 +6,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert";
-import { mix } from "../public/joypad.js";
+import { mix } from "../docs/joypad.js";
 
 test("mix: pure forward → both wheels equal positive", () => {
   const [l, r] = mix(80, 0);

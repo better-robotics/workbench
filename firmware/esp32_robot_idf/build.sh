@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Per-board build wrapper. Composes the right sdkconfig defaults overlay,
-# sets the IDF target, builds, and stages outputs to public/firmware/bins/
+# sets the IDF target, builds, and stages outputs to docs/firmware/bins/
 # <BOARD>/. Locally reproducible — CI invokes the same script from its
 # build matrix.
 #
@@ -97,10 +97,10 @@ idf.py fullclean || true
 idf.py set-target "$TARGET"
 idf.py build
 
-# Stage outputs to public/firmware/bins/<BOARD>/. Per-variant dirs so OTA
+# Stage outputs to docs/firmware/bins/<BOARD>/. Per-variant dirs so OTA
 # self-update can route to the matching binary — fw_info advertises the
 # variant-specific URL.
-OUT="../../public/firmware/bins/$BOARD"
+OUT="../../docs/firmware/bins/$BOARD"
 mkdir -p "$OUT"
 cp build/esp32_robot.bin                       "$OUT/firmware.bin"
 cp build/bootloader/bootloader.bin             "$OUT/bootloader.bin"

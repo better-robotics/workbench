@@ -16,7 +16,7 @@
 
 static const char *TAG = "snapshot";
 
-// Must fit under MTU-3. Matches public/ble.js CHUNK_BYTES (180), which
+// Must fit under MTU-3. Matches docs/ble.js CHUNK_BYTES (180), which
 // is conservative for desktop Chrome's negotiated MTU (~185).
 #define CHUNK_BYTES 180
 

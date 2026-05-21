@@ -1,6 +1,6 @@
 // signal.neevs.io SDK v1 — source of truth.
 // Mirrored to https://signal.neevs.io/sdk/v1/discover.js. See
-// public/signal-sdk/README.md for the migration plan.
+// docs/signal-sdk/README.md for the migration plan.
 //
 // Every connected client behind the same public IP shares one Lobby DO on
 // the signal server and sees the same set of ads. Privacy: ads are visible

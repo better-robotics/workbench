@@ -14,7 +14,7 @@ cd "$REPO_ROOT"
 # casual commits on unrelated files don't pay for the regen.
 if git diff --cached --name-only | grep -q '^protocol/uuids\.json$'; then
     python3 tools/gen-uuids.py >/dev/null
-    GEN="firmware/esp32_robot_idf/main/uuids.h firmware/pi_robot/uuids.py public/uuids.js"
+    GEN="firmware/esp32_robot_idf/main/uuids.h firmware/pi_robot/uuids.py docs/uuids.js"
     if ! git diff --quiet -- $GEN; then
         echo "pre-commit: generated UUID files are out of sync with protocol/uuids.json"
         echo "  fix: make gen-uuids && git add $GEN"
@@ -23,24 +23,24 @@ if git diff --cached --name-only | grep -q '^protocol/uuids\.json$'; then
 fi
 
 # 2. SW version stamp. Hashes the dashboard asset surface and rewrites
-# public/sw.js's VERSION when the hash changes. Bumping VERSION is what
+# docs/sw.js's VERSION when the hash changes. Bumping VERSION is what
 # makes the browser see a new service worker and surface the "Reload to
 # update" banner. Folded into the user's commit so the banner fires on
-# the right SHA. Only runs when public/* (excluding firmware bins +
+# the right SHA. Only runs when docs/* (excluding firmware bins +
 # sw.js itself) is staged.
 if git diff --cached --name-only \
-    | grep -E '^public/' \
-    | grep -vE '^public/firmware/|^public/sw\.js$' \
+    | grep -E '^docs/' \
+    | grep -vE '^docs/firmware/|^docs/sw\.js$' \
     | grep -q .; then
-    HASH=$(git ls-files -s -- 'public/*' ':!public/firmware/*' ':!public/sw.js' \
+    HASH=$(git ls-files -s -- 'docs/*' ':!docs/firmware/*' ':!docs/sw.js' \
         | shasum -a 256 | cut -c1-8)
-    CUR=$(grep -E '^const VERSION = ' public/sw.js | sed 's/.*"\(.*\)".*/\1/')
+    CUR=$(grep -E '^const VERSION = ' docs/sw.js | sed 's/.*"\(.*\)".*/\1/')
     if [ "$HASH" != "$CUR" ]; then
         # Rewrite-and-mv form is portable; `sed -i` differs between
         # BSD (macOS) and GNU.
-        sed "s|^const VERSION = .*|const VERSION = \"$HASH\";|" public/sw.js > public/sw.js.tmp \
-            && mv public/sw.js.tmp public/sw.js
-        git add public/sw.js
+        sed "s|^const VERSION = .*|const VERSION = \"$HASH\";|" docs/sw.js > docs/sw.js.tmp \
+            && mv docs/sw.js.tmp docs/sw.js
+        git add docs/sw.js
         echo "pre-commit: stamped sw.js VERSION = $HASH"
     fi
 fi

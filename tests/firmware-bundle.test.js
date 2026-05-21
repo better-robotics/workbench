@@ -7,13 +7,13 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 const root = new URL("..", import.meta.url);
-const prepareSrc = fs.readFileSync(new URL("./public/prepare.js", root), "utf8");
+const prepareSrc = fs.readFileSync(new URL("./docs/prepare.js", root), "utf8");
 const pyDir = new URL("./firmware/pi_robot/", root);
 const pySrc = fs.readFileSync(new URL("./pi_robot.py", pyDir), "utf8");
 
 function bundleFiles() {
   const m = prepareSrc.match(/const FIRMWARE_FILES\s*=\s*\[([\s\S]*?)\]/);
-  if (!m) throw new Error("FIRMWARE_FILES array not found in public/prepare.js");
+  if (!m) throw new Error("FIRMWARE_FILES array not found in docs/prepare.js");
   return [...m[1].matchAll(/["']([^"']+)["']/g)].map(x => x[1]);
 }
 

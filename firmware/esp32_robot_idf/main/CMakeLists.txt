@@ -1,5 +1,5 @@
 # Component sources — keep flat for now; promote subsystems to subdirs as
-# they grow past ~3 files (mirrors the public/ subsystem-promotion rule).
+# they grow past ~3 files (mirrors the docs/ subsystem-promotion rule).
 #
 # uuids.h is generated from protocol/uuids.json by tools/gen-uuids.py.
 # Firmware version comes from esp_app_get_description()->version, which

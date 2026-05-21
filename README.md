@@ -74,12 +74,12 @@ Commit and push. CI rebuilds firmware artifacts on `firmware/**` changes and com
 ```
 firmware/esp32_robot_idf/   ESP32 firmware (ESP-IDF)
 firmware/pi_robot/          Raspberry Pi firmware (Python + bless)
-public/                     Dashboard — static ES modules, no build step
+docs/                     Dashboard — static ES modules, no build step
 tests/                      Pure-function unit tests · make smoke
 .claude/                    Agent + project context
 ```
 
-ESP32 and Pi expose the same service UUID and characteristic UUIDs, so the dashboard talks to either without conditional logic. `docs/` is a symlink to `public/` for GitHub Pages serving. The dashboard is flat by convention — naming prefixes carry subsystem boundaries; see `.claude/CLAUDE.md` for the subsystem map.
+ESP32 and Pi expose the same service UUID and characteristic UUIDs, so the dashboard talks to either without conditional logic. `docs/` is the GitHub Pages publish root — the site is the directory, no build step. The dashboard is flat by convention — naming prefixes carry subsystem boundaries; see `.claude/CLAUDE.md` for the subsystem map.
 
 ## Further reading
 

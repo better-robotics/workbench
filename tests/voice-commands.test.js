@@ -1,4 +1,4 @@
-// Tests for the verb matcher in public/voice-commands.js.
+// Tests for the verb matcher in docs/voice-commands.js.
 // Regression coverage for the partial-match misfire bug: utterances
 // like "turn left to the kitchen" used to silently dispatch a brief
 // turn-left pulse and never reach the LLM. The matcher now requires
@@ -7,7 +7,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert";
-import { tryMatchCommand } from "../public/voice-commands.js";
+import { tryMatchCommand } from "../docs/voice-commands.js";
 
 test("matches bare verbs", () => {
   assert.equal(tryMatchCommand("turn left")?.intent,   "turn_left");

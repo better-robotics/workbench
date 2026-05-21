@@ -1,7 +1,7 @@
 // Smoke tests for pure formatters. `make smoke` (node --test). Anything
 // that needs DOM, fetch, BLE, or browser APIs lives in SMOKE.md.
 //
-// New formatters in public/format.js earn a test row. Catching
+// New formatters in docs/format.js earn a test row. Catching
 // architectural drift, not coverage.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -9,7 +9,7 @@ import {
   shorten, labelTool, summarizeTool,
   formatUptime, formatWifi, formatWifiShort, formatResetReason,
   formatRssi, rssiSeverity, tempSeverity,
-} from "../public/format.js";
+} from "../docs/format.js";
 
 test("shorten: leaves short strings alone", () => {
   assert.equal(shorten("hi", 10), "hi");

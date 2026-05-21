@@ -35,7 +35,7 @@ First boot runs entirely offline: no WiFi, no captive portal, no PyPI roundtrip.
 
 After that, Pi runs BLE-only. WiFi is onboarded from the dashboard via the `wifi-scan` + `wifi-join` characteristics. SD card holds no credentials.
 
-Developers: wheels + template Customize-card consumes live under `public/firmware/pi_robot/`. CI refreshes them on any push touching `firmware/**`. Run `make publish-pi-firmware` locally only to test artifacts before pushing.
+Developers: wheels + template Customize-card consumes live under `docs/firmware/pi_robot/`. CI refreshes them on any push touching `firmware/**`. Run `make publish-pi-firmware` locally only to test artifacts before pushing.
 
 ## Manual run (development)
 
@@ -91,6 +91,6 @@ Gotchas from first boot on Pi OS Trixie.
 - **`firstrun.status` exists but `pi-robot.service` isn't advertising.** Check `pi-robot-journal.log`. If you see `dbus_next.errors.DBusError: Failed to register advertisement`, Bluetooth is rfkill-blocked. Pi OS Trixie ships with `hci0` soft-blocked by default. `firstrun.sh` handles this; if you're running manually, `sudo rfkill unblock bluetooth` first.
 - **`pip install` fails with `No matching distribution found` for a wheel that exists.** Python version mismatch. Bookworm ships 3.11, Trixie ships 3.13. Wheels for both are bundled; if staging manually, target `--python-version 313` for current images.
 - **`bless` install fails with "no dbus-next / typing-extensions".** Don't use pip's resolver across platforms — enumerate the Linux dep chain explicitly: `bless bleak dbus-fast dbus-next typing-extensions`. bless needs `dbus-next` on Linux; `bleak` separately needs `dbus-fast` + `typing-extensions` (on Python<3.12).
-- **Browser SD-prep page can't fetch wheels.** `files.pythonhosted.org` has no CORS headers. Host the wheels on the same origin as the dashboard (we do, under `public/firmware/pi_robot/wheels/` with a `manifest.json`).
+- **Browser SD-prep page can't fetch wheels.** `files.pythonhosted.org` has no CORS headers. Host the wheels on the same origin as the dashboard (we do, under `docs/firmware/pi_robot/wheels/` with a `manifest.json`).
 - **`sudo: unable to resolve host <name>` warning in `firstrun.status`.** Benign — hostname changed mid-session and `/etc/hosts` hasn't caught up. sudo continues normally.
 - **AppleDouble `._*.whl` gotcha.** macOS creates companion files on FAT32; deleting the primary auto-deletes the companion, so naive directory iteration can return a file that's already gone. Skip names starting with `._` during iteration. The browser SD-prep tool already handles this.

@@ -12,7 +12,7 @@ idf.py -p /dev/cu.usbserial-* flash monitor
 
 Or from repo root: `make compile`, `make flash`, `make monitor`.
 
-`make publish-firmware` stages build artifacts to `public/firmware/bins/` for the dashboard's web-flasher and OTA paths. CI runs the same target on every push to `firmware/**`.
+`make publish-firmware` stages build artifacts to `docs/firmware/bins/` for the dashboard's web-flasher and OTA paths. CI runs the same target on every push to `firmware/**`.
 
 ## Subsystem map
 

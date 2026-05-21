@@ -3,7 +3,7 @@
 // RTCPeerConnection so it lives in the manual SMOKE.md surface.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseCandidate } from "../public/net-probe.js";
+import { parseCandidate } from "../docs/net-probe.js";
 
 test("parseCandidate: host candidate with IPv4 address", () => {
   const r = parseCandidate({ candidate: "candidate:1 1 udp 2113937151 192.168.1.5 51234 typ host generation 0" });
