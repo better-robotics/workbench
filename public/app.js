@@ -1090,8 +1090,10 @@ document.addEventListener("DOMContentLoaded", () => {
   // Pip is additive; if it can't init (CDN failure, regression in pip-core,
   // bad cached SW), the rest of the dashboard must keep working. Fence the
   // call so a Pip throw doesn't take down BLE / phones / robot presence.
-  // assistant.js exports already early-return when _pip is undefined.
-  try { initAssistant(); } catch (err) { console.error("[pip] init failed:", err); }
+  // initAssistant is async (it dynamic-imports pip-core from jsdelivr); a
+  // bare try/catch wouldn't catch the rejected promise, so use .catch and
+  // let the rest of init continue synchronously.
+  initAssistant().catch(err => console.error("[pip] init failed:", err));
   initPhones();
   initHelpers();
   initRobotPresence();
