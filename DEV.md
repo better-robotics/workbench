@@ -1,6 +1,6 @@
 # Developer reference
 
-Cheat sheet for diagnostic flags, console handles, debug paths. User-facing → `README.md`. Agent-facing → `.claude/CLAUDE.md`.
+Diagnostic flags, console handles, debug paths. User-facing → `README.md`. Agent-facing → `.claude/CLAUDE.md`.
 
 ## URL flags
 
@@ -44,12 +44,12 @@ Live on both desktop and phone while `pairing.js` is loaded.
 
 When BLE pairing won't go through and SSH isn't reachable (firmware crash-looping, no WiFi joined, fresh prepare not yet booted), the USB-C cable to the Pi exposes a CDC-ACM serial console with autologin.
 
-- `tools/pi-serial.py "<cmd>"` — runs a single shell command on the Pi over USB-CDC and prints the response. Auto-detects `/dev/cu.usbmodem*` (macOS) or `/dev/ttyACM*` (Linux); override with `--dev` or `BR_PI_SERIAL`. Auto-escapes the `[Mac]>` wrapper REPL (dotfiles lander) into the bash shell. Use for service status, journal reads, in-place file edits when the dashboard's OTA path is dead.
+- `tools/pi-serial.py "<cmd>"` — runs a single shell command on the Pi over USB-CDC and prints the response. Auto-detects `/dev/cu.usbmodem*` (macOS) or `/dev/ttyACM*` (Linux); override with `--dev` or `BR_PI_SERIAL`. Auto-escapes the `[Mac]>` wrapper REPL (dotfiles lander) into bash. Use for service status, journal reads, in-place edits when OTA is dead.
 - For longer-running commands pass `--wait 12` (default 6 s) so the end-of-output marker has time to print.
 
 ## Chrome internal pages
 
-`chrome://` dashboards that surface state the page can't see:
+State the page can't see:
 
 - `chrome://webrtc-internals/` — every active RTCPeerConnection, ICE candidate pair tried, which got disqualified and why, DTLS/SCTP state, getStats output. **First stop** when WebRTC video or pair signaling fails. Auto-records on connection start; "candidate-pair selected" vs "channel open" timing is usually what you want.
 - `chrome://bluetooth-internals/` — Web Bluetooth devices Chrome knows, services discovered, last scan results. Useful when a robot doesn't appear in the chooser or GATT operations stall. "Adapter" section surfaces OS-level state (powered, discoverable, paired).

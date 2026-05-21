@@ -1,7 +1,6 @@
 # Notes
 
-Operator-private notes — decisions, competitive analysis, feature design rationale.
-Encrypted at rest via git-crypt.
+Operator-private notes — decisions, competitive analysis, feature design rationale. Encrypted at rest via git-crypt.
 
 ---
 
@@ -175,7 +174,7 @@ Pip runs in the browser; every input that would change what Pip says is also in 
 
 ## Failure mode this avoids
 
-"Give Pip a feed so messages aren't boring" is the engagement reflex every newsletter SaaS tries: push content on a schedule, hope relevance averages out. Generic feeds get ignored because the user pays a translation cost from *"someone built X"* to *"does this matter for me right now?"* That translation cost kills engagement.
+"Give Pip a feed so messages aren't boring" is the engagement reflex every newsletter SaaS tries: push content on a schedule, hope relevance averages out. Generic feeds get ignored because the user pays a translation cost from *"someone built X"* to *"does this matter for me right now?"* That cost kills engagement.
 
 Shipping a scheduled pipeline before the state-aware layer exists pays pipeline maintenance for output state-aware messaging would dominate on relevance anyway.
 

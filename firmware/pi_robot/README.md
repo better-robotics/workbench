@@ -1,6 +1,6 @@
 # pi_robot
 
-Python robot firmware for the Raspberry Pi. Mirrors `firmware/esp32_robot_idf/` — same BLE service, same characteristic UUIDs, same dashboard experience.
+Python robot firmware for the Raspberry Pi. Mirrors `firmware/esp32_robot_idf/` — same BLE service, same characteristic UUIDs, same dashboard surface.
 
 ## BLE service
 
@@ -29,13 +29,13 @@ Three services run alongside `pi-robot.service`, each independently restartable:
 
 ## SD-card first boot
 
-Flash Raspberry Pi OS, then open the [dashboard](https://better-robotics.github.io/) and click **Customize card** in the Set up new hardware panel (or `?prepare` in the URL). Fill in hostname + sudo password, paste or pick an SSH public key, point at the mounted boot partition (usually `/Volumes/bootfs` on macOS). The dialog stages aarch64 Python wheels (`bless`, `bleak`, `dbus-fast`, `dbus-next`, `typing-extensions`) into `/boot/firmware/wheels/`, pi_robot source into `/boot/firmware/betterpi/`, renders `firstrun.sh`, and patches `cmdline.txt` + `config.txt`. Wheels for both Python 3.11 and 3.13 are bundled so Bookworm or Trixie works without re-prep.
+Flash Raspberry Pi OS, then open the [dashboard](https://better-robotics.github.io/) and click **Customize card** (or `?prepare` in the URL). Fill in hostname + sudo password, paste or pick an SSH public key, point at the mounted boot partition (usually `/Volumes/bootfs` on macOS). The dialog stages aarch64 Python wheels (`bless`, `bleak`, `dbus-fast`, `dbus-next`, `typing-extensions`) into `/boot/firmware/wheels/`, pi_robot source into `/boot/firmware/betterpi/`, renders `firstrun.sh`, and patches `cmdline.txt` + `config.txt`. Wheels for both Python 3.11 and 3.13 are bundled so Bookworm or Trixie works without re-prep.
 
 First boot runs entirely offline: no WiFi, no captive portal, no PyPI roundtrip. `firstrun.sh` copies staged firmware into `/home/pi/better-robotics/firmware/pi_robot/`, creates a venv with `--system-site-packages` (picks up `python3-lgpio` from the base image), installs with `pip install --no-index --find-links=/boot/firmware/wheels`, unblocks Bluetooth via rfkill, enables BlueZ's experimental advertising API, and starts `pi-robot.service` as root. Progress appends to `/boot/firmware/firstrun.status` as an offline breadcrumb.
 
-After that, Pi runs BLE-only. WiFi is onboarded from the dashboard via the `wifi-scan` + `wifi-join` characteristics whenever a network is wanted. SD card holds no credentials.
+After that, Pi runs BLE-only. WiFi is onboarded from the dashboard via the `wifi-scan` + `wifi-join` characteristics. SD card holds no credentials.
 
-Developers: wheels + template that Customize-card consumes live under `public/firmware/pi_robot/`. CI refreshes them on any push touching `firmware/**` (see `.github/workflows/build-firmware.yml`). Run `make publish-pi-firmware` locally only to test artifacts before pushing.
+Developers: wheels + template Customize-card consumes live under `public/firmware/pi_robot/`. CI refreshes them on any push touching `firmware/**`. Run `make publish-pi-firmware` locally only to test artifacts before pushing.
 
 ## Manual run (development)
 
@@ -54,7 +54,7 @@ Default GPIO pin is `17` (BCM). To change, edit `LED_PIN` at the top of `pi_robo
 
 ## Permissions
 
-Registering BLE advertisements via BlueZ on Pi OS reliably requires root; the non-root D-Bus policy path is brittle across BlueZ versions. `pi-robot.service` already sets `User=root`. For `python3 pi_robot.py` in development, prefix with `sudo`.
+Registering BLE advertisements via BlueZ on Pi OS requires root; the non-root D-Bus policy path is brittle across BlueZ versions. `pi-robot.service` sets `User=root`. For `python3 pi_robot.py` in development, prefix with `sudo`.
 
 ## Auto-start on boot
 
@@ -68,7 +68,7 @@ sudo systemctl enable --now pi-robot
 
 ## Adding capabilities
 
-Same pattern as ESP32: add new characteristics inside the existing service. Motors, sensors, encoders become characteristics the dashboard discovers on connect. Service UUID stays the same, so a Pi robot and an ESP32 robot look identical.
+Same pattern as ESP32: add new characteristics inside the existing service. Motors, sensors, encoders become characteristics the dashboard discovers on connect. Service UUID is shared, so a Pi robot and an ESP32 robot look identical.
 
 ## Optional: Camera (WebRTC)
 
@@ -85,12 +85,12 @@ Signaling (SDP/ICE) flows over BLE via a chunked opcode protocol (begin, chunk, 
 
 ## Troubleshooting
 
-Hard-won gotchas from getting first boot to work on Pi OS Trixie.
+Gotchas from first boot on Pi OS Trixie.
 
-- **Green LED blinks briefly then goes dark, nothing else happens.** Pi isn't completing boot. Most common cause is under-voltage — Pi 4 wants 5V/3A; phone chargers rated 2A often brown out. Less common: ext4 root corrupted from an earlier bad boot (re-flash Raspberry Pi OS). HDMI monitor is the fastest diagnostic.
-- **`firstrun.status` exists but `pi-robot.service` isn't advertising.** Check `pi-robot-journal.log`. If you see `dbus_next.errors.DBusError: Failed to register advertisement`, Bluetooth is rfkill-blocked. Pi OS Trixie ships with `hci0` soft-blocked by default. `firstrun.sh` handles this, but if you're running manually, `sudo rfkill unblock bluetooth` first.
-- **`pip install` fails with `No matching distribution found` for a wheel that exists.** Python version mismatch. Pi OS Bookworm ships Python 3.11, Trixie ships 3.13. Wheels for both are bundled; if you're staging manually, target `--python-version 313` for current images.
+- **Green LED blinks briefly then goes dark.** Pi isn't completing boot. Most common cause is under-voltage — Pi 4 wants 5V/3A; phone chargers rated 2A often brown out. Less common: ext4 root corrupted (re-flash). HDMI monitor is the fastest diagnostic.
+- **`firstrun.status` exists but `pi-robot.service` isn't advertising.** Check `pi-robot-journal.log`. If you see `dbus_next.errors.DBusError: Failed to register advertisement`, Bluetooth is rfkill-blocked. Pi OS Trixie ships with `hci0` soft-blocked by default. `firstrun.sh` handles this; if you're running manually, `sudo rfkill unblock bluetooth` first.
+- **`pip install` fails with `No matching distribution found` for a wheel that exists.** Python version mismatch. Bookworm ships 3.11, Trixie ships 3.13. Wheels for both are bundled; if staging manually, target `--python-version 313` for current images.
 - **`bless` install fails with "no dbus-next / typing-extensions".** Don't use pip's resolver across platforms — enumerate the Linux dep chain explicitly: `bless bleak dbus-fast dbus-next typing-extensions`. bless needs `dbus-next` on Linux; `bleak` separately needs `dbus-fast` + `typing-extensions` (on Python<3.12).
 - **Browser SD-prep page can't fetch wheels.** `files.pythonhosted.org` has no CORS headers. Host the wheels on the same origin as the dashboard (we do, under `public/firmware/pi_robot/wheels/` with a `manifest.json`).
-- **`sudo: unable to resolve host <name>` warning in `firstrun.status`.** Benign — the hostname changed mid-session and `/etc/hosts` hasn't caught up. sudo continues normally. Not a failure.
-- **AppleDouble `._*.whl` gotcha.** macOS creates companion files on FAT32; deleting the primary auto-deletes the companion, so naive directory iteration can return a file that's already gone. Skip names starting with `._` during iteration. The browser SD-prep tool handles this already.
+- **`sudo: unable to resolve host <name>` warning in `firstrun.status`.** Benign — hostname changed mid-session and `/etc/hosts` hasn't caught up. sudo continues normally.
+- **AppleDouble `._*.whl` gotcha.** macOS creates companion files on FAT32; deleting the primary auto-deletes the companion, so naive directory iteration can return a file that's already gone. Skip names starting with `._` during iteration. The browser SD-prep tool already handles this.

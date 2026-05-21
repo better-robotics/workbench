@@ -1,8 +1,6 @@
 # Architectural direction — better-robotics
 
-Long-horizon shape decisions. Unlike `working.md` (tactical pending), this
-file names structural moves the project is committing to. Updated when the
-shape of the system changes.
+Long-horizon shape decisions. Unlike `working.md` (tactical pending), this file names structural moves the project is committing to. Updated when the shape of the system changes.
 
 ## 1. Generic typed-characteristic runtime (in flight)
 

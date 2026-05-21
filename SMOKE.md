@@ -1,8 +1,6 @@
 # Smoke checklist
 
-Manual verification before merging structural changes (UI redesign, render-pattern shifts, capability refactors, BLE protocol tweaks). These are the architectural promises.
-
-If a row breaks, user-visible value broke. Don't ship.
+Manual verification before merging structural changes (UI redesign, render-pattern shifts, capability refactors, BLE protocol tweaks). If a row breaks, user-visible value broke. Don't ship.
 
 Pure-function tests live in `tests/`; run with `make smoke`. Below needs hardware.
 

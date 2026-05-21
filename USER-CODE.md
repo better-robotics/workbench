@@ -35,13 +35,13 @@ const move = await pip.ask("Scene: chair ahead. Reply: forward, left, right, sto
 });
 ```
 
-In scope inside a script: `robot`, `robots`, `phones`, `pip`, `sleep(ms)`, `log(...)`, `speak(text)`. The Scripts dialog ships templates demonstrating the shapes; pick one from the dropdown to load it.
+In scope inside a script: `robot`, `robots`, `phones`, `pip`, `sleep(ms)`, `log(...)`, `speak(text)`. The Scripts dialog ships templates; pick one from the dropdown to load it.
 
-The `pip` namespace is deliberately thin: today just `pip.ask(prompt, opts?)`, returning the LLM's text response. It's the seam between "user wrote the orchestration" and "the LLM decided this step" — same shape Pip uses internally, exposed to user scripts so the two surfaces aren't siloed.
+The `pip` namespace is deliberately thin: today just `pip.ask(prompt, opts?)`, returning the LLM's text response. It's the seam between "user wrote the orchestration" and "the LLM decided this step" — same shape Pip uses internally, exposed so the two surfaces aren't siloed.
 
 ## Safety floor
 
-The firmware enforces motor watchdog + pulse magnitude/duration caps regardless of who issued the writes. User code, Pip, joypad — all see the same limits.
+Firmware enforces motor watchdog + pulse magnitude/duration caps regardless of who issued the writes. User code, Pip, joypad — all see the same limits.
 
 `robot.move()` calls `pulseMotors`, carrying the same ±40 magnitude / 50–2000 ms duration caps the LLM is bound by. Dashboard-side clamps are advisory; firmware enforcement is binding.
 
@@ -49,4 +49,4 @@ The firmware enforces motor watchdog + pulse magnitude/duration caps regardless 
 
 User code lives in the browser, not on the robot. No upload-to-Pi, no GH Actions push, no `scp`-from-the-dashboard.
 
-If a robot ever needs to run useful behavior with the dashboard disconnected for minutes+ (outside the wedge today — see `.claude/CLAUDE.md → Anti-drift guards`), the path forward is the existing OTA pipeline: drop user code into a `/home/robot/user/` slot via BLE OTA, have `pi_robot.py` import it via a typed plugin API. No new sync server needed.
+If a robot ever needs to run behavior with the dashboard disconnected for minutes+ (outside the wedge today — see `.claude/CLAUDE.md → Anti-drift guards`), the path forward is the existing OTA pipeline: drop user code into a `/home/robot/user/` slot via BLE OTA, have `pi_robot.py` import it via a typed plugin API. No new sync server needed.
