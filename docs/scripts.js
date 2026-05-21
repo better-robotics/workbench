@@ -404,7 +404,8 @@ async function runScript() {
   if (_running) return;
   _running = true;
   const runBtn = $("scripts-run");
-  if (runBtn) { runBtn.disabled = true; runBtn.textContent = "Running…"; }
+  const runLabel = runBtn?.querySelector(".run-label");
+  if (runBtn) { runBtn.disabled = true; if (runLabel) runLabel.textContent = "Running…"; }
   const out = $("scripts-output");
   if (out) out.innerHTML = "";
   const body = editorValue();
@@ -430,7 +431,7 @@ async function runScript() {
     appendOutput(`Error: ${err.message || err}`);
   } finally {
     _running = false;
-    if (runBtn) { runBtn.disabled = false; runBtn.textContent = "Run"; }
+    if (runBtn) { runBtn.disabled = false; if (runLabel) runLabel.textContent = "Run"; }
   }
 }
 
