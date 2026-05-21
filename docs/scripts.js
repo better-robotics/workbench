@@ -24,30 +24,61 @@ async function ensureCodeMirror() {
   if (_cm) return _cm;
   if (!_cmLoading) {
     _cmLoading = (async () => {
-      // Loaded from esm.sh — jsdelivr's /+esm bundles each CM6 package as
-      // self-contained, which gives you N copies of @codemirror/state and
-      // an "Unrecognized extension value... multiple instances of
-      // @codemirror/state are loaded" error on EditorState.create. esm.sh
-      // resolves all @codemirror/state imports to one canonical URL across
-      // packages, so the browser's module cache yields a single instance.
-      // EditorView + keymap come from @codemirror/view directly — the
-      // codemirror umbrella's re-export resolves to undefined through
-      // esm.sh's bundler, so EditorView.updateListener crashes at mount.
-      const [cmCore, cmView, cmJs, cmDark] = await Promise.all([
-        import("https://esm.sh/codemirror@6"),
+      // Loaded from esm.sh — its cross-package dedup gives one canonical
+      // URL per CM6 package, avoiding the "multiple instances of
+      // @codemirror/state" extension-set error that jsdelivr's /+esm
+      // produces (it bundles each package self-contained).
+      //
+      // Imports go to individual sub-packages, not the `codemirror`
+      // umbrella: esm.sh's analyzer drops some umbrella exports as
+      // undefined (EditorView and basicSetup both observed), and there's
+      // no single export from the umbrella we can't reconstruct from
+      // sub-packages. Sub-package exports land verbatim.
+      const [cmView, cmState, cmCmds, cmLang, cmAuto, cmJs, cmDark] = await Promise.all([
         import("https://esm.sh/@codemirror/view@6"),
+        import("https://esm.sh/@codemirror/state@6"),
+        import("https://esm.sh/@codemirror/commands@6"),
+        import("https://esm.sh/@codemirror/language@6"),
+        import("https://esm.sh/@codemirror/autocomplete@6"),
         import("https://esm.sh/@codemirror/lang-javascript@6"),
         import("https://esm.sh/@codemirror/theme-one-dark@6"),
       ]);
-      const { basicSetup } = cmCore;
-      const { EditorView, keymap } = cmView;
+      const {
+        EditorView, keymap, lineNumbers, highlightActiveLine,
+        highlightActiveLineGutter, drawSelection, dropCursor,
+      } = cmView;
+      const { EditorState } = cmState;
+      const { defaultKeymap, history, historyKeymap } = cmCmds;
+      const {
+        syntaxHighlighting, defaultHighlightStyle, indentOnInput, bracketMatching,
+      } = cmLang;
+      const {
+        autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap,
+      } = cmAuto;
       const host = $("scripts-editor");
       host.innerHTML = "";
       _cm = new EditorView({
         parent: host,
         doc: loadBody(),
         extensions: [
-          basicSetup,
+          lineNumbers(),
+          highlightActiveLineGutter(),
+          highlightActiveLine(),
+          history(),
+          drawSelection(),
+          dropCursor(),
+          EditorState.allowMultipleSelections.of(true),
+          indentOnInput(),
+          syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+          bracketMatching(),
+          closeBrackets(),
+          autocompletion(),
+          keymap.of([
+            ...closeBracketsKeymap,
+            ...defaultKeymap,
+            ...historyKeymap,
+            ...completionKeymap,
+          ]),
           cmJs.javascript(),
           cmDark.oneDark,
           // Cmd/Ctrl-Enter to run (used to live on the textarea keydown).
