@@ -13,7 +13,7 @@ import { registerSlashCommands } from "./assistant-slash.js";
 import { wireWatcherFireBridge } from "./assistant-watcher-bridge.js";
 import { onWatcherFire, releaseAllGates, awaitReflexGate } from "./watcher.js";
 import { AUTH_URL } from "./endpoints.js";
-import { createPip, renderMd } from "https://cdn.jsdelivr.net/npm/@jonasneves/pip@2.9.5/pip-core.esm.js";
+import { createPip, renderMd } from "https://cdn.jsdelivr.net/npm/@jonasneves/pip@2.9.6/pip-core.esm.js";
 
 const HISTORY_LIMIT = 12;
 
