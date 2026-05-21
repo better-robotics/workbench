@@ -13,7 +13,16 @@ import { registerSlashCommands } from "./assistant-slash.js";
 import { wireWatcherFireBridge } from "./assistant-watcher-bridge.js";
 import { onWatcherFire, releaseAllGates, awaitReflexGate } from "./watcher.js";
 import { AUTH_URL } from "./endpoints.js";
-import { createPip } from "https://cdn.jsdelivr.net/npm/@nevescloud/pip@latest/pip-core.esm.js";
+
+// pip-core is dynamic-imported inside initAssistant() (not statically at
+// module-load) so that a CDN failure on the jsdelivr URL cannot brick
+// the whole module graph and strand the user without the BetterRobotics
+// recovery menu. The static-import shape would propagate the 404 to
+// assistant.js → app.js → DOMContentLoaded never fires → wireRecoveryMenu
+// never runs. Dynamic-import turns that into a runtime throw that the
+// initAssistant try/catch in app.js catches gracefully.
+const PIP_CDN_URL = "https://cdn.jsdelivr.net/npm/@nevescloud/pip@latest/pip-core.esm.js";
+let createPip = null;
 
 const HISTORY_LIMIT = 12;
 
@@ -461,7 +470,11 @@ function watchDialogs() {
   }
 }
 
-export function initAssistant() {
+export async function initAssistant() {
+  // Lazy-load pip-core from the CDN. Awaiting here is what makes the
+  // outer try/catch in app.js's DOMContentLoaded actually catch CDN
+  // failures — a synchronous static import at module-load would bypass it.
+  ({ createPip } = await import(PIP_CDN_URL));
   // Intro fires once per install; subsequent loads stay silent at idle.
   const seenKey = "better-robotics:pip-intro-seen";
   const showIntro = !localStorage.getItem(seenKey);
