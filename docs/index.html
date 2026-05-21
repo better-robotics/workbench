@@ -313,23 +313,20 @@
 </dialog>
 
 <dialog id="scripts-modal" class="prepare-dialog scripts-modal">
-  <div class="modal-header">
+  <div class="modal-header scripts-header">
     <div class="label">Scripts</div>
+    <button class="icon sm" id="scripts-help-btn" aria-label="About scripts" popovertarget="scripts-help"><svg class="icon-svg"><use href="icons.svg#icon-life-buoy"/></svg></button>
+    <select id="scripts-template" class="scripts-template-select" aria-label="Load template">
+      <option value="">Load template…</option>
+    </select>
+    <span class="scripts-header-spacer"></span>
+    <button class="sm" id="scripts-run"><span class="run-label">Run</span> <kbd class="kbd-hint">⌘↵</kbd></button>
     <button class="icon" id="scripts-close" aria-label="Close"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
   </div>
-  <p class="hint" style="margin: 0 0 12px;">
+  <div id="scripts-help" class="help-popover" popover>
     JS that drives connected robots over BLE. Runs in this tab — nothing is uploaded. In scope: <code>robot</code>, <code>robots</code>, <code>phones</code>, <code>pip</code>, <code>sleep</code>, <code>log</code>, <code>speak</code>. Cmd/Ctrl-Enter to run. <a href="https://github.com/jonasneves/better-robotics/blob/main/USER-CODE.md" target="_blank" rel="noopener">USER-CODE.md</a>.
-  </p>
-  <div class="row" style="margin: 0 0 8px;">
-    <label class="hint" for="scripts-template" style="flex: 0 0 auto;">Load template:</label>
-    <select id="scripts-template" class="scripts-template-select" style="flex: 1;">
-      <option value="">—</option>
-    </select>
   </div>
   <div id="scripts-editor" class="scripts-editor"></div>
-  <div class="row" style="margin: 10px 0 8px;">
-    <button class="sm" id="scripts-run">Run</button>
-  </div>
   <div id="scripts-output" class="scripts-output"></div>
 </dialog>
 
