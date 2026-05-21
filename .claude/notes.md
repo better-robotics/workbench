@@ -219,9 +219,11 @@ Lived in `public/grounding.js` as the open-vocab fallback when MediaPipe COCO's 
 
 **What to revisit if it comes back.** A future need for sub-second open-vocab bboxes at the rate the LLM can't serve (Claude vision is ~1–2 s round-trip; bbox-rate use cases want ~100 ms). At that point: re-evaluate Grounding DINO 1.5, owlv2, or YOLO-World — but only after a use case earns it. Reactive open-vocab is not on the wedge today.
 
-## YOLO26n closed-vocab detector (not built)
+## YOLO26n closed-vocab detector (`public/yolo26.js`)
 
-Considered as a faster sibling for reactive-tier use cases (visual servo, gamepad-overlay tracking). No `yolo.js` exists. The COCO-class niche is filled by MediaPipe EfficientDet-Lite0 today; YOLO earns its way in only if MediaPipe's accuracy or class coverage becomes the bottleneck.
+Faster sibling for reactive-tier use cases (visual servo, gamepad-overlay tracking). Wired behind `/detector yolo26` with the registry in `public/detectors.js`; MediaPipe stays the default. ONNX runtime via WebGPU EP with WASM fallback, ~10 MB COCO model fetched from HuggingFace on first use.
+
+**What hasn't been confirmed.** End-to-end accuracy vs MediaPipe EfficientDet-Lite0 on the same scenes, WebGPU EP stability across the Chrome/Edge versions students will run, first-fetch UX on classroom WiFi (10 MB ONNX + onnxruntime-web bytes). Promote to default — or remove from the registry — only after a side-by-side run. Out of `README.md` and `DEV.md` until then.
 
 ---
 
