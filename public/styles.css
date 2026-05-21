@@ -2026,35 +2026,6 @@ dialog[open]::backdrop { opacity: 1; }
    dashboard buttons and wrong for the tiny inline buttons we add inside
    Pip. Pip-core's own buttons (send, stop, slash-key) explicitly reset
    min-height in their own rules, so we only target ours. */
-/* pip-step-toggle reset — dashboard's .sm { min-height; transform on
-   :active; brightness on hover } is right for buttons in the chrome
-   and wrong for the tiny inline pip pills. pip-core's own buttons
-   reset themselves; we only target ours. (Mic button's reset lives in
-   pip-core itself — included in 2.10+.) */
-.pip-step-toggle {
-  min-height: 0;
-  padding: 0;
-  border-radius: 0;
-  background: transparent;
-  font-weight: inherit;
-}
-.pip-step-toggle:not(:disabled):hover { filter: none; }
-.pip-step-toggle:active { transform: none; filter: none; }
-
-/* Inline camera-frame thumbnail — rendered when view_robot_frame returns
-   so the perception is visible alongside the action that triggered it
-   (matches Anthropic computer-use UX). Capped at 220px tall so a single
-   frame doesn't push the rest of the turn off-screen. */
-.pip-tool-image {
-  display: block;
-  max-width: 100%;
-  max-height: 220px;
-  border-radius: 6px;
-  margin: 6px 0;
-  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
-  object-fit: contain;
-}
-
 /* COCO class disclosure inside the Reflex card body. Default collapsed
    so the section stays compact; expand reveals all 80 classes as a
    wrapped comma-separated list. summary is keyboard-focusable. */
@@ -2117,103 +2088,6 @@ dialog[open]::backdrop { opacity: 1; }
    "perception event" (sensor-side notice). Surfaces no-speech, mic
    permission, and other voice-input states the operator otherwise
    wouldn't see. */
-/* Per-iteration reply bubble. Multiple of these can stack inside one
-   .pip-turn, interleaved with .pip-step pills when Claude uses tools.
-   Element class is `pip-iter-reply pip-reply ai-generated` so pip-core's
-   markdown styling (p margins, code, ul/ol) applies for free; we just
-   override the zero margin so consecutive blocks don't fuse. */
-.pip-iter-reply { margin: 4px 0; }
-.pip-iter-reply:first-child { margin-top: 0; }
-.pip-iter-reply:last-child  { margin-bottom: 0; }
-
-/* Tool-call pill, hatch-styled. Tight 2px gap between consecutive pills
-   (matches hatch's .sp-agent-log gap), 8px radius (--radius in hatch),
-   subtle 1px border, mono text. Running state nudges the border to the
-   accent; error swaps in the danger palette. */
-.pip-step {
-  display: flex;
-  flex-direction: column;
-  margin: 2px 0;
-  padding: 4px 8px;
-  background: color-mix(in srgb, var(--ink) 3%, transparent);
-  border: 1px solid color-mix(in srgb, var(--ink) 6%, transparent);
-  border-radius: 8px;
-  font-family: "SF Mono", ui-monospace, Menlo, monospace;
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--ink-muted);
-}
-.pip-step.running {
-  border-color: color-mix(in srgb, var(--duke-persimmon) 55%, transparent);
-  opacity: 0.75;
-}
-.pip-step.error {
-  background: color-mix(in srgb, var(--danger) 7%, transparent);
-  border-color: color-mix(in srgb, var(--danger) 25%, transparent);
-  color: var(--danger);
-}
-.pip-step-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-.pip-step-chevron {
-  opacity: 0.55;
-  flex-shrink: 0;
-  transition: transform 120ms ease;
-}
-.pip-step.expanded .pip-step-chevron { transform: rotate(90deg); }
-.pip-step-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.pip-step-elapsed {
-  color: color-mix(in srgb, var(--ink-muted) 65%, transparent);
-  font-size: 11px;
-  flex-shrink: 0;
-}
-.pip-step-toggle {
-  background: none;
-  border: 0;
-  padding: 0 2px;
-  font: inherit;
-  font-size: 11px;
-  color: var(--duke-persimmon);
-  cursor: pointer;
-  flex-shrink: 0;
-}
-.pip-step-toggle:hover { text-decoration: underline; }
-.pip-step-detail {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: 4px;
-  padding-top: 4px;
-  border-top: 1px solid color-mix(in srgb, var(--ink) 6%, transparent);
-}
-.pip-step-detail-label {
-  font-size: 9.5px;
-  letter-spacing: .04em;
-  text-transform: uppercase;
-  color: var(--ink-muted);
-}
-.pip-step-pre {
-  margin: 2px 0 0;
-  padding: 6px 8px;
-  background: color-mix(in srgb, var(--ink) 4%, transparent);
-  border-radius: 4px;
-  font-size: 10.5px;
-  line-height: 1.45;
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 240px;
-  overflow: auto;
-}
-
 .settings-profile {
   display: flex;
   align-items: flex-start;

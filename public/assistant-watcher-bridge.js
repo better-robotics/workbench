@@ -13,7 +13,7 @@ import { onWatcherFire } from "./watcher.js";
 //                        gesture; informational, no gate change
 //   "follow-lost"      — follow-mode lost the hand for N consecutive ticks
 //   "follow-reacquire" — follow-mode regained the hand after a lost streak
-export function wireWatcherFireBridge({ turn, scrollPanelToBottom }) {
+export function wireWatcherFireBridge({ turn, scrollToBottom }) {
   onWatcherFire((entry, det, kind = "fire") => {
     const ts = new Date(det?.ts || Date.now()).toISOString();
     const score = typeof det?.score === "number" ? det.score.toFixed(2) : "?";
@@ -58,6 +58,6 @@ export function wireWatcherFireBridge({ turn, scrollPanelToBottom }) {
         `<circle cx="6" cy="6" r="1.8" fill="currentColor"/>` +
       `</svg> ` + noticeHtml;
     turn.el.appendChild(el);
-    scrollPanelToBottom();
+    scrollToBottom();
   });
 }

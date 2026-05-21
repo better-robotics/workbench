@@ -13,7 +13,7 @@ import { registerSlashCommands } from "./assistant-slash.js";
 import { wireWatcherFireBridge } from "./assistant-watcher-bridge.js";
 import { onWatcherFire, releaseAllGates, awaitReflexGate } from "./watcher.js";
 import { AUTH_URL } from "./endpoints.js";
-import { createPip, renderMd } from "https://cdn.jsdelivr.net/npm/@jonasneves/pip@latest/pip-core.esm.js";
+import { createPip } from "https://cdn.jsdelivr.net/npm/@jonasneves/pip@latest/pip-core.esm.js";
 
 const HISTORY_LIMIT = 12;
 
@@ -106,85 +106,22 @@ const turn = {
   drainObservations() { return this.observations.splice(0); },
 };
 
-// Tool-call pill, hatch-style. Appended directly to turnEl in flow with
-// the rest of the iteration's text — so a multi-step turn renders as
-// [text 1] [pill 1] [text 2] [pill 2] [final text], not [stack of pills]
-// [final text]. Clicking Details expands a pre with args + result.
-// Compact chevron — pip-core's own slash/send buttons use 12×12 SVGs
-// with stroke-width 1.6, so we match for visual consistency.
-const CHEVRON_SVG =
-  `<svg class="pip-step-chevron" viewBox="0 0 12 12" width="10" height="10" aria-hidden="true">` +
-    `<path d="M4.5 3 L8 6 L4.5 9" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>` +
-  `</svg>`;
-
+// Thin wrappers around pip-core's tool-using turn primitives. Pip ships
+// the pill/bubble/image DOM; we add the robotics state (agent-light)
+// and the labelTool / summarizeTool name formatting.
 function appendStepPill(turnEl, name) {
   setAgentState(name === "ask_human" ? "asking" : "working");
-  const el = document.createElement("div");
-  el.className = "pip-step running";
-  el.innerHTML =
-    `<div class="pip-step-head">` +
-      CHEVRON_SVG +
-      `<span class="pip-step-label">${escapeHtml(labelTool(name))} …</span>` +
-      `<span class="pip-step-elapsed"></span>` +
-      `<button class="pip-step-toggle" type="button" hidden>Details</button>` +
-    `</div>` +
-    `<div class="pip-step-detail" hidden></div>`;
-  turnEl.appendChild(el);
-  const toggle = el.querySelector(".pip-step-toggle");
-  const detail = el.querySelector(".pip-step-detail");
-  toggle.addEventListener("click", () => {
-    const open = detail.hidden;
-    detail.hidden = !open;
-    el.classList.toggle("expanded", open);
-    toggle.textContent = open ? "Hide" : "Details";
-  });
-  scrollPanelToBottom();
-  return el;
+  return _pip.appendToolPill(turnEl, name, { label: `${labelTool(name)} …` });
 }
-
-function safeJson(obj, maxStr = 240) {
-  return JSON.stringify(obj, (_k, v) => {
-    if (typeof v === "string" && v.length > maxStr) {
-      return v.slice(0, maxStr) + `… (${v.length} chars)`;
-    }
-    return v;
-  }, 2);
-}
-
-
-function finishStepPill(el, name, input, result, error, durationMs) {
+function finishStepPill(pill, name, input, result, error, durationMs) {
   setAgentState("thinking");
-  if (!el) return;
-  el.classList.remove("running");
-  const isError = !!error;
-  if (isError) el.classList.add("error");
-  // null durationMs to summarizeTool — we render elapsed in its own
-  // span so the label stays semantic (tool name + arg summary) and the
-  // timing aligns to the right edge instead of being baked into the
-  // sentence.
-  el.querySelector(".pip-step-label").textContent =
-    summarizeTool(name, input, result, error, null);
-  if (durationMs != null) {
-    const ms = Math.round(durationMs);
-    el.querySelector(".pip-step-elapsed").textContent =
-      ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
-  }
-  const detail = el.querySelector(".pip-step-detail");
-  const sections = [
-    input ? `<div class="pip-step-section"><span class="pip-step-detail-label">args</span><pre class="pip-step-pre">${escapeHtml(safeJson(input))}</pre></div>` : "",
-    isError
-      ? `<div class="pip-step-section"><span class="pip-step-detail-label">error</span><pre class="pip-step-pre">${escapeHtml(String(error?.message || error))}</pre></div>`
-      : (result != null ? `<div class="pip-step-section"><span class="pip-step-detail-label">result</span><pre class="pip-step-pre">${escapeHtml(safeJson(result))}</pre></div>` : ""),
-  ].filter(Boolean).join("");
-  if (sections) {
-    detail.innerHTML = sections;
-    el.querySelector(".pip-step-toggle").hidden = false;
-  }
-  scrollPanelToBottom();
-}
-
-function scrollPanelToBottom() {
-  _pip.scroll.scrollTop = _pip.scroll.scrollHeight;
+  // null durationMs to summarizeTool — pip-core's pill renders elapsed in
+  // its own span; we keep the label semantic (name + arg summary) and
+  // let pip handle the right-edge timing.
+  pill?.finish({
+    label: summarizeTool(name, input, result, error, null),
+    input, result, error, durationMs,
+  });
 }
 
 function pickRobotId() {
@@ -237,7 +174,7 @@ async function injectVoiceMidTurn(text) {
         : "Adjust your plan if this affects what you were about to do.")
     );
     if (SAFETY_INTENTS.has(cmd.intent)) turn.cancel();
-    scrollPanelToBottom();
+    _pip.scrollToBottom();
     return true;
   }
   // Non-command utterance: just inform the planner. Cheap and useful —
@@ -351,18 +288,8 @@ async function runTurn(text, turnEl) {
   const defaultReply = turnEl.querySelector(".pip-reply");
   if (defaultReply) defaultReply.hidden = true;
 
-  let currentReplyEl = null;   // active iteration's text bubble; null between iterations
-  let pendingStepEl = null;    // active tool pill awaiting onToolEnd
-  // pip-iter-reply is our marker; pip-reply + ai-generated pull in
-  // pip-core's markdown styling (p margins, code, ul/ol). pip's own
-  // setReplyText queries the first .pip-reply (the hidden default we
-  // leave at the top), so adding the class here doesn't trip on it.
-  const appendReplyEl = () => {
-    const el = document.createElement("div");
-    el.className = "pip-iter-reply pip-reply ai-generated";
-    turnEl.appendChild(el);
-    return el;
-  };
+  let currentReply = null;   // active iteration's text bubble; null between iterations
+  let pendingPill = null;    // active tool pill awaiting onToolEnd
 
   // Direct-command + demo paths: if the input matches a recognized
   // command verb (drive, turn, stop…) or a demo name, dispatch
@@ -385,9 +312,7 @@ async function runTurn(text, turnEl) {
     }
   };
   const noRobot = () => {
-    const el = appendReplyEl();
-    el.textContent = "No robot connected — pair one first.";
-    scrollPanelToBottom();
+    _pip.appendReplyBubble(turnEl).setHtml("No robot connected — pair one first.");
     return "";
   };
 
@@ -436,9 +361,7 @@ async function runTurn(text, turnEl) {
     };
     try { await demo.run(ctx); }
     catch (err) {
-      const el = appendReplyEl();
-      el.textContent = `Demo "${demo.label}" failed: ${err?.message || err}`;
-      scrollPanelToBottom();
+      _pip.appendReplyBubble(turnEl).setHtml(escapeHtml(`Demo "${demo.label}" failed: ${err?.message || err}`));
     }
     return "";
   }
@@ -460,12 +383,12 @@ async function runTurn(text, turnEl) {
     onToolStart: ({ name }) => {
       // Close out the current iteration's text bubble so the next
       // iteration's deltas land in a fresh one below the pill.
-      currentReplyEl = null;
-      pendingStepEl = appendStepPill(turnEl, name);
+      currentReply = null;
+      pendingPill = appendStepPill(turnEl, name);
     },
     onToolEnd: ({ name, input, result, error, durationMs }) => {
-      finishStepPill(pendingStepEl, name, input, result, error, durationMs);
-      pendingStepEl = null;
+      finishStepPill(pendingPill, name, input, result, error, durationMs);
+      pendingPill = null;
       // Inline render of view_robot_frame's image — the perception Pip
       // actually saw should be visible in the chat, not buried in a
       // Details JSON pre. Matches Anthropic computer-use UX where every
@@ -473,24 +396,20 @@ async function runTurn(text, turnEl) {
       if (name === "view_robot_frame" && !error && result?._pipContent) {
         const img = result._pipContent.find(b => b?.type === "image");
         if (img?.source?.data) {
-          const el = document.createElement("img");
-          el.className = "pip-tool-image";
-          el.src = `data:${img.source.media_type};base64,${img.source.data}`;
-          el.alt = "robot camera frame";
-          el.loading = "lazy";
-          turnEl.appendChild(el);
-          scrollPanelToBottom();
+          _pip.appendTurnImage(turnEl, {
+            src: `data:${img.source.media_type};base64,${img.source.data}`,
+            alt: "robot camera frame",
+          });
           // Reset the iter-reply pointer so the next text delta lands in
           // a fresh bubble *below* the image (same shape as the tool-pill
           // boundary) — keeps "image then narration" order legible.
-          currentReplyEl = null;
+          currentReply = null;
         }
       }
     },
     onDelta: (iterText) => {
-      if (!currentReplyEl) currentReplyEl = appendReplyEl();
-      currentReplyEl.innerHTML = renderMd(iterText);
-      scrollPanelToBottom();
+      if (!currentReply) currentReply = _pip.appendReplyBubble(turnEl);
+      currentReply.setText(iterText);
     },
     shouldAbort: () => turn.abort,
     getPendingObservations: () => turn.drainObservations(),
@@ -505,17 +424,11 @@ async function runTurn(text, turnEl) {
   // block to turnEl independently.
   if (reply == null || reply === "") {
     const failureText = await actOnFailure(settings.pipBackend, turnEl);
-    if (failureText) {
-      const el = appendReplyEl();
-      el.innerHTML = renderMd(failureText);
-      scrollPanelToBottom();
-    }
-  } else if (!currentReplyEl) {
+    if (failureText) _pip.appendReplyBubble(turnEl).setText(failureText);
+  } else if (!currentReply) {
     // Non-streaming path (e.g. backend != bridge) had no deltas — render
     // the full reply once now so the user actually sees it.
-    const el = appendReplyEl();
-    el.innerHTML = renderMd(reply);
-    scrollPanelToBottom();
+    _pip.appendReplyBubble(turnEl).setText(reply);
   }
   // Return "" so pip's setReplyText writes to the hidden default reply
   // — invisible, but it keeps pip's responding-state teardown happy.
@@ -611,7 +524,7 @@ export function initAssistant() {
   });
   watchDialogs();
   wireTtsGating();
-  wireWatcherFireBridge({ turn, scrollPanelToBottom });
+  wireWatcherFireBridge({ turn, scrollToBottom: () => _pip.scrollToBottom() });
 }
 
 
