@@ -76,7 +76,7 @@ Different model shapes are good at different jobs — distinct primitives, not i
 
 - **Closed-vocab reflex detector** (`mediapipe.js`, EfficientDet-Lite0 via MediaPipe Tasks API): 80 COCO classes, ~10–30 ms on GPU. Powers the per-robot Reflex card (`watcher.js`) and user-code `robot.watchFor` / `robot.detections`. Fire-once-and-disable shape — same terminal-rung pattern as `ask_human`. For backend-vision-capable Pip turns, `view_robot_frame` passes the raw frame straight to the planner — no caption step.
 
-**Unproven / experimental:** Overhead ArUco localization (`aruco.js`), YOLO26n closed-vocab detector (not built). See `.claude/notes.md` "Wired but unproven." Keep out of user docs until validated. (Grounding DINO was previously slotted here as the open-vocab fallback; deleted once Claude vision via `view_robot_frame` absorbed that role — same open-vocab semantics, scene reasoning the bbox-only detector couldn't do.)
+**Unproven / experimental:** Overhead ArUco localization (`aruco.js`), YOLO26n closed-vocab detector (`yolo26.js`, opt-in via `/detector yolo26` — wired, not the default, no field-validation run logged). See `.claude/notes.md` "Wired but unproven." Keep out of user docs until validated. (Grounding DINO was previously the open-vocab fallback; deleted once Claude vision via `view_robot_frame` absorbed that role with scene reasoning the bbox-only detector couldn't do.)
 
 **Planners (Pip):**
 

@@ -30,16 +30,17 @@ async function ensureCodeMirror() {
       // @codemirror/state are loaded" error on EditorState.create. esm.sh
       // resolves all @codemirror/state imports to one canonical URL across
       // packages, so the browser's module cache yields a single instance.
-      // The codemirror umbrella re-exports EditorView + basicSetup only;
-      // keymap lives in @codemirror/view.
+      // EditorView + keymap come from @codemirror/view directly — the
+      // codemirror umbrella's re-export resolves to undefined through
+      // esm.sh's bundler, so EditorView.updateListener crashes at mount.
       const [cmCore, cmView, cmJs, cmDark] = await Promise.all([
         import("https://esm.sh/codemirror@6"),
         import("https://esm.sh/@codemirror/view@6"),
         import("https://esm.sh/@codemirror/lang-javascript@6"),
         import("https://esm.sh/@codemirror/theme-one-dark@6"),
       ]);
-      const { EditorView, basicSetup } = cmCore;
-      const { keymap } = cmView;
+      const { basicSetup } = cmCore;
+      const { EditorView, keymap } = cmView;
       const host = $("scripts-editor");
       host.innerHTML = "";
       _cm = new EditorView({

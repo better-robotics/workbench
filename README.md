@@ -17,13 +17,12 @@ for (const r of robots) {
   await r.move({ left: 30, right: 30, durationMs: 400 });
   await r.led(false);
 }
-
 ```
 
 - **Browser is the IDE.** Scripts panel + capability cards. localStorage is the file system; BLE is the runtime link.
-- **Models run in the browser too.** Open-vocab detector runs client-side. No GPU server, no cloud inference bill.
+- **Models run in the browser too.** Open-vocab detector runs client-side. No GPU server, no inference bill.
 - **Two authorable surfaces, co-equal:** user code (you write JS) and Pip (a tool-using LLM with ask-human, currently Claude). Both bound by the same firmware safety floor.
-- **No backend, no accounts.** Static-site dashboard; no data leaves the browser, nothing to run server-side.
+- **No backend, no accounts.** Static-site dashboard; no data leaves the browser.
 
 ## Architecture
 
@@ -44,7 +43,7 @@ for (const r of robots) {
 - **Data plane — WiFi, optional.** Onboarded via BLE when needed. Carries video (per-camera toggle between WebRTC and HTTP MJPEG), large OTA, cloud LLM calls. Robots work fully without it.
 - **Recovery plane — USB-C, last-resort (Pi).** Composite USB gadget (ECM + ACM serial) under its own systemd unit, independent of robot firmware. Dashboard exposes an xterm.js terminal over this.
 
-**Why BLE for control:** classroom and demo WiFi rarely cooperates (blocked multicast, captive portals, client isolation). BLE sidesteps all three. Robot advertises on boot; laptop scans and sees every robot in the room. Multi-robot discovery is just multi-scan.
+**Why BLE for control:** classroom and demo WiFi rarely cooperates (blocked multicast, captive portals, client isolation). BLE sidesteps all three. Robot advertises on boot; laptop scans and sees every robot in the room.
 
 **Safety on disconnect.** Actuator characteristics (motor, servo, pump, relay) ship with a firmware watchdog. Every write resets a timer; if no write lands in the window, firmware reverts to a safe default. Silence is the trigger, not a redundant radio.
 
@@ -96,3 +95,4 @@ Web Bluetooth: Chrome, Edge, Opera on desktop and Android. Not Safari. Firefox o
 ## License
 
 [MIT](LICENSE).
+
