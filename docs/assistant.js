@@ -306,19 +306,22 @@ async function offerBackendChoice(turnEl) {
   }, turnEl);
 
   if (choice === labels.github) {
+    // Narrow the try to OAuth only — a localStorage quota or post-auth UI
+    // glitch shouldn't surface as "Sign-in failed" and bury the actual cause.
+    let auth;
     try {
       const connect = await _loadConnectGitHub();
-      const auth = await connect("read:user", "better-robotics");
-      settings.githubAuth = { username: auth.username, token: auth.token };
-      settings.pipBackend = "github";
-      saveSettings();
-      window.__syncIdentityUI?.();
-      _pip.setModelLabel?.(activeModelForBackend("github"));
-      return true;
+      auth = await connect("read:user", "better-robotics");
     } catch (err) {
       _pip.appendReplyBubble(turnEl).setText(`Sign-in failed: ${err?.message || err}`);
       return false;
     }
+    settings.githubAuth = { username: auth.username, token: auth.token };
+    settings.pipBackend = "github";
+    saveSettings();
+    window.__syncIdentityUI?.();
+    _pip.setModelLabel?.(activeModelForBackend("github"));
+    return true;
   }
   if (choice === labels.anthropic || choice === labels.openai) {
     const isAnthropic = choice === labels.anthropic;
