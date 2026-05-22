@@ -208,12 +208,19 @@ function onPeerTrack(e) {
 const _availableSources = new Map();
 
 // "Tap to switch source" only when there's more than one source for any
-// robot (else the picker would lie about its job).
+// robot (else the picker would lie about its job). aria state tracks
+// the same condition — screen reader users hear "Camera" (passive
+// description) when there's nothing to pick, "Pick camera source"
+// (button affordance) when there is.
 function updateCameraPickerHint() {
   const overlay = $("phone-cam-overlay");
-  if (!overlay) return;
+  const tap = $("phone-cam-tap");
   const hasChoice = [..._availableSources.values()].some(s => (s.sources?.length || 0) > 1);
-  overlay.hidden = !hasChoice;
+  if (overlay) overlay.hidden = !hasChoice;
+  if (tap) {
+    tap.setAttribute("aria-label", hasChoice ? "Pick camera source" : "Camera");
+    tap.setAttribute("aria-disabled", hasChoice ? "false" : "true");
+  }
 }
 
 function renderCameraPicker() {

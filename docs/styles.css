@@ -216,6 +216,10 @@ button:not(:disabled):active { filter: brightness(0.94); }
 button.secondary { background: transparent; color: var(--ink); border: 1px solid var(--line); }
 button.secondary:not(:disabled):hover { background: var(--border-subtle); }
 button.sm { min-height: 36px; padding: 6px 12px; font-size: 14px; }
+/* HIG floor on the phone surface — scanner Cancel is the only exit from
+   the scanner-active state, and ask-dialog Send/Skip are confirmation
+   gestures that need accurate targeting. */
+body.phone button.sm { min-height: 44px; padding: 10px 14px; }
 button.danger { background: var(--danger); }
 /* Destructive + secondary — bordered, no fill, danger-red text. Apple HIG
    pattern for "risky but not the primary action." Used on Regenerate next to
@@ -1400,6 +1404,9 @@ details.tray.has-alert > summary::after {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+/* Phone surface: segmented buttons get hit mid-action (Joypad/Tilt while
+   driving, Front/Back while pointing the phone). 44pt HIG minimum. */
+body.phone .segmented .mode-btn { min-height: 44px; }
 /* Drive-mode toggle inherits .segmented; just needs the right-anchor
    so it sits in the section header without pushing the driving
    controls down. */
@@ -2615,8 +2622,12 @@ body.phone textarea {
   gap: 6px;
   background: transparent;
   border: none;
-  padding: 4px 6px;
-  margin: -4px -6px;
+  /* Tap target is at least 44pt vertical (HIG floor). Negative margin
+     compensates so the header's visual baseline doesn't move — the
+     hit-rect just grows around the unchanged text. */
+  padding: 10px 8px;
+  margin: -10px -8px;
+  min-height: 44px;
   border-radius: 6px;
   font: inherit;
   color: inherit;
