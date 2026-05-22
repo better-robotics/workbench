@@ -41,20 +41,21 @@ export function registerSlashCommands({ pip, loadConnectGitHub }) {
   });
 
   // /model — pick a provider, optionally with a sub-arg.
-  //   /model anthropic            switch to anthropic (current variant)
-  //   /model anthropic opus       switch to anthropic + opus variant
-  //   /model anthropic sonnet     ... etc
-  //   /model bridge | openai | github | local
+  //   /model anthropic | bridge            switch provider (current variant)
+  //   /model anthropic opus                switch + set Claude variant
+  //   /model bridge sonnet                 same for the bridge provider
+  //   /model openai | github | local
+  // Both providers in CLAUDE_BACKENDS (anthropic, bridge) accept the
+  // /model <provider> <variant> two-token shape — they share pipClaudeModel.
   // Setup (OAuth, API key) happens inline via pip.collectSecret so the
   // user never leaves the chat surface to enter credentials.
   const CLAUDE_ALIASES = CLAUDE_VARIANTS.map(v => v.alias);
   pip.registerSlash({
     name: "model",
-    description: "switch Pip's provider; /model anthropic <variant> for opus/sonnet/haiku",
+    description: "switch Pip's provider; /model anthropic|bridge <variant> for opus/sonnet/haiku",
     // Two-level completion (mirrors /vision pip|detector shape): top
-    // tokens are providers; after `anthropic ` the second token completes
-    // against Claude variants. Other providers don't yet expose nested
-    // model selection — when they do, slot a branch here.
+    // tokens are providers; after a Claude-capable provider the second
+    // token completes against Claude variants.
     complete: (partial) => {
       const tokens = partial.split(/\s+/);
       if (tokens.length <= 1) {
@@ -62,7 +63,7 @@ export function registerSlashCommands({ pip, loadConnectGitHub }) {
       }
       const [provider, ...rest] = tokens;
       const lastToken = rest[rest.length - 1] || "";
-      if (provider.toLowerCase() === "anthropic") {
+      if (CLAUDE_BACKENDS.has(provider.toLowerCase())) {
         return CLAUDE_ALIASES.filter(v => v.startsWith(lastToken.toLowerCase()));
       }
       return [];
@@ -72,7 +73,7 @@ export function registerSlashCommands({ pip, loadConnectGitHub }) {
       if (!trimmed) {
         const others = PIP_PROVIDERS.filter(p => p !== settings.pipBackend);
         return {
-          reply: `Current: \`${settings.pipBackend}\` · model: \`${activeModelForBackend(settings.pipBackend)}\`. Switch with \`/model <provider>\` (${others.map(p => `\`${p}\``).join(", ")}). Claude variants: \`/model anthropic ${CLAUDE_ALIASES.join("|")}\`.`,
+          reply: `Current: \`${settings.pipBackend}\` · model: \`${activeModelForBackend(settings.pipBackend)}\`. Switch with \`/model <provider>\` (${others.map(p => `\`${p}\``).join(", ")}). Claude variants: \`/model anthropic|bridge ${CLAUDE_ALIASES.join("|")}\`.`,
         };
       }
 
@@ -84,23 +85,27 @@ export function registerSlashCommands({ pip, loadConnectGitHub }) {
         return { reply: `Unknown provider \`${provider}\`. Available: ${PIP_PROVIDERS.map(p => `\`${p}\``).join(", ")}.` };
       }
 
-      // Anthropic + variant sub-arg: set variant first, then fall through
-      // to the provider-switch path (which handles auth + saveSettings).
-      // Variant-only switches (current backend stays anthropic) skip auth.
-      if (provider === "anthropic" && subArg) {
+      // Claude-capable provider + variant sub-arg: stage the variant
+      // locally, don't mutate settings until any auth prompt resolves.
+      // Without staging, a user cancelling the API-key prompt below would
+      // leave pipClaudeModel changed even though the provider switch was
+      // cancelled (notably visible on `bridge`, which reads the variant live).
+      let pendingClaudeModel = null;
+      if (CLAUDE_BACKENDS.has(provider) && subArg) {
         const variant = CLAUDE_VARIANTS.find(v => v.alias === subArg);
         if (!variant) {
           return { reply: `Unknown Claude variant \`${subArg}\`. Available: ${CLAUDE_ALIASES.map(v => `\`${v}\``).join(", ")}.` };
         }
-        settings.pipClaudeModel = variant.id;
-        // If already on a Claude-capable backend, no auth needed — just
-        // update the label and persist. Otherwise fall through to switch.
-        if (CLAUDE_BACKENDS.has(settings.pipBackend) && settings.pipBackend === provider) {
+        pendingClaudeModel = variant.id;
+        // Fast path: variant-only change on the current backend — no
+        // provider switch, no auth flow.
+        if (settings.pipBackend === provider) {
+          settings.pipClaudeModel = pendingClaudeModel;
           saveSettings();
           pip.setModelLabel?.(activeModelForBackend(settings.pipBackend));
-          return { reply: `Claude variant set to \`${variant.id}\`.` };
+          return { reply: `Claude variant set to \`${variant.id}\` on \`${provider}\`.` };
         }
-        // Variant set; continue into the provider-switch logic below.
+        // Variant staged; continue into the provider-switch logic below.
       }
 
       // `local` is reserved for pip-core's bundle/local.esm.js (transformers.js
@@ -141,6 +146,9 @@ export function registerSlashCommands({ pip, loadConnectGitHub }) {
         settings.pipOpenaiKey = key;
       }
 
+      // All gates passed (no cancellation, no auth failure). Commit the
+      // staged variant alongside the backend switch so they land together.
+      if (pendingClaudeModel) settings.pipClaudeModel = pendingClaudeModel;
       settings.pipBackend = provider;
       saveSettings();
       pip.setModelLabel?.(activeModelForBackend(provider));
