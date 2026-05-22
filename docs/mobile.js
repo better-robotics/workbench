@@ -331,19 +331,56 @@ function wireBackgroundStop() {
 //
 // Front is default — it's the quick-share / "show me what I'm pointing at"
 // idiom most users reach for. Back is the robot-mount idiom and is one tap
-// away. While sharing, the segmented control live-switches via
-// sender.replaceTrack so the desktop sees the same track slot — no
-// renegotiation, no helper-card churn.
+// away. "Back" resolves to the widest available rear lens (see
+// openCameraStream below) — for every use case the phone serves, wider
+// FOV beats the main sensor. While sharing, the segmented control
+// live-switches via sender.replaceTrack so the desktop sees the same
+// track slot — no renegotiation, no helper-card churn.
 let _shareStream = null;
 let _shareSenders = [];
 let _shareFacing = "user";  // "user" (front) | "environment" (back)
 let _shareSwitching = false;
 
+// Pick the widest available back lens when the user wants "Back". For
+// every use case the phone serves here — mounted on the rover for FPV,
+// hand-held showing Pip context, or just a quick view forwarded to the
+// desktop — wider FOV beats the main sensor's narrower framing. iOS
+// post-17 exposes Ultra-Wide as its own deviceId with a "Ultra Wide"
+// label; Android labels are inconsistent so the heuristic falls back to
+// the OS default on no match.
+//
+// Two-call shape: a facingMode request is needed regardless to surface
+// the permission prompt and populate device labels (browsers blank
+// labels until permission lands). After that, if a wider back lens is
+// available and different from what we already have, swap to it and
+// stop the original tracks. Front (`user`) bypasses this — phones
+// rarely expose multiple front lenses, and iOS may misbehave with
+// deviceId selection on the front. Older iPhones with no ultra-wide
+// (SE, base 11/12) return no match and keep the OS-chosen lens.
 async function openCameraStream(facing) {
-  return navigator.mediaDevices.getUserMedia({
+  const stream = await navigator.mediaDevices.getUserMedia({
     video: { facingMode: { ideal: facing } },
     audio: false,
   });
+  if (facing !== "environment") return stream;
+  let widest = null;
+  try {
+    const devs = await navigator.mediaDevices.enumerateDevices();
+    const backs = devs.filter(d => d.kind === "videoinput" && /back/i.test(d.label));
+    widest = backs.find(d => /ultra\s*wide|0\.5/i.test(d.label)) || null;
+  } catch { return stream; }
+  if (!widest) return stream;
+  const current = stream.getVideoTracks()[0]?.getSettings?.().deviceId;
+  if (current === widest.deviceId) return stream;
+  let upgraded;
+  try {
+    upgraded = await navigator.mediaDevices.getUserMedia({
+      video: { deviceId: { exact: widest.deviceId } },
+      audio: false,
+    });
+  } catch { return stream; }
+  stream.getTracks().forEach(t => { try { t.stop(); } catch {} });
+  return upgraded;
 }
 
 async function toggleShareCamera() {
