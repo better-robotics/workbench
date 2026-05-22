@@ -189,6 +189,13 @@ function setExpansionPref(id, expanded) {
   try { localStorage.setItem(EXPANSION_KEY, JSON.stringify(prefs)); } catch {}
 }
 function computeExpanded(entry) {
+  // A disconnected card has no body content — keeping a saved-pref expansion
+  // leaves an empty shell taller than the header (visible when a user
+  // expanded the card while connected, then disconnected). Same conceptual
+  // gate as the chevron-hidden CSS rule in styles.css: only connected /
+  // connecting cards have an expanded shape. The preference is preserved
+  // for reconnection.
+  if (entry.status !== "connected" && entry.status !== "connecting") return false;
   const live = entry.robotStatus;
   if (live && live.st && live.st !== "ready") return true;  // mid-flight work wins
   // Force-expand when a phone helper just got mounted, otherwise the new
