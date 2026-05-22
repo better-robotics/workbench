@@ -566,6 +566,17 @@ a.menu-item { text-decoration: none; }
   transition: transform 0.2s ease-out;
 }
 .robot.expanded .disclosure-chevron { transform: rotate(0); }
+/* When a robot is disconnected (no firmware-down banner, not connecting),
+   expanding it would show nothing useful — hide the chevron and disable the
+   toggle, but visibility:hidden preserves the slot so the header layout
+   stays identical between connected and disconnected cards. */
+.robot:not(.status-connected):not(.status-connecting) .disclosure-chevron {
+  visibility: hidden;
+}
+.robot:not(.status-connected):not(.status-connecting) .label-btn {
+  pointer-events: none;
+  cursor: default;
+}
 .robot-actions { display: flex; gap: 6px; align-items: center; }
 
 /* Active-ops chips — at-a-glance "what's happening" without expanding
