@@ -219,6 +219,32 @@ export function notifyRobotStreamChange(entry) {
   for (const p of _phones.values()) syncRobotMedia(p, entry);
 }
 
+// Operator's laptop camera → all paired phones bridge. One global feed
+// at a time (you don't push two laptop cams). phone-helpers' role-setter
+// owns the MediaStream and pushes the resolved stream here; this module
+// fans it out and tears it down. Phones see it via peer.onTrack and the
+// existing `phone-cam-section` displays it.
+let _phoneFeedStream = null;
+
+function syncPhoneFeedToPhone(phone) {
+  if (!phone || phone.status === "failed") return;
+  if (!phone.phoneFeedSenders) phone.phoneFeedSenders = [];
+  for (const s of phone.phoneFeedSenders) {
+    try { phone.peer.removeTrack(s); } catch {}
+  }
+  phone.phoneFeedSenders = [];
+  if (!_phoneFeedStream) return;
+  for (const t of _phoneFeedStream.getVideoTracks()) {
+    const s = phone.peer.addTrack(t, _phoneFeedStream);
+    if (s) phone.phoneFeedSenders.push(s);
+  }
+}
+
+export function setPhoneFeedStream(stream) {
+  _phoneFeedStream = stream || null;
+  for (const p of _phones.values()) syncPhoneFeedToPhone(p);
+}
+
 function closePairing() {
   // Explicit cancel: kill the session and close the UI. Wired to the
   // Cancel button (user explicitly aborts).
@@ -461,6 +487,8 @@ function _registerPairedPhone(id, peer, defaultLabel) {
   for (const entry of state.devices.values()) {
     if (entry.cameraStream) syncRobotMedia(phone, entry);
   }
+  // And the laptop-cam feed, if the operator has it running.
+  syncPhoneFeedToPhone(phone);
 }
 
 async function beginPairing() {
