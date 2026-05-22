@@ -21,12 +21,11 @@ import { initMotorsKeyboard } from "./capabilities/runtime/signed-pair.js";
 import { initAuthUI, fingerprint as dashFingerprint, pubkeySsh, onKeyChange } from "./auth.js";
 import { initPasswordsUI } from "./passwords.js";
 import { initAssistant } from "./assistant.js";
-import { initPhones } from "./phones.js";
+import { initPhones, listPhones } from "./phones.js";
 import {
   initHelpers, setHelpersRobotRenderer,
   attachPhoneCameraTo, getPhoneAttachment,
 } from "./phone-helpers.js";
-import { listPhones } from "./phones.js";
 // aruco.js is wired through phone-helpers.js — phone helpers can be designated
 // as the overhead camera; detection runs against the helper's existing
 // preview tile. No init call here.

@@ -189,9 +189,15 @@ function routeAttachedStream(phoneId, stream) {
   notifyRobotStreamChange(robot);
 }
 
-// Mount a phone's camera onto robot. Called from the helper card's picker.
+// Mount a phone's camera onto robot. Called from the robot card's ⋯ menu.
 // Idempotent. Detaches from any previous robot first. Empty/null robotId
 // detaches.
+//
+// Mount and overhead are mutually exclusive — attaching auto-clears any
+// overhead designation on this phone. The previous single-dropdown shape
+// enforced this on the role-setter; now that attach lives in a different
+// surface, the invariant is enforced here so every caller (UI, future
+// Pip tool calls) gets consistent state.
 export function attachPhoneCameraTo(phoneId, robotId) {
   const prev = _phoneAttachments.get(phoneId) || null;
   if (prev === robotId) return;
@@ -206,6 +212,10 @@ export function attachPhoneCameraTo(phoneId, robotId) {
   if (!robotId) {
     _phoneAttachments.delete(phoneId);
   } else {
+    if (settings.arucoOverheadPhoneId === phoneId) {
+      settings.arucoOverheadPhoneId = null;
+      saveSettings();
+    }
     _phoneAttachments.set(phoneId, robotId);
     const ps = _phoneStreams.get(phoneId);
     if (ps?.stream) routeAttachedStream(phoneId, ps.stream);
