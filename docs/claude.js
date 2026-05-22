@@ -44,6 +44,11 @@ export const OPENAI_SHAPED_BACKENDS = new Set(["openai", "github"]);
 export function activeModelForBackend(backend) {
   if (CLAUDE_BACKENDS.has(backend)) return currentClaudeModel();
   if (OPENAI_SHAPED_BACKENDS.has(backend)) return "gpt-4o-mini";
+  if (backend === "local") {
+    const id = settings.pipLocalModel || "onnx-community/gemma-4-E2B-it-ONNX";
+    const tail = (settings.pipLocalDtype || "q4f16");
+    return `${id.split("/").pop().replace(/-ONNX$/i, "")} · ${tail}`;
+  }
   return backend;
 }
 // Per-Claude-call ceiling. Tool-using conversations make several requests in
@@ -315,6 +320,8 @@ function logBackendError(label, res) {
 }
 
 export async function ask(userText, opts = {}) {
+  if (settings.pipBackend === "local")
+    return _localAsk(userText, opts);
   if (OPENAI_SHAPED_BACKENDS.has(settings.pipBackend))
     return _openaiAsk(userText, opts);
   return _anthropicAsk(userText, opts);
@@ -351,6 +358,100 @@ export async function askAboutFrame(imageDataUrl, prompt, { maxTokens = 100, sys
     const json = JSON.parse(res.body);
     return json?.content?.[0]?.text?.trim() ?? null;
   } catch {
+    return null;
+  }
+}
+
+// In-browser local model via pip-core's createTransformersRenderer +
+// transformers.js + WebGPU. Lazy-imported on first use so a user staying
+// on github/anthropic/openai never pays the ~hundreds of KB pip-local
+// bundle. Gemma 4 sampling defaults are Google's documented standards
+// (temperature 1.0, top_k 64, top_p 0.95; no repetition_penalty per the
+// model card); chatTemplate.enable_thinking suppresses Gemma 4's
+// <|channel>thought</|channel> blocks. pip-core 3.7+ plumbs chatTemplate
+// through; earlier versions ignored it silently — works either way but
+// older bundles leak thought tokens.
+const LOCAL_PROVIDER_URL = "https://cdn.jsdelivr.net/npm/@nevescloud/pip@latest/providers/local.esm.js";
+let _localRenderer = null;
+let _localRendererPromise = null;
+async function loadLocalRenderer() {
+  if (_localRenderer) return _localRenderer;
+  if (_localRendererPromise) return _localRendererPromise;
+  _localRendererPromise = (async () => {
+    const mod = await import(LOCAL_PROVIDER_URL);
+    _localRenderer = mod.createTransformersRenderer();
+    return _localRenderer;
+  })();
+  return _localRendererPromise;
+}
+
+function localModelConfig(maxTokens) {
+  return {
+    id: settings.pipLocalModel || "onnx-community/gemma-4-E2B-it-ONNX",
+    dtype: settings.pipLocalDtype || "q4f16",
+    maxTokens,
+    genParams: { temperature: 1.0, top_p: 0.95, top_k: 64 },
+    chatTemplate: { enable_thinking: false },
+  };
+}
+
+// Cumulative-text → delta callback adapter. pip-core's renderer calls
+// setReplyText(turnEl, fullText) on every chunk; the dashboard wants
+// per-call deltas. last is closure-scoped per generate() invocation.
+function makeDeltaAdapter(onDelta) {
+  let last = "";
+  return (_el, fullText) => {
+    if (!onDelta) { last = fullText; return; }
+    if (fullText.length <= last.length) return;
+    onDelta(fullText.slice(last.length));
+    last = fullText;
+  };
+}
+
+async function _localAsk(userText, { system, maxTokens = 200, onDelta, signal } = {}) {
+  let renderer;
+  try { renderer = await loadLocalRenderer(); }
+  catch (err) { console.warn("[claude/local] provider load failed:", err); return null; }
+  renderer.setModel(localModelConfig(maxTokens));
+  const messages = [];
+  if (system) messages.push({ role: "system", content: system });
+  messages.push({ role: "user", content: userText });
+  try {
+    return await renderer.generate({
+      messages, turnEl: null, signal,
+      setReplyText: makeDeltaAdapter(onDelta),
+    });
+  } catch (err) {
+    if (err?.name === "AbortError") return null;
+    console.warn("[claude/local] generate failed:", err);
+    return null;
+  }
+}
+
+// Tools intentionally NOT dispatched yet. Gemma 4 supports function-
+// calling but pip-core's local provider doesn't parse the inline
+// tool-call format into tool_use events. Until that lands, local
+// generates text only; deterministic tool calls go through Pip's slash
+// commands. Console-warns once per turn so the operator sees why their
+// "drive forward" never executed a move_motor call.
+async function _localAskWithTools(messages, { system, tools, maxTokens = 1024, onDelta, shouldAbort, signal } = {}) {
+  if (tools?.length) {
+    console.info(`[claude/local] tools (${tools.length}) ignored — local generates text only; use slash commands for tool dispatch.`);
+  }
+  if (shouldAbort?.()) return "(stopped)";
+  let renderer;
+  try { renderer = await loadLocalRenderer(); }
+  catch (err) { console.warn("[claude/local] provider load failed:", err); return null; }
+  renderer.setModel(localModelConfig(maxTokens));
+  const full = system ? [{ role: "system", content: system }, ...messages] : messages;
+  try {
+    return await renderer.generate({
+      messages: full, turnEl: null, signal,
+      setReplyText: makeDeltaAdapter(onDelta),
+    });
+  } catch (err) {
+    if (err?.name === "AbortError") return "(stopped)";
+    console.warn("[claude/local] generate failed:", err);
     return null;
   }
 }
@@ -414,6 +515,8 @@ async function _openaiAsk(userText, { system, maxTokens = 200 } = {}) {
 //                                             stop and return the canned
 //                                             "(reached iteration limit)".
 export async function askWithTools(messages, opts = {}) {
+  if (settings.pipBackend === "local")
+    return _localAskWithTools(messages, opts);
   if (OPENAI_SHAPED_BACKENDS.has(settings.pipBackend))
     return _openaiAskWithTools(messages, opts);
   return _anthropicAskWithTools(messages, opts);

@@ -276,14 +276,15 @@ async function actOnFailure(backend, turnEl) {
 // to decide whether to surface the first-message onboarding picker. Bridge
 // is Keychain-backed by the ai-bridge proxy, opaque to the page; treat it
 // as always-credentialed and let the existing failure-recovery flow handle
-// "proxy not running." `local` is reserved for pip-core's bundle/local
-// (transformers.js + WebGPU) and isn't wired into dispatch yet.
+// "proxy not running." `local` runs entirely in-browser via WebGPU — no
+// credentials, just the one-time model download on first generate.
 function hasCredentialsForBackend(backend) {
   switch (backend) {
     case "github":    return !!settings.githubAuth?.token;
     case "anthropic": return !!settings.pipApiKey;
     case "openai":    return !!settings.pipOpenaiKey;
     case "bridge":    return true;
+    case "local":     return typeof navigator !== "undefined" && !!navigator.gpu;
     default:          return false;
   }
 }
@@ -298,7 +299,7 @@ async function offerBackendChoice(turnEl) {
     github:    "GitHub Models (free · sign in)",
     anthropic: "Anthropic (paste API key)",
     openai:    "OpenAI (paste API key)",
-    local:     "Local (in-browser · coming soon)",
+    local:     "Local (in-browser · Gemma 4 E2B · ~1.5 GB download)",
   };
   const choice = await _pip.askInChat({
     question: "Pick a backend for Pip — your message will continue after setup.",
@@ -337,10 +338,19 @@ async function offerBackendChoice(turnEl) {
     return true;
   }
   if (choice === labels.local) {
+    if (typeof navigator === "undefined" || !navigator.gpu) {
+      _pip.appendReplyBubble(turnEl).setText(
+        "Local inference needs WebGPU — not available in this browser. Chrome 113+ / Edge 113+ on a recent OS with GPU acceleration enabled. Pick another backend.",
+      );
+      return false;
+    }
+    settings.pipBackend = "local";
+    saveSettings();
+    _pip.setModelLabel?.(activeModelForBackend("local"));
     _pip.appendReplyBubble(turnEl).setText(
-      "Local in-browser inference (pip-core's bundle/local) isn't wired into dispatch yet. Pick another backend, or run `/model` later.",
+      "Local model selected. First message downloads ~1.5 GB of weights (browser-cached after). Tools aren't routed to local yet; use slash commands for tool dispatch.",
     );
-    return false;
+    return true;
   }
   return false;  // user dismissed
 }

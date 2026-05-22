@@ -108,14 +108,23 @@ export function registerSlashCommands({ pip, loadConnectGitHub }) {
         // Variant staged; continue into the provider-switch logic below.
       }
 
-      // `local` is reserved for pip-core's bundle/local.esm.js (transformers.js
-      // + WebGPU) and isn't yet wired into claude.js's dispatch. Surface it
-      // in the menu so the taxonomy is honest, but don't flip pipBackend
-      // until the actual provider is implemented — that would brick the
-      // user's session.
+      // `local` is browser-resident inference via pip-core's
+      // createTransformersRenderer (transformers.js + WebGPU). No auth /
+      // key needed — just download the model on first use. Defaults to
+      // Gemma 4 E2B-it at q4f16 (~1.5GB decoder, browser-cached after).
+      // Tools aren't dispatched to local yet (pip-core's local provider
+      // doesn't parse Gemma's inline tool-call format into tool_use
+      // events) — chat works; deterministic tool calls go through slash
+      // commands until that lands.
       if (provider === "local") {
+        if (typeof navigator === "undefined" || !navigator.gpu) {
+          return { reply: "Local inference needs WebGPU — not available in this browser. Chrome 113+ / Edge 113+ on a recent OS with GPU acceleration enabled." };
+        }
+        settings.pipBackend = "local";
+        saveSettings();
+        pip.setModelLabel?.(activeModelForBackend("local"));
         return {
-          reply: "Local in-browser inference (pip-core's `bundle/local.esm.js` — transformers.js + WebGPU) isn't wired into the dispatch yet. Staying on `" + settings.pipBackend + "`. When implemented this'll be `/model local <model-id>`.",
+          reply: `Backend set to \`local\` — \`${activeModelForBackend("local")}\`. **First message downloads ~1.5 GB of weights** (browser-cached after). Tools aren't routed to local yet; use slash commands for deterministic dispatch.`,
         };
       }
 
