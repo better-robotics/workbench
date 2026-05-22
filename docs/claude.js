@@ -409,7 +409,11 @@ async function _localAsk(userText, { system, onDelta, signal } = {}) {
   let text = "";
   try {
     for await (const ev of stream) {
-      if (ev.type === "text_delta") { text += ev.text; onDelta?.(ev.text); }
+      // onDelta contract here matches streamAnthropicViaProxy's: pass the
+      // FULL text so far (callers replace the bubble each tick rather
+      // than diff/append). Sending just ev.text would have the host
+      // repaint with each chunk in isolation.
+      if (ev.type === "text_delta") { text += ev.text; onDelta?.(text); }
     }
   } catch (err) {
     if (err?.name === "AbortError") return null;
@@ -437,16 +441,26 @@ async function _localAskWithTools(messages, { system, tools, executor, maxIterat
     if (shouldAbort?.()) return "(stopped)";
     budget--;
 
-    const stream = provider({ messages: convo, system, tools, turnEl: null });
+    // Per-iteration AbortController so a mid-stream Stop click (shouldAbort
+    // flipping true while tokens are arriving) actually halts the
+    // transformers.js generate loop — the runtime won't notice
+    // shouldAbort() between events on its own, and a single Gemma 4
+    // turn at q4f16 can run 5-10s.
+    const iterAbort = new AbortController();
+    const stream = provider({ messages: convo, system, tools, turnEl: null, signal: iterAbort.signal });
     const assistantContent = [];
     let iterText = "";
     let stopReason = "end_turn";
 
     try {
       for await (const ev of stream) {
+        if (shouldAbort?.()) { iterAbort.abort(); return "(stopped)"; }
         if (ev.type === "text_delta") {
           iterText += ev.text;
-          onDelta?.(ev.text);
+          // Pass the iteration's cumulative text — matches
+          // streamAnthropicViaProxy's contract (callers replace the
+          // bubble per tick, not append).
+          onDelta?.(iterText);
         } else if (ev.type === "tool_use") {
           // Flush any text that preceded this tool call into the content
           // array so the assistant turn preserves arrival order.
