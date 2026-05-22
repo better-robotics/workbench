@@ -316,13 +316,28 @@ function wireBackgroundStop() {
 
 // ── Phone-camera-as-helper ────────────────────────────────────────
 //
-// Toggle the phone's back camera into the paired WebRTC connection as
-// an outgoing media stream. Desktop picks it up via peer.onTrack and
+// Toggle the phone's camera into the paired WebRTC connection as an
+// outgoing media stream. Desktop picks it up via peer.onTrack and
 // registers it in its helpers list (phone-helpers.js). Pairing layer handles
 // renegotiation on addTrack — `negotiationneeded` fires, Peer
 // re-offers, desktop answers, track lands on the other side.
+//
+// Front is default — it's the quick-share / "show me what I'm pointing at"
+// idiom most users reach for. Back is the robot-mount idiom and is one tap
+// away. While sharing, the segmented control live-switches via
+// sender.replaceTrack so the desktop sees the same track slot — no
+// renegotiation, no helper-card churn.
 let _shareStream = null;
 let _shareSenders = [];
+let _shareFacing = "user";  // "user" (front) | "environment" (back)
+let _shareSwitching = false;
+
+async function openCameraStream(facing) {
+  return navigator.mediaDevices.getUserMedia({
+    video: { facingMode: { ideal: facing } },
+    audio: false,
+  });
+}
 
 async function toggleShareCamera() {
   if (_shareStream) { _stopSharing(); return { ok: true, stopped: true }; }
@@ -333,10 +348,7 @@ async function toggleShareCamera() {
   }
   let stream;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: "environment" } },
-      audio: false,
-    });
+    stream = await openCameraStream(_shareFacing);
   } catch (err) {
     showCommandStatus(`Camera unavailable: ${err.message || err}`, "alert");
     return { ok: false, error: err.message || String(err) };
@@ -356,6 +368,88 @@ async function toggleShareCamera() {
   const btn = $("phone-share-btn");
   if (btn) { btn.textContent = "Stop sharing this device's camera"; btn.classList.add("on"); }
   return { ok: true };
+}
+
+// While sharing, swap the camera underneath the existing RTCRtpSender so
+// the desktop sees no track change — just a different image. When not
+// sharing, just remember the choice for the next Share tap.
+//
+// Mutation discipline: on the sharing path, `_shareFacing` and the
+// segmented buttons stay on the previous value until replaceTrack
+// resolves. Otherwise a failed switch leaves the UI claiming a camera
+// the desktop isn't actually receiving. Failures stop the just-opened
+// stream and leave the existing share untouched.
+function stopTracks(stream) {
+  if (!stream) return;
+  for (const t of stream.getTracks()) { try { t.stop(); } catch {} }
+}
+
+async function switchShareFacing(nextFacing) {
+  if (nextFacing !== "user" && nextFacing !== "environment") return;
+  if (_shareSwitching) return;
+  if (_shareFacing === nextFacing && _shareStream) return;
+
+  // Not sharing: safe to mutate immediately — there's no live stream
+  // whose state we could lie about. Next Share tap honors the choice.
+  if (!_shareStream) {
+    _shareFacing = nextFacing;
+    updateShareFacingButtons();
+    return;
+  }
+
+  _shareSwitching = true;
+  let newStream = null;
+  try {
+    try {
+      newStream = await openCameraStream(nextFacing);
+    } catch (err) {
+      showCommandStatus(`Camera unavailable: ${err.message || err}`, "alert");
+      return;
+    }
+    // Sharing may have been stopped (user tapped Stop, peer closed,
+    // tab backgrounded) during the getUserMedia await. Discard the new
+    // stream and bail — _stopSharing already cleaned up.
+    if (!_shareStream) { stopTracks(newStream); return; }
+    const newTrack = newStream.getVideoTracks()[0];
+    const sender = _shareSenders[0];
+    if (!newTrack || !sender?.replaceTrack) {
+      showCommandStatus("Switch failed: sender unavailable", "alert");
+      stopTracks(newStream);
+      return;
+    }
+    try {
+      await sender.replaceTrack(newTrack);
+    } catch (err) {
+      showCommandStatus(`Switch failed: ${err.message || err}`, "alert");
+      stopTracks(newStream);
+      return;
+    }
+    // Sharing may have been stopped during the replaceTrack await too.
+    // The track is now live on the sender but _stopSharing already
+    // emptied _shareSenders, so stop the new stream and leave the
+    // dead-sender path to clean itself up on next addTrack.
+    if (!_shareStream) { stopTracks(newStream); return; }
+    // Success — stop old tracks, swap stream + preview, commit UI state.
+    stopTracks(_shareStream);
+    _shareStream = new MediaStream([newTrack]);
+    newTrack.addEventListener("ended", () => _stopSharing());
+    _shareFacing = nextFacing;
+    updateShareFacingButtons();
+    const preview = $("phone-share-preview");
+    if (preview) {
+      preview.srcObject = _shareStream;
+      preview.play?.().catch(() => {});
+    }
+  } finally {
+    _shareSwitching = false;
+  }
+}
+
+function updateShareFacingButtons() {
+  const front = $("phone-share-mode-front");
+  const back = $("phone-share-mode-back");
+  if (front) front.setAttribute("aria-pressed", _shareFacing === "user" ? "true" : "false");
+  if (back) back.setAttribute("aria-pressed", _shareFacing === "environment" ? "true" : "false");
 }
 
 function _stopSharing() {
@@ -378,6 +472,12 @@ function wireShareCamera() {
   if (!section || !btn) return;
   section.hidden = false;
   btn.addEventListener("click", toggleShareCamera);
+  for (const id of ["phone-share-mode-front", "phone-share-mode-back"]) {
+    const el = $(id);
+    if (!el) continue;
+    el.addEventListener("click", () => switchShareFacing(el.dataset.facing));
+  }
+  updateShareFacingButtons();
 }
 
 // Reconnect / QR-scan surface. Shown when there's no pair code, or after

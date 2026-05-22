@@ -27,6 +27,7 @@ Pure-function tests live in `tests/`; run with `make smoke`. Below needs hardwar
 - [ ] **Motors — human joypad:** drag drives the robot; releasing → watchdog stops within 500 ms.
 - [ ] **Motors — pulse-bounded LLM path:** Pip-issued motor command with `duration_ms` stops at end of window without a separate stop call (firmware auto-stop). Control-loop invariant; regression means planner-layer code can leave the robot moving between decisions.
 - [ ] **Phone Stop button:** from a paired phone, tapping Stop relays through the desktop's BLE session and halts a moving robot. With no robot connected, button surfaces "no robot connected" inline. Safety primitive must be legible, no silent no-op.
+- [ ] **Phone Share camera:** Front is selected by default; tapping Share opens the front camera and a helper card appears on the desktop. While sharing, tapping Back swaps to the rear camera within ~1 s — same helper card, no flash/disconnect (replaceTrack path). Tapping Stop sharing clears the helper card.
 - [ ] **WiFi** Scan returns networks (or empty if none); Join succeeds → status shows "WiFi <ip>" in meta.
 - [ ] **Camera (ESP32)** renders when WiFi joined. Per-camera transport toggle (WebRTC ↔ HTTP MJPEG) switches the live view without page reload; both transports paint frames.
 - [ ] **Camera (Pi)** WebRTC stream comes up once `pi-robot-rtc.service` is healthy; ICE survives Pi reboot.

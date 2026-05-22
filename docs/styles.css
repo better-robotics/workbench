@@ -2851,6 +2851,10 @@ body.phone textarea {
   flex-direction: column;
   gap: 8px;
 }
+/* Segmented control sits flush-left at the section's start; matches the
+   drive-mode toggle idiom but doesn't share its right-anchor (there's no
+   sibling label to push against here). */
+.phone-share-mode { align-self: flex-start; }
 /* Shared action button for "+ Pair remote device" / "+ Share this
    device's camera" — used on both dashboard (helpers-add row) and
    phone (.phone-share section). The phone-share-btn name was

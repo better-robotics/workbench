@@ -150,10 +150,15 @@
     </div>
   </section>
 
-  <!-- Phone-camera-as-helper. Stream phone's back camera to the desktop —
+  <!-- Phone-camera-as-helper. Stream phone's camera to the desktop —
        desktop picks it up via peer.onTrack and surfaces it in phone-helpers.js.
-       Occasional action; one row, not a full-width banner. -->
+       Front is default (operator's face / quick-share frame); Back is the
+       robot-mount idiom. Live-switch via sender.replaceTrack while sharing. -->
   <section class="phone-share" id="phone-share" hidden>
+    <div class="segmented phone-share-mode" id="phone-share-mode">
+      <button class="mode-btn" id="phone-share-mode-front" data-facing="user" type="button" aria-pressed="true">Front</button>
+      <button class="mode-btn" id="phone-share-mode-back" data-facing="environment" type="button" aria-pressed="false">Back</button>
+    </div>
     <button type="button" id="phone-share-btn" class="share-action-btn">+ Share this device's camera</button>
     <video id="phone-share-preview" class="phone-share-preview" playsinline muted hidden></video>
   </section>
