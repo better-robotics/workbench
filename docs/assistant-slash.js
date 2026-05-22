@@ -139,60 +139,94 @@ export function registerSlashCommands({ pip, loadConnectGitHub }) {
     },
   });
 
-  // /vision on|off — toggle whether Pip can see camera frames directly.
-  // Tool wires the Anthropic image-in-tool_result content shape; only the
+  // /vision — namespaced surface for the two distinct vision primitives
+  // the dashboard exposes. `pip` controls whether the *planner* gets raw
+  // frames in its tool surface (slow, open-vocab, costs tokens, scene-
+  // reasoning). `detector` controls which in-browser closed-vocab model
+  // serves the *reflex layer* (~10–30ms, free, bbox-only). They live at
+  // different rungs of the model-discipline cascade — kept distinct to
+  // avoid the "one AI knob covers everything" anti-pattern, but unified
+  // under one slash so the operator has one place to look. Pip vision
+  // wires the Anthropic image-in-tool_result content shape; only the
   // bridge + anthropic backends ship the right content-block packing.
+  const VISION_SUBS = ["pip", "detector"];
+  const PIP_VISION_VALUES = ["on", "off"];
+
+  const visionStatus = () => {
+    const pip = settings.pipVisionEnabled ? "on" : "off";
+    const det = getActiveDetectorName();
+    const detLines = getAvailableDetectors().map(d => {
+      const marker = d.name === det ? "•" : " ";
+      return `  ${marker} \`${d.name}\` — ${d.label}`;
+    }).join("\n");
+    return `Vision surfaces:\n- \`pip\` (planner sees frames): \`${pip}\` — toggle with \`/vision pip on|off\`\n- \`detector\` (in-browser reflex): \`${det}\` — switch with \`/vision detector <name>\`\n${detLines}`;
+  };
+
   pip.registerSlash({
     name: "vision",
-    description: "let Pip see camera frames directly (on/off)",
-    complete: (partial) => ["on", "off"].filter(s => s.startsWith(partial.toLowerCase())),
-    handler: (argsString) => {
-      const arg = argsString.trim().toLowerCase();
-      if (!arg) {
-        return { reply: `Vision is currently \`${settings.pipVisionEnabled ? "on" : "off"}\`. Use \`/vision on\` or \`/vision off\`.` };
+    description: "switch planner vision (pip on|off) or reflex detector (detector mediapipe|yolo26)",
+    complete: (partial) => {
+      // partial is the full args string after `/vision `. Branch on
+      // whether the user has typed the subcommand yet — if not, suggest
+      // the sub names; if yes, suggest values for that sub.
+      const tokens = partial.split(/\s+/);
+      if (tokens.length <= 1) {
+        return VISION_SUBS.filter(s => s.startsWith(tokens[0].toLowerCase()));
       }
-      if (arg !== "on" && arg !== "off") {
-        return { reply: "Usage: `/vision on` or `/vision off`." };
+      const [sub, ...rest] = tokens;
+      const lastToken = rest[rest.length - 1] || "";
+      if (sub === "pip") {
+        return PIP_VISION_VALUES.filter(v => v.startsWith(lastToken.toLowerCase()));
       }
-      settings.pipVisionEnabled = arg === "on";
-      saveSettings();
-      return { reply: `Vision ${arg}.` };
+      if (sub === "detector") {
+        return getAvailableDetectors()
+          .map(d => d.name)
+          .filter(n => n.startsWith(lastToken.toLowerCase()));
+      }
+      return [];
     },
-  });
-
-  // /detector — switch the closed-vocab detector backend. Backends are
-  // lazy-loaded by detectors.js, so switching is cheap: the previously-
-  // active module stays cached in memory but a switch immediately routes
-  // all future detectOnce / startDetection calls (and the active
-  // vocabulary surfaced in tool schemas + the Reflex card UI). Persists
-  // through settings.pipDetector inside setActiveDetector().
-  pip.registerSlash({
-    name: "detector",
-    description: "switch the closed-vocab detector backend (mediapipe / yolo26)",
-    complete: (partial) => getAvailableDetectors()
-      .map(d => d.name)
-      .filter(n => n.startsWith(partial.toLowerCase())),
     handler: (argsString) => {
-      const arg = argsString.trim().toLowerCase();
-      const available = getAvailableDetectors();
-      if (!arg) {
-        const lines = available.map(d => {
-          const marker = d.name === getActiveDetectorName() ? "•" : " ";
-          return `${marker} \`${d.name}\` — ${d.label}`;
-        }).join("\n");
-        return { reply: `Active detector: \`${getActiveDetectorName()}\`.\n\n${lines}\n\nSwitch with \`/detector <name>\`.` };
+      const trimmed = argsString.trim();
+      if (!trimmed) return { reply: visionStatus() };
+
+      const [sub, ...rest] = trimmed.split(/\s+/);
+      const subArg = rest.join(" ").trim().toLowerCase();
+
+      if (sub === "pip") {
+        if (!subArg) {
+          return { reply: `Pip vision is currently \`${settings.pipVisionEnabled ? "on" : "off"}\`. Use \`/vision pip on\` or \`/vision pip off\`.` };
+        }
+        if (subArg !== "on" && subArg !== "off") {
+          return { reply: "Usage: `/vision pip on` or `/vision pip off`." };
+        }
+        settings.pipVisionEnabled = subArg === "on";
+        saveSettings();
+        return { reply: `Pip vision ${subArg}.` };
       }
-      if (!available.some(d => d.name === arg)) {
-        const names = available.map(d => `\`${d.name}\``).join(", ");
-        return { reply: `Unknown detector \`${arg}\`. Available: ${names}.` };
+
+      if (sub === "detector") {
+        const available = getAvailableDetectors();
+        if (!subArg) {
+          const lines = available.map(d => {
+            const marker = d.name === getActiveDetectorName() ? "•" : " ";
+            return `${marker} \`${d.name}\` — ${d.label}`;
+          }).join("\n");
+          return { reply: `Active detector: \`${getActiveDetectorName()}\`.\n\n${lines}\n\nSwitch with \`/vision detector <name>\`.` };
+        }
+        if (!available.some(d => d.name === subArg)) {
+          const names = available.map(d => `\`${d.name}\``).join(", ");
+          return { reply: `Unknown detector \`${subArg}\`. Available: ${names}.` };
+        }
+        try {
+          setActiveDetector(subArg);
+        } catch (err) {
+          return { reply: `Failed to switch: ${err.message || err}` };
+        }
+        const label = available.find(d => d.name === subArg)?.label || subArg;
+        return { reply: `Detector set to \`${subArg}\` — ${label}. First detection call will lazy-load the model.` };
       }
-      try {
-        setActiveDetector(arg);
-      } catch (err) {
-        return { reply: `Failed to switch: ${err.message || err}` };
-      }
-      const label = available.find(d => d.name === arg)?.label || arg;
-      return { reply: `Detector set to \`${arg}\` — ${label}. First detection call will lazy-load the model.` };
+
+      return { reply: `Unknown subcommand \`${sub}\`. Use \`pip\` (planner vision) or \`detector\` (reflex backend).` };
     },
   });
 }

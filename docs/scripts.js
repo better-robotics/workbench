@@ -349,8 +349,8 @@ function makeRobotApi(entry) {
     frame(maxDim = 320) { return captureFrameDataUrl(entry, maxDim); },
 
     // Closed-vocab detection on the current robot frame, via the active
-    // backend selected by /detector (mediapipe or yolo26). For open-vocab
-    // text-prompt detection, use Pip via `pip.ask(...)`.
+    // backend selected by /vision detector (mediapipe or yolo26). For
+    // open-vocab text-prompt detection, use Pip via `pip.ask(...)`.
     async detections(opts = {}) {
       const dets = await detDetectOnce(entry, opts);
       // null = either the detector failed to init / mid-session crashed,
