@@ -373,19 +373,24 @@ async function toggleShareCamera() {
     preview.play?.().catch(() => {});
   }
   const btn = $("phone-share-btn");
-  if (btn) { btn.textContent = "Stop sharing this device's camera"; btn.classList.add("on"); }
+  if (btn) { btn.textContent = "Stop sharing"; btn.classList.add("on"); }
+  // Front/Back segmented is a live "flip camera" action — only meaningful
+  // while a stream is running. Hidden by default; revealed here.
+  const seg = $("phone-share-mode");
+  if (seg) seg.hidden = false;
   return { ok: true };
 }
 
-// While sharing, swap the camera underneath the existing RTCRtpSender so
-// the desktop sees no track change — just a different image. When not
-// sharing, just remember the choice for the next Share tap.
+// Swap the camera underneath the existing RTCRtpSender so the desktop
+// sees no track change — just a different image. Only called while
+// sharing (the segmented control is hidden otherwise), so the not-
+// sharing branch is just a defensive bail.
 //
-// Mutation discipline: on the sharing path, `_shareFacing` and the
-// segmented buttons stay on the previous value until replaceTrack
-// resolves. Otherwise a failed switch leaves the UI claiming a camera
-// the desktop isn't actually receiving. Failures stop the just-opened
-// stream and leave the existing share untouched.
+// Mutation discipline: `_shareFacing` and the segmented buttons stay
+// on the previous value until replaceTrack resolves. Otherwise a
+// failed switch leaves the UI claiming a camera the desktop isn't
+// actually receiving. Failures stop the just-opened stream and leave
+// the existing share untouched.
 function stopTracks(stream) {
   if (!stream) return;
   for (const t of stream.getTracks()) { try { t.stop(); } catch {} }
@@ -394,15 +399,8 @@ function stopTracks(stream) {
 async function switchShareFacing(nextFacing) {
   if (nextFacing !== "user" && nextFacing !== "environment") return;
   if (_shareSwitching) return;
-  if (_shareFacing === nextFacing && _shareStream) return;
-
-  // Not sharing: safe to mutate immediately — there's no live stream
-  // whose state we could lie about. Next Share tap honors the choice.
-  if (!_shareStream) {
-    _shareFacing = nextFacing;
-    updateShareFacingButtons();
-    return;
-  }
+  if (!_shareStream) return;
+  if (_shareFacing === nextFacing) return;
 
   _shareSwitching = true;
   let newStream = null;
@@ -470,7 +468,13 @@ function _stopSharing() {
   const preview = $("phone-share-preview");
   if (preview) { preview.srcObject = null; preview.hidden = true; }
   const btn = $("phone-share-btn");
-  if (btn) { btn.textContent = "+ Share this device's camera"; btn.classList.remove("on"); }
+  if (btn) { btn.textContent = "Share camera"; btn.classList.remove("on"); }
+  // Segmented Front/Back has nothing to act on without a live stream.
+  // Reset facing to the default so the next Share tap starts fresh.
+  const seg = $("phone-share-mode");
+  if (seg) seg.hidden = true;
+  _shareFacing = "user";
+  updateShareFacingButtons();
 }
 
 function wireShareCamera() {
