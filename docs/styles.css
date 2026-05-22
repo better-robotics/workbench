@@ -566,10 +566,13 @@ a.menu-item { text-decoration: none; }
   transition: transform 0.2s ease-out;
 }
 .robot.expanded .disclosure-chevron { transform: rotate(0); }
-/* When a robot is disconnected (no firmware-down banner, not connecting),
-   expanding it would show nothing useful — hide the chevron and disable the
-   toggle, but visibility:hidden preserves the slot so the header layout
-   stays identical between connected and disconnected cards. */
+/* When the card isn't connected or connecting (disconnected, errored, or
+   firmware-down — firmware-down's own banner takes over inside the body),
+   expanding shows nothing useful. Hide the chevron via visibility:hidden so
+   the header layout stays identical, and kill the affordance on the button.
+   The real no-op gate lives in app.js's toggleExpand — pointer-events here
+   is cosmetic (the row's click handler would otherwise fire when the
+   pointer-events:none button is clicked over). */
 .robot:not(.status-connected):not(.status-connecting) .disclosure-chevron {
   visibility: hidden;
 }

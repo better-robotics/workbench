@@ -549,6 +549,12 @@ function renderEntry(entry) {
   const menuBtn = entry.node.querySelector('[data-action="menu"]');
   if (menuBtn) menuBtn.addEventListener("click", () => openMenu(menuBtn, id));
   const toggleExpand = () => {
+    // No-op for cards that have nothing useful to reveal — matches the
+    // CSS chevron-hidden bucket in styles.css. Without this gate, the row
+    // click handler still toggles (pointer-events:none on .label-btn only
+    // suppresses the button itself; the click lands on .row, where the
+    // closest("button") guard returns null and toggle would otherwise fire).
+    if (entry.status !== "connected" && entry.status !== "connecting") return;
     setExpansionPref(id, !entry.node.classList.contains("expanded"));
     renderEntry(entry);
   };
