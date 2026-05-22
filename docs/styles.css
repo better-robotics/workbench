@@ -2513,6 +2513,10 @@ dialog[open]::backdrop { opacity: 1; }
   border-color: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
 }
+/* "No role assigned" state — the select shows "Choose role…" and reads
+   visually de-emphasized so a glance sees "this helper isn't doing
+   anything" without "Idle" being a meaningless real option. */
+.phone-mount.is-placeholder select { color: var(--ink-muted); }
 
 /* Permanent print-markers hint, visible whenever a helper is designated
    overhead. Sits between the role row and the preview tile so it reads

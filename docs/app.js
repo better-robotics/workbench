@@ -21,8 +21,11 @@ import { initMotorsKeyboard } from "./capabilities/runtime/signed-pair.js";
 import { initAuthUI, fingerprint as dashFingerprint, pubkeySsh, onKeyChange } from "./auth.js";
 import { initPasswordsUI } from "./passwords.js";
 import { initAssistant } from "./assistant.js";
-import { initPhones } from "./phones.js";
-import { initHelpers, setHelpersRobotRenderer } from "./phone-helpers.js";
+import { initPhones, listPhones } from "./phones.js";
+import {
+  initHelpers, setHelpersRobotRenderer,
+  attachPhoneCameraTo, getPhoneAttachment,
+} from "./phone-helpers.js";
 // aruco.js is wired through phone-helpers.js — phone helpers can be designated
 // as the overhead camera; detection runs against the helper's existing
 // preview tile. No init call here.
@@ -621,6 +624,32 @@ function openMenu(triggerBtn, id) {
   $("menu-pinout").hidden  = !(entry?.status === "connected" && entry?.fwInfo);
   $("menu-update").hidden       = !entry?.otaDataChar;
   $("menu-disconnect").hidden = !(entry?.status === "connected" || entry?.status === "firmware-down");
+  // Phone-attach group: one button per connected phone, labelled
+  // "Attach <phone> camera" or "Detach <phone> camera" depending on
+  // whether that phone is already mounted on THIS robot. Generated each
+  // time the menu opens so the list reflects current phone status.
+  // Hidden when robot isn't connected or no phones are paired.
+  const phoneAttachGroup = $("menu-phone-attach");
+  phoneAttachGroup.innerHTML = "";
+  const phoneAttachable = entry?.status === "connected";
+  if (phoneAttachable) {
+    for (const phone of listPhones()) {
+      if (phone.status !== "connected") continue;
+      const attachedHere = getPhoneAttachment(phone.id) === id;
+      const label = phone.label || `Phone ${phone.id.slice(0, 6)}`;
+      const btn = document.createElement("button");
+      btn.className = "menu-item";
+      btn.innerHTML = `<svg class="icon-svg"><use href="icons.svg#icon-camera"/></svg>${
+        attachedHere ? `Detach ${escapeHtml(label)} camera` : `Attach ${escapeHtml(label)} camera`
+      }`;
+      btn.addEventListener("click", () => {
+        closeMenu();
+        attachPhoneCameraTo(phone.id, attachedHere ? null : id);
+      });
+      phoneAttachGroup.appendChild(btn);
+    }
+  }
+  phoneAttachGroup.hidden = phoneAttachGroup.children.length === 0;
   const rect = triggerBtn.getBoundingClientRect();
   // Position below-right of trigger, nudging left if it would overflow viewport.
   const menuWidth = 220;

@@ -189,9 +189,15 @@ function routeAttachedStream(phoneId, stream) {
   notifyRobotStreamChange(robot);
 }
 
-// Mount a phone's camera onto robot. Called from the helper card's picker.
+// Mount a phone's camera onto robot. Called from the robot card's ⋯ menu.
 // Idempotent. Detaches from any previous robot first. Empty/null robotId
 // detaches.
+//
+// Mount and overhead are mutually exclusive — attaching auto-clears any
+// overhead designation on this phone. The previous single-dropdown shape
+// enforced this on the role-setter; now that attach lives in a different
+// surface, the invariant is enforced here so every caller (UI, future
+// Pip tool calls) gets consistent state.
 export function attachPhoneCameraTo(phoneId, robotId) {
   const prev = _phoneAttachments.get(phoneId) || null;
   if (prev === robotId) return;
@@ -206,6 +212,10 @@ export function attachPhoneCameraTo(phoneId, robotId) {
   if (!robotId) {
     _phoneAttachments.delete(phoneId);
   } else {
+    if (settings.arucoOverheadPhoneId === phoneId) {
+      settings.arucoOverheadPhoneId = null;
+      saveSettings();
+    }
     _phoneAttachments.set(phoneId, robotId);
     const ps = _phoneStreams.get(phoneId);
     if (ps?.stream) routeAttachedStream(phoneId, ps.stream);
@@ -322,23 +332,18 @@ function renderPhoneCard(p) {
         ? `Sharing camera · ${res}`
         : escapeHtml(`id ${p.id.slice(0, 8)}…`);
 
-  // Single "Camera role" picker — operator / overhead / mount-on-robot are
-  // mutually exclusive (a phone's camera does one job at a time). Shown
-  // whenever the stream is live; mount options appear only when there's
-  // a connected robot to mount on.
-  const connectedRobots = [...state.devices.values()]
-    .filter(e => e.status === "connected")
-    .map(e => ({ id: e.id, name: e.name }));
-  const currentRole = isOverhead ? "overhead" : (attachedTo ? `mount:${attachedTo}` : "operator");
-  const picker = live ? `
+  // "Camera role" picker — operator / overhead are mutually exclusive
+  // (a phone's camera does one job at a time). Hidden when the camera is
+  // mounted on a robot: that attachment is robot-centric and lives on the
+  // robot card (see attachPhoneCameraTo callers in app.js). The mounted
+  // status surfaces in the meta line above.
+  const currentRole = isOverhead ? "overhead" : "operator";
+  const picker = (live && !attachedRobot) ? `
     <label class="phone-mount">
       <span class="meta-prose">Camera role</span>
       <select data-action="phone-role" data-phone-id="${escapeHtml(p.id)}">
         <option value="operator" ${currentRole === "operator" ? "selected" : ""}>Operator (hand-held)</option>
         <option value="overhead" ${currentRole === "overhead" ? "selected" : ""}>Overhead localization</option>
-        ${connectedRobots.map(r =>
-          `<option value="mount:${escapeHtml(r.id)}" ${currentRole === `mount:${r.id}` ? "selected" : ""}>Mount on ${escapeHtml(r.name)}</option>`
-        ).join("")}
       </select>
     </label>
   ` : "";
@@ -375,26 +380,25 @@ function renderPhoneCard(p) {
 }
 
 // Local cameras have a smaller role surface than phones — they can't mount
-// on a robot via WebRTC, and "operator" doesn't apply. So the picker is
-// just Off vs Overhead localization.
+// on a robot via WebRTC, and "operator" doesn't apply. Picker carries
+// just Overhead localization; the unselected placeholder *is* the
+// inactive state (no spurious "Idle" role).
 function renderLocalCameraCard(c) {
   const helperId = `local:${c.deviceId}`;
   const live = !!c.stream;
   const isOverhead = settings.arucoOverheadLocalId === c.deviceId;
   const res = c.trackSettings ? `${c.trackSettings.width || "?"}×${c.trackSettings.height || "?"}` : "";
-  const meta = (isOverhead && live)
-    ? `Overhead localization · ${res}`
-    : "Idle";
   // Mirror the phone card's "live AND designated" check — without it, the
   // dropdown reads "Overhead localization" after a reload (setting persists)
   // even though the stream is dead, which is dishonest UX.
-  const currentRole = (isOverhead && live) ? "overhead" : "off";
+  const isActive = isOverhead && live;
+  const meta = isActive ? `Overhead localization · ${res}` : "";
   const picker = `
-    <label class="phone-mount">
+    <label class="phone-mount ${isActive ? "" : "is-placeholder"}">
       <span class="meta-prose">Camera role</span>
       <select data-action="local-role" data-local-id="${escapeHtml(c.deviceId)}">
-        <option value="off" ${currentRole === "off" ? "selected" : ""}>Idle</option>
-        <option value="overhead" ${currentRole === "overhead" ? "selected" : ""}>Overhead localization</option>
+        <option value="" ${isActive ? "" : "selected"}>Choose role…</option>
+        <option value="overhead" ${isActive ? "selected" : ""}>Overhead localization</option>
       </select>
     </label>
   `;
@@ -416,9 +420,7 @@ function renderLocalCameraCard(c) {
           </div>
         </div>
       </div>
-      <div class="robot-secondary">
-        <div class="robot-meta">${meta}</div>
-      </div>
+      ${meta ? `<div class="robot-secondary"><div class="robot-meta">${meta}</div></div>` : ""}
       ${picker}
       ${body ? `<div class="robot-body">${body}</div>` : ""}
     </section>
@@ -443,17 +445,17 @@ function clearOtherOverhead(except) {
   }
 }
 
-// Single source of truth for "what is this phone's camera doing." Exclusive
-// across operator / overhead / mount-on-robot. Setting any role clears the
-// others first so state can't get inconsistent (e.g. mounted AND overhead).
+// What is this phone's camera doing — operator (default) or overhead.
+// Mount-on-robot is exclusive with both and set via attachPhoneCameraTo
+// (called from the robot card's menu, not here). The picker is hidden
+// whenever the phone is already mounted, so this setter only sees
+// operator/overhead transitions.
 function setPhoneRole(phoneId, role) {
-  attachPhoneCameraTo(phoneId, null);
   if (role === "overhead") {
     clearOtherOverhead(`phone:${phoneId}`);
     settings.arucoOverheadPhoneId = phoneId;
   } else {
     if (settings.arucoOverheadPhoneId === phoneId) settings.arucoOverheadPhoneId = null;
-    if (role.startsWith("mount:")) attachPhoneCameraTo(phoneId, role.slice("mount:".length));
   }
   saveSettings();
   render();
@@ -610,7 +612,8 @@ function wire() {
   });
   list.querySelectorAll('[data-action="local-role"]').forEach(sel => {
     sel.addEventListener("change", () => {
-      setLocalCameraRole(sel.dataset.localId, sel.value);
+      // Empty value = placeholder = no role active; setter takes "off".
+      setLocalCameraRole(sel.dataset.localId, sel.value || "off");
     });
   });
   // Mount the live MediaStream into the freshly-rendered <video> elements.

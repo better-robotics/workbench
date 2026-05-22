@@ -103,7 +103,7 @@
   <div class="helpers-section" id="helpers-section">
     <div class="helpers-heading">
       <span class="label">Helpers</span>
-      <span class="meta-prose">cameras and phones · attach to a robot</span>
+      <span class="meta-prose">cameras and phones</span>
     </div>
     <div id="helpers-list"></div>
   </div>
@@ -229,6 +229,10 @@
   <div class="menu-group">
     <button class="menu-item" id="menu-update"><svg class="icon-svg"><use href="icons.svg#icon-download-cloud"/></svg>Update firmware…</button>
   </div>
+  <!-- Populated dynamically in openMenu(): one entry per connected phone
+       helper, either "Attach <phone> camera" or "Detach <phone> camera"
+       depending on current attachment. Hidden when no phones available. -->
+  <div class="menu-group" id="menu-phone-attach" hidden></div>
   <div class="menu-group">
     <button class="menu-item" id="menu-pinout"><svg class="icon-svg"><use href="icons.svg#icon-cpu"/></svg>Pinout</button>
     <button class="menu-item" id="menu-label"><svg class="icon-svg"><use href="icons.svg#icon-tag"/></svg>Show QR…</button>
