@@ -458,7 +458,22 @@ export function init() {
   sel.innerHTML = `<option value="">— (custom)</option>` +
     TEMPLATES.map(t => `<option value="${t.id}">${t.name}</option>`).join("");
   sel.addEventListener("change", () => {
-    if (!sel.value) return;
+    // Empty-value option (`— (custom)`) is a real action now: clear the
+    // editor so the user starts from a blank slate. Confirm only if the
+    // current contents are an unsaved divergence (matches loadTemplate's
+    // logic — don't pester when the user is about to discard a known
+    // template they could re-pick from the dropdown).
+    if (!sel.value) {
+      const current = editorValue();
+      const isKnown = TEMPLATES.some(t => t.body === current);
+      if (current && !isKnown && !confirm("Clear current script?")) {
+        syncDropdownToEditor();
+        return;
+      }
+      setEditorValue("");
+      saveBody("");
+      return;
+    }
     if (!loadTemplate(sel.value)) syncDropdownToEditor();
   });
   // Cmd/Ctrl-Enter is wired inside the EditorView keymap (see
