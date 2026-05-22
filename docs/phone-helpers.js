@@ -1,5 +1,5 @@
 import { $, escapeHtml } from "./dom.js";
-import { listPhones, setPhonesChangeHandler, notifyRobotStreamChange, requestPhoneCameraShare } from "./phones.js";
+import { listPhones, setPhonesChangeHandler, notifyRobotStreamChange, requestPhoneCameraShare, setPhoneFeedStream } from "./phones.js";
 import { state } from "./state.js";
 import { settings, saveSettings } from "./settings.js";
 import { setOverheadSource, clearOverheadSource } from "./aruco.js";
@@ -30,10 +30,17 @@ let _videoEls = new Map();  // helperId → <video> element (live video)
 // Local videoinputs (laptop webcam, USB cams). enumerateDevices() returns
 // stable deviceIds; labels only resolve after the user grants getUserMedia
 // permission, so first paint is "Camera 1", "Camera 2" until activated.
-// stream is null until designated overhead — we don't open every camera
+// stream is null until designated a role — we don't open every camera
 // just to list it. devicechange triggers re-enumeration.
 // deviceId → { deviceId, label, stream | null, trackSettings | null }
 const _localCameras = new Map();
+
+// Runtime-only marker for the "send to paired phones" role. Not
+// persisted — pushing a webcam to phones is an in-session intent, and
+// auto-resuming a camera-light to "on" across reloads would be
+// surprising. Mutually exclusive with overhead on the same cam, and
+// global-singleton across cams (only one feed at a time).
+let _phoneFeedLocalId = null;
 
 export function initHelpers() {
   setPhonesChangeHandler(() => render());
@@ -116,6 +123,10 @@ async function enumerateLocalCameras() {
     if (settings.arucoOverheadLocalId === id) {
       settings.arucoOverheadLocalId = null;
       saveSettings();
+    }
+    if (_phoneFeedLocalId === id) {
+      _phoneFeedLocalId = null;
+      setPhoneFeedStream(null);
     }
   }
   render();
@@ -391,34 +402,43 @@ function renderPhoneCard(p) {
 
 // Local cameras have a smaller role surface than phones — they can't mount
 // on a robot via WebRTC, and "operator" doesn't apply. Picker carries
-// just Overhead localization; the unselected placeholder *is* the
-// inactive state (no spurious "Idle" role).
+// Overhead localization and Send to phone; the unselected placeholder
+// *is* the inactive state (no spurious "Idle" role).
 function renderLocalCameraCard(c) {
   const helperId = `local:${c.deviceId}`;
   const live = !!c.stream;
   const isOverhead = settings.arucoOverheadLocalId === c.deviceId;
+  const isPhoneFeed = _phoneFeedLocalId === c.deviceId;
   const res = c.trackSettings ? `${c.trackSettings.width || "?"}×${c.trackSettings.height || "?"}` : "";
   // Mirror the phone card's "live AND designated" check — without it, the
   // dropdown reads "Overhead localization" after a reload (setting persists)
   // even though the stream is dead, which is dishonest UX.
-  const isActive = isOverhead && live;
-  const meta = isActive ? `Overhead localization · ${res}` : "";
+  const isActive = (isOverhead || isPhoneFeed) && live;
+  const meta = isActive
+    ? `${isOverhead ? "Overhead localization" : "Sent to phone"} · ${res}`
+    : "";
+  const currentRole = isOverhead ? "overhead" : isPhoneFeed ? "phone-feed" : "";
   const picker = `
     <label class="phone-mount ${isActive ? "" : "is-placeholder"}">
       <span class="meta-prose">Camera role</span>
       <select data-action="local-role" data-local-id="${escapeHtml(c.deviceId)}">
-        <option value="" ${isActive ? "" : "selected"}>Choose role…</option>
-        <option value="overhead" ${isActive ? "selected" : ""}>Overhead localization</option>
+        <option value="" ${currentRole === "" ? "selected" : ""}>Choose role…</option>
+        <option value="overhead" ${currentRole === "overhead" ? "selected" : ""}>Overhead localization</option>
+        <option value="phone-feed" ${currentRole === "phone-feed" ? "selected" : ""}>Send to phone</option>
       </select>
     </label>
   `;
-  const body = (live && isOverhead) ? `
+  const body = live && isOverhead ? `
     ${MARKERS_HINT}
     <div class="helper-preview">
       <video class="helper-video" data-helper-video="${escapeHtml(helperId)}" autoplay playsinline muted></video>
       <svg class="aruco-overlay" data-aruco-overlay-id="${escapeHtml(helperId)}"></svg>
     </div>
     <div class="meta aruco-status" data-aruco-status-id="${escapeHtml(helperId)}">Loading detector…</div>
+  ` : live && isPhoneFeed ? `
+    <div class="helper-preview">
+      <video class="helper-video" data-helper-video="${escapeHtml(helperId)}" autoplay playsinline muted></video>
+    </div>
   ` : "";
   return `
     <section class="card robot helper" data-helper-id="${escapeHtml(helperId)}">
@@ -482,69 +502,118 @@ let _pendingLocalOverhead = null;
 // auto-resume path where failure is the expected outcome whenever the
 // origin or device set changed since the last session (deviceIds scope
 // per-origin, so a Cloudflare-tunnel reload will mismatch).
+//
+// Roles: "overhead" (decoded by aruco) | "phone-feed" (forwarded to
+// paired phones) | anything else = off. One role per cam at a time;
+// changing role on the same cam stops and re-acquires the stream.
 async function setLocalCameraRole(deviceId, role, { silent = false } = {}) {
   const cam = _localCameras.get(deviceId);
   if (!cam) return;
-  if (role === "overhead") {
-    _pendingLocalOverhead = deviceId;
-    clearOtherOverhead(`local:${deviceId}`);
-    try {
-      // `enumerateDevices()` returns videoinputs with EMPTY deviceId
-      // strings until camera permission is granted for the origin. Passing
-      // `exact: ""` then throws OverconstrainedError. Skip the constraint
-      // until we have a real ID (the long hash form); the resolved track's
-      // getSettings().deviceId tells us which camera we actually got.
-      const hasRealId = !!deviceId && deviceId.length >= 16;
-      const constraints = hasRealId
-        ? { video: { deviceId: { exact: deviceId } } }
-        : { video: true };
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      if (_pendingLocalOverhead !== deviceId) {
-        // User switched intent mid-await. Stop the just-acquired tracks
-        // and bail — the off-branch already cleared state.
-        stream.getTracks().forEach(t => t.stop());
-        return;
-      }
-      const track = stream.getVideoTracks()[0];
-      const trackSettings = track ? track.getSettings() : null;
-      const actualDeviceId = trackSettings?.deviceId || deviceId;
-      // If we used {video:true} and the browser picked a different id
-      // than our placeholder, migrate the entry to the real id so future
-      // sessions can exact-match it.
-      let target = cam;
-      if (actualDeviceId !== deviceId) {
-        _localCameras.delete(deviceId);
-        if (!_localCameras.has(actualDeviceId)) {
-          _localCameras.set(actualDeviceId, { deviceId: actualDeviceId, label: cam.label, stream: null, trackSettings: null });
-        }
-        target = _localCameras.get(actualDeviceId);
-      }
-      target.stream = stream;
-      target.trackSettings = trackSettings;
-      // OS-level revoke / camera unplug fires `ended` on the track.
-      // Reflect that in UI immediately instead of leaving a dead stream
-      // dribbling blank frames into the detector.
-      for (const t of stream.getTracks()) {
-        t.addEventListener("ended", () => {
-          if (target.stream === stream) setLocalCameraRole(actualDeviceId, "off");
-        }, { once: true });
-      }
-      settings.arucoOverheadLocalId = actualDeviceId;
-      // Permission grant unlocks labels for OTHER cameras too — re-enumerate
-      // so the picker shows real names next time it opens.
-      enumerateLocalCameras();
-    } catch (err) {
-      cam.stream = null;
-      cam.trackSettings = null;
-      if (settings.arucoOverheadLocalId === deviceId) settings.arucoOverheadLocalId = null;
-      if (!silent) console.warn("[helpers] getUserMedia failed:", err);
-    }
-  } else {
+
+  // Off branch: drop any role this cam held, stop its stream.
+  if (role !== "overhead" && role !== "phone-feed") {
     _pendingLocalOverhead = null;
     if (cam.stream) cam.stream.getTracks().forEach(t => t.stop());
     cam.stream = null;
     cam.trackSettings = null;
     if (settings.arucoOverheadLocalId === deviceId) settings.arucoOverheadLocalId = null;
+    if (_phoneFeedLocalId === deviceId) {
+      _phoneFeedLocalId = null;
+      setPhoneFeedStream(null);
+    }
+    saveSettings();
+    render();
+    return;
+  }
+
+  // Active role: clear conflicts then acquire. Drop any prior stream on
+  // this cam first (covers role transitions on the same deviceId).
+  if (cam.stream) {
+    cam.stream.getTracks().forEach(t => t.stop());
+    cam.stream = null;
+    cam.trackSettings = null;
+  }
+  if (role === "overhead") {
+    _pendingLocalOverhead = deviceId;
+    clearOtherOverhead(`local:${deviceId}`);
+    if (_phoneFeedLocalId === deviceId) {
+      _phoneFeedLocalId = null;
+      setPhoneFeedStream(null);
+    }
+  } else {
+    _pendingLocalOverhead = null;
+    if (settings.arucoOverheadLocalId === deviceId) settings.arucoOverheadLocalId = null;
+    if (_phoneFeedLocalId && _phoneFeedLocalId !== deviceId) {
+      const other = _localCameras.get(_phoneFeedLocalId);
+      if (other?.stream) {
+        other.stream.getTracks().forEach(t => t.stop());
+        other.stream = null;
+        other.trackSettings = null;
+      }
+      _phoneFeedLocalId = null;
+      setPhoneFeedStream(null);
+    }
+  }
+
+  try {
+    // `enumerateDevices()` returns videoinputs with EMPTY deviceId
+    // strings until camera permission is granted for the origin. Passing
+    // `exact: ""` then throws OverconstrainedError. Skip the constraint
+    // until we have a real ID (the long hash form); the resolved track's
+    // getSettings().deviceId tells us which camera we actually got.
+    const hasRealId = !!deviceId && deviceId.length >= 16;
+    const constraints = hasRealId
+      ? { video: { deviceId: { exact: deviceId } } }
+      : { video: true };
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    if (role === "overhead" && _pendingLocalOverhead !== deviceId) {
+      // User switched intent mid-await. Stop the just-acquired tracks
+      // and bail — the off-branch already cleared state.
+      stream.getTracks().forEach(t => t.stop());
+      return;
+    }
+    const track = stream.getVideoTracks()[0];
+    const trackSettings = track ? track.getSettings() : null;
+    const actualDeviceId = trackSettings?.deviceId || deviceId;
+    // If we used {video:true} and the browser picked a different id
+    // than our placeholder, migrate the entry to the real id so future
+    // sessions can exact-match it.
+    let target = cam;
+    if (actualDeviceId !== deviceId) {
+      _localCameras.delete(deviceId);
+      if (!_localCameras.has(actualDeviceId)) {
+        _localCameras.set(actualDeviceId, { deviceId: actualDeviceId, label: cam.label, stream: null, trackSettings: null });
+      }
+      target = _localCameras.get(actualDeviceId);
+    }
+    target.stream = stream;
+    target.trackSettings = trackSettings;
+    // OS-level revoke / camera unplug fires `ended` on the track.
+    // Reflect that in UI immediately instead of leaving a dead stream
+    // dribbling blank frames into the detector / phone feed.
+    for (const t of stream.getTracks()) {
+      t.addEventListener("ended", () => {
+        if (target.stream === stream) setLocalCameraRole(actualDeviceId, "off");
+      }, { once: true });
+    }
+    if (role === "overhead") {
+      settings.arucoOverheadLocalId = actualDeviceId;
+    } else {
+      _phoneFeedLocalId = actualDeviceId;
+      setPhoneFeedStream(stream);
+    }
+    // Permission grant unlocks labels for OTHER cameras too — re-enumerate
+    // so the picker shows real names next time it opens.
+    enumerateLocalCameras();
+  } catch (err) {
+    cam.stream = null;
+    cam.trackSettings = null;
+    if (role === "overhead" && settings.arucoOverheadLocalId === deviceId) settings.arucoOverheadLocalId = null;
+    if (role === "phone-feed" && _phoneFeedLocalId === deviceId) {
+      _phoneFeedLocalId = null;
+      setPhoneFeedStream(null);
+    }
+    if (!silent) console.warn("[helpers] getUserMedia failed:", err);
   }
   saveSettings();
   render();

@@ -225,6 +225,12 @@ Faster sibling for reactive-tier use cases (visual servo, gamepad-overlay tracki
 
 **What hasn't been confirmed.** End-to-end accuracy vs MediaPipe EfficientDet-Lite0 on the same scenes, WebGPU EP stability across the Chrome/Edge versions students will run, first-fetch UX on classroom WiFi (10 MB ONNX + onnxruntime-web bytes). Promote to default — or remove from the registry — only after a side-by-side run. Out of `README.md` and `DEV.md` until then.
 
+## Laptop camera → phone feed (helper card role "Send to phone")
+
+Local-cam helper card gains a third role alongside Overhead. Selecting "Send to phone" opens the camera via getUserMedia and `peer.addTrack`s the video track on every paired phone; the phone displays it in the existing `phone-cam-section` since it's "incoming forwarded video from desktop" — the same sink robot cameras already use. Runtime-only state (`_phoneFeedLocalId` in phone-helpers.js), not persisted across reloads.
+
+**Latent.** `phone-cam-section` displays one stream at a time (`v.srcObject = e.streams[0]`, last-wins). When both a robot camera and the laptop-cam are routed to the same phone simultaneously, whichever fires `peer.onTrack` last wins; there is no UI on the phone to switch back. The existing `available-sources` / `subscribe-source` picker handles this per-robot but is not yet generalized across owner types. Acceptable for the single-source case the prototype is built around; if multi-source coexistence becomes the steady-state demo, generalize the picker (own-id namespace = `"robot:<id>" | "local:<deviceId>"`, single global active per phone) before adding more source kinds. Documented in the audit report that prompted this work.
+
 ---
 
 # Forks in the road — alternatives evaluated, with revisit triggers
