@@ -331,19 +331,78 @@ function wireBackgroundStop() {
 //
 // Front is default — it's the quick-share / "show me what I'm pointing at"
 // idiom most users reach for. Back is the robot-mount idiom and is one tap
-// away. While sharing, the segmented control live-switches via
-// sender.replaceTrack so the desktop sees the same track slot — no
-// renegotiation, no helper-card churn.
+// away. "Back" resolves to the widest available rear lens (see
+// openCameraStream below) — for every use case the phone serves, wider
+// FOV beats the main sensor. While sharing, the segmented control
+// live-switches via sender.replaceTrack so the desktop sees the same
+// track slot — no renegotiation, no helper-card churn.
 let _shareStream = null;
 let _shareSenders = [];
 let _shareFacing = "user";  // "user" (front) | "environment" (back)
 let _shareSwitching = false;
 
+// Find the widest available back lens by label. Returns null when
+// labels are blank (permission not yet granted) or no ultra-wide is
+// exposed (older iPhones, most Android phones). iOS post-17 labels look
+// like "Back Ultra Wide Camera"; the 0.5 fallback catches third-party
+// browser labelings.
+async function findWidestBackLens() {
+  try {
+    const devs = await navigator.mediaDevices.enumerateDevices();
+    const backs = devs.filter(d => d.kind === "videoinput" && d.label && /back/i.test(d.label));
+    return backs.find(d => /ultra\s*wide|0\.5/i.test(d.label)) || null;
+  } catch { return null; }
+}
+
+// Pick the widest available back lens when the user wants "Back". For
+// every use case the phone serves here — mounted on the rover for FPV,
+// hand-held showing Pip context, or just a quick view forwarded to the
+// desktop — wider FOV beats the main sensor's narrower framing.
+//
+// Two paths:
+//   Fast — labels already populated (permission granted in this session
+//   or prior, since Safari/Chrome both persist origin permission). Pick
+//   the ultra-wide deviceId up front, one getUserMedia call, no main-
+//   lens flicker.
+//   Slow — first-time permission or no ultra-wide visible. Open with
+//   facingMode to surface the prompt and populate labels, then upgrade
+//   if a wider lens is now available.
+//
+// Front (`user`) bypasses this — phones rarely expose multiple front
+// lenses, and iOS may misbehave with deviceId selection on the front.
 async function openCameraStream(facing) {
-  return navigator.mediaDevices.getUserMedia({
-    video: { facingMode: { ideal: facing } },
+  if (facing !== "environment") {
+    return navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: facing } },
+      audio: false,
+    });
+  }
+  const preferred = await findWidestBackLens();
+  if (preferred) {
+    try {
+      return await navigator.mediaDevices.getUserMedia({
+        video: { deviceId: { exact: preferred.deviceId } },
+        audio: false,
+      });
+    } catch { /* stale deviceId or revoked permission — fall through */ }
+  }
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: { ideal: "environment" } },
     audio: false,
   });
+  const widest = await findWidestBackLens();
+  if (!widest) return stream;
+  const current = stream.getVideoTracks()[0]?.getSettings?.()?.deviceId;
+  if (current === widest.deviceId) return stream;
+  let upgraded;
+  try {
+    upgraded = await navigator.mediaDevices.getUserMedia({
+      video: { deviceId: { exact: widest.deviceId } },
+      audio: false,
+    });
+  } catch { return stream; }
+  stream.getTracks().forEach(t => { try { t.stop(); } catch {} });
+  return upgraded;
 }
 
 async function toggleShareCamera() {
