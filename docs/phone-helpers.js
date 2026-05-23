@@ -5,7 +5,7 @@ import { reapplyPhoneScreenMode, resolveAttachedMode } from "./phone-screen-mode
 import { SCREEN_MODES } from "./phones.js";
 import { state } from "./state.js";
 import { settings, saveSettings } from "./settings.js";
-import { setOverheadSource, clearOverheadSource } from "./aruco.js";
+import { setOverheadSource, clearOverheadSource } from "./perception/aruco.js";
 
 // Permanent print-marker affordance, rendered whenever a helper is the
 // active overhead source. Single source of truth (no duplication into

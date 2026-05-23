@@ -20,10 +20,10 @@
 // containment principle as ask_human being the bottom rung: a
 // hallucinated Pip call can pick which verb, not invent a new one.
 
-import { startDetection, detectOnce, isDetectorFailed, getActiveVocabulary } from "./detectors.js";
-import { detectGestureOnce, isGesturesFailed } from "./gestures.js";
+import { startDetection, detectOnce, isDetectorFailed, getActiveVocabulary } from "./perception/detectors.js";
+import { detectGestureOnce, isGesturesFailed } from "./perception/gestures.js";
 import { pulseMotors } from "./capabilities/runtime/signed-pair.js";
-import { listCameraSources } from "./camera-frame.js";
+import { listCameraSources } from "./perception/camera-frame.js";
 import { capSection } from "./capabilities/runtime/cap-section.js";
 import { renderEntry } from "./capabilities/runtime/render-bus.js";
 import { escapeHtml } from "./dom.js";

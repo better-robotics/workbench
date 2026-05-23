@@ -14,14 +14,14 @@ import {
   listCameraSources,
   captureFrameDataUrl,
   drawFrameToCanvas,
-} from "../camera-frame.js";
+} from "../perception/camera-frame.js";
 
 // Injected from assistant.js so dispatch can render an in-bubble question
 // with options or free-text. Falls back to the phone path; ask_human
 // surfaces an error if neither transport is available.
 let _askInChat = null;
 export function setAskInChatHandler(fn) { _askInChat = fn; }
-import { detectOnce, isDetectorFailed, getActiveVocabulary, getActiveDetectorName } from "../detectors.js";
+import { detectOnce, isDetectorFailed, getActiveVocabulary, getActiveDetectorName } from "../perception/detectors.js";
 import { startWatcher, stopWatcher, ACTION_NAMES, watcherStatus, awaitReflexGate, isReflexGated } from "../watcher.js";
 import { speak as voiceSpeak } from "../voice.js";
 

@@ -19,8 +19,8 @@
 // (printable sheets in /assets). POS.Posit estimates metric pose from
 // settings.arucoMarkerSizeMm + a focal-length heuristic.
 
-import { state, persist } from "./state.js";
-import { settings } from "./settings.js";
+import { state, persist } from "../state.js";
+import { settings } from "../settings.js";
 
 const CDN = "https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src";
 // Load order matters: svd.js MUST precede posit1.js because posit1.js does

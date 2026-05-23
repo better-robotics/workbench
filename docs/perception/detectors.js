@@ -4,7 +4,7 @@
 // onnx) never hit the wire. Switch backends via setActiveDetector or the
 // `/detector` slash; the setting persists in localStorage.
 
-import { settings, saveSettings } from "./settings.js";
+import { settings, saveSettings } from "../settings.js";
 
 // COCO 80 — the closed vocabulary both shipped backends detect. Single
 // source of truth (was duplicated in watcher.js); other modules read it

@@ -1,7 +1,7 @@
 import { CLAUDE_VARIANTS, CLAUDE_BACKENDS, activeModelForBackend } from "./claude.js";
 import { settings, saveSettings } from "../settings.js";
 import { DEMO_NAMES } from "./demos.js";
-import { getActiveDetectorName, getAvailableDetectors, setActiveDetector } from "../detectors.js";
+import { getActiveDetectorName, getAvailableDetectors, setActiveDetector } from "../perception/detectors.js";
 
 // Slash commands registered on the pip handle. /clear and /help ship as
 // pip-core built-ins (v1.7.0+); these are the dashboard-specific ones.
