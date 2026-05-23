@@ -2982,18 +2982,17 @@ body.phone textarea {
 }
 
 /* Attached-mode: phone is mounted on the robot, not in an operator's
-   hand. Operator chrome is dead weight on the robot's "face" — hide it
-   and fill the viewport with the incoming camera tile (which is the
-   only thing the audience is going to look at). Sticky Stop stays
-   visible (semi-transparent) so anyone in the room can still halt the
-   robot without finding the desktop. Triggered by the screen-mode
-   message from phones.js setPhoneScreenMode. */
+   hand. Operator chrome is dead weight on the robot's "face" — hide
+   everything except the incoming camera tile. The Stop button hides
+   too: the operator is remote (desktop or hand-held phone), and
+   anyone in the room who needs to halt the robot is closer to the
+   robot itself than to a small overlay button on the robot's face. */
 body.phone-attached { background: #000; }
 body.phone-attached .phone-main {
   padding: 0;
   min-height: 100dvh;
 }
-body.phone-attached .phone-main > *:not(#phone-cam-section):not(#phone-command):not(#phone-ask-dialog) {
+body.phone-attached .phone-main > *:not(#phone-cam-section):not(#phone-ask-dialog) {
   display: none !important;
 }
 body.phone-attached #phone-cam-section {
@@ -3021,29 +3020,15 @@ body.phone-attached #phone-cam {
 body.phone-attached #phone-cam-label,
 body.phone-attached #phone-cam-picker,
 body.phone-attached #phone-cam-overlay { display: none; }
-body.phone-attached #phone-command {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 11;
-  margin: 0;
-  padding: 8px 16px calc(8px + env(safe-area-inset-bottom));
-  background: transparent;
-  box-shadow: none;
-}
-body.phone-attached #phone-stop-btn {
-  background: color-mix(in srgb, var(--danger) 78%, transparent);
-  border-color: color-mix(in srgb, var(--danger) 78%, transparent);
-  backdrop-filter: blur(6px);
-}
 
 /* Pip face — full-screen SVG rendered when the phone is in pip-face
-   mode (a sibling of attached/operator-cam mode). The face module
-   (mobile-pip-face.js) mounts an SVG with two eye rects into this
-   container; transform-box: fill-box lets each eye scale/translate
-   around its own center without manual cx/cy bookkeeping. */
-body.phone-face .phone-main > *:not(#pip-face):not(#phone-command):not(#phone-ask-dialog) {
+   mode (sibling of operator-cam mode). The face module mounts an SVG
+   with pip-core's robot shape (head + antennas + ears + spark + Z's)
+   plus morphing rounded-rect eyes. transform-box: fill-box lets each
+   eye scale/translate around its own center without cx/cy bookkeeping.
+   Stop button hidden for the same reason as attached mode — operator
+   is not on the phone. */
+body.phone-face .phone-main > *:not(#pip-face):not(#phone-ask-dialog) {
   display: none !important;
 }
 body.phone-face { background: #000; }
@@ -3062,29 +3047,58 @@ body.phone-face .pip-face { display: flex; }
   height: 100%;
   max-width: 100vw;
   max-height: 100dvh;
+  /* Pip's identity color cascades to strokes via currentColor and to
+     the eye-fill via the variable below. Override on the body class
+     for theme variants without touching the SVG markup. */
+  color: var(--pip-face-stroke, #d8e2e8);
+}
+/* Non-scaling strokes keep the head/antenna outline at a constant
+   rendered width regardless of viewport scale. Without this, the
+   stroke-width of 1.4 in a 24-unit viewBox becomes ~22px on a 390px
+   phone, which reads as comic-thick. */
+.pip-face-svg .pip-face-art *,
+.pip-face-svg .robot-zzz {
+  vector-effect: non-scaling-stroke;
 }
 .pip-face-eye {
-  fill: #4dd0e1;
+  fill: var(--pip-face-eye, #4dd0e1);
+  stroke: none;
   transform-box: fill-box;
   transform-origin: center;
   transition: transform 220ms cubic-bezier(.2, .8, .2, 1), opacity 220ms;
 }
-/* Phone-face mode reuses the same sticky-Stop treatment as attached. */
-body.phone-face #phone-command {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 11;
-  margin: 0;
-  padding: 8px 16px calc(8px + env(safe-area-inset-bottom));
-  background: transparent;
-  box-shadow: none;
+/* Z glyphs hidden by default — surface only in halted/sleepy. Each Z
+   fades up and drifts staggered, breathing-rhythm style (pip-core's
+   pip-zzz keyframes, copied so we don't depend on pip-core's CSS
+   shipping in this load context). */
+.pip-face-svg .robot-zzz text { opacity: 0; }
+.pip-face-svg.is-halted .robot-zzz text,
+.pip-face-svg.is-sleepy .robot-zzz text {
+  animation: pip-face-zzz 2.4s ease-out infinite;
 }
-body.phone-face #phone-stop-btn {
-  background: color-mix(in srgb, var(--danger) 78%, transparent);
-  border-color: color-mix(in srgb, var(--danger) 78%, transparent);
-  backdrop-filter: blur(6px);
+.pip-face-svg.is-halted .robot-zzz-2,
+.pip-face-svg.is-sleepy .robot-zzz-2 { animation-delay: 0.8s; }
+.pip-face-svg.is-halted .robot-zzz-3,
+.pip-face-svg.is-sleepy .robot-zzz-3 { animation-delay: 1.6s; }
+@keyframes pip-face-zzz {
+  0%   { opacity: 0; transform: translate(0, 0); }
+  20%  { opacity: 0.7; }
+  100% { opacity: 0; transform: translate(0.8px, -2.5px); }
+}
+/* halted / sleepy / alert / thinking dim or accent the robot shape so
+   the head/antennas reinforce the state, not just the eyes. */
+.pip-face-svg.is-halted,
+.pip-face-svg.is-sleepy {
+  color: var(--pip-face-stroke-dim, #6a7077);
+}
+.pip-face-svg.is-alert {
+  color: var(--pip-face-stroke-alert, #e8c34e);
+}
+.pip-face-svg.is-alert .pip-face-eye {
+  fill: var(--pip-face-stroke-alert, #e8c34e);
+}
+.pip-face-svg.is-thinking .robot-spark {
+  stroke-width: 2;
 }
 
 /* Pip accordion. Collapsed = just a row with title + status + unread dot;
