@@ -10,7 +10,7 @@ import { waitOpsResponse } from "./ops-response.js";
 import { captureFrameDataUrl } from "./camera-frame.js";
 import { detectOnce as detDetectOnce, startDetection as detStartDetection } from "./detectors.js";
 import { listPhones, askHuman } from "./phones.js";
-import { ask as claudeAsk } from "./claude.js";
+import { ask as claudeAsk } from "./pip/claude.js";
 import { speak as voiceSpeak } from "./voice.js";
 
 // CodeMirror 6 — lazy-loaded on first dialog open so the ~150KB ESM bundle

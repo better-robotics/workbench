@@ -1,29 +1,29 @@
-import { state } from "./state.js";
-import { settings } from "./settings.js";
-import { waitOpsResponse } from "./ops-response.js";
-import { getLog, getConfig, restartService } from "./capabilities/runtime/command.js";
-import { listPhones, askHuman } from "./phones.js";
+import { state } from "../state.js";
+import { settings } from "../settings.js";
+import { waitOpsResponse } from "../ops-response.js";
+import { getLog, getConfig, restartService } from "../capabilities/runtime/command.js";
+import { listPhones, askHuman } from "../phones.js";
 import {
   listHelpers, startHelperCamera, stopHelperCamera, takeHelperSnapshot,
-} from "./phone-helpers.js";
-import { pulseMotors } from "./capabilities/runtime/signed-pair.js";
-import { setRgbValue } from "./capabilities/runtime/rgb.js";
-import { setLevelValue } from "./capabilities/runtime/level.js";
+} from "../phone-helpers.js";
+import { pulseMotors } from "../capabilities/runtime/signed-pair.js";
+import { setRgbValue } from "../capabilities/runtime/rgb.js";
+import { setLevelValue } from "../capabilities/runtime/level.js";
 import { notePipRgbOverride } from "./agent-light.js";
 import {
   listCameraSources,
   captureFrameDataUrl,
   drawFrameToCanvas,
-} from "./camera-frame.js";
+} from "../camera-frame.js";
 
 // Injected from assistant.js so dispatch can render an in-bubble question
 // with options or free-text. Falls back to the phone path; ask_human
 // surfaces an error if neither transport is available.
 let _askInChat = null;
 export function setAskInChatHandler(fn) { _askInChat = fn; }
-import { detectOnce, isDetectorFailed, getActiveVocabulary, getActiveDetectorName } from "./detectors.js";
-import { startWatcher, stopWatcher, ACTION_NAMES, watcherStatus, awaitReflexGate, isReflexGated } from "./watcher.js";
-import { speak as voiceSpeak } from "./voice.js";
+import { detectOnce, isDetectorFailed, getActiveVocabulary, getActiveDetectorName } from "../detectors.js";
+import { startWatcher, stopWatcher, ACTION_NAMES, watcherStatus, awaitReflexGate, isReflexGated } from "../watcher.js";
+import { speak as voiceSpeak } from "../voice.js";
 
 // Motor-tool gate. Blocks a tool call while the reflex watcher's halt
 // gate is engaged (a halt class visible, or a pause gesture held). 10s
@@ -42,6 +42,30 @@ async function awaitMotorGate(id) {
     return { ok: false, error: `reflex: "${what}" blocked motion for 10s — remove the trigger or call ask_human` };
   }
   return null;
+}
+
+// Execute a chunked pulse chain on a robot, gating each chunk through
+// the reflex motor-gate so a fire that arrives mid-chain halts
+// remaining pulses instead of letting them blast through. derive(p)
+// returns { l, r, ms } per chunk; onSuccess(p) is called after each
+// successful pulse (used by drive_distance_cm to accumulate cm, by
+// drive_arc to accumulate ms). Returns { results, gatedAt }.
+async function runPulseChain(robotId, pulses, derive, onSuccess) {
+  const results = [];
+  let gatedAt = null;
+  for (const p of pulses) {
+    const gateErr = await awaitMotorGate(robotId);
+    if (gateErr) { gatedAt = gateErr; break; }
+    const { l, r, ms } = derive(p);
+    const res = await pulseMotors(robotId, l, r, ms);
+    results.push(res);
+    if (!res?.ok) break;
+    onSuccess?.(p);
+    // Wait for the pulse to complete on-robot — otherwise the next
+    // pulse cancels the in-flight one and motion judders.
+    await new Promise(resolve => setTimeout(resolve, ms + 30));
+  }
+  return { results, gatedAt };
 }
 
 // Linear-velocity calibration for drive_distance_cm / approach_until.
@@ -416,12 +440,8 @@ async function dispatch(name, input) {
       const e = state.devices.get(input.id);
       if (!e) return { error: `no robot with id ${input.id}` };
       const now = Date.now();
-      // motion_invalidated: true when a motor pulse fired AFTER the last
-      // telemetry sample, so dist_cm reflects pre-motion state. Single
-      // boolean — the planner doesn't need to reconstruct it from age
-      // fields (the lens audit flagged the prior three-derived-fields
-      // shape as the "same fact in three places" anti-pattern). Watcher
-      // fire-events flow exclusively through the L2 injection path.
+      // motion_invalidated: true when a motor pulse fired AFTER the
+      // last telemetry sample, so dist_cm reflects pre-motion state.
       const motion_invalidated = !!(
         e.telemetryUpdatedAt && e.lastMotorActionAt
         && e.lastMotorActionAt > e.telemetryUpdatedAt
@@ -542,6 +562,9 @@ async function dispatch(name, input) {
         : "couldn't capture a frame — camera not started or video element 0-sized";
       try {
         if (camera === "all") {
+          // Sequential: detectors share a reusable preprocess canvas
+          // (camera-frame _detectorCanvas, yolo26 _lbCanvas), so two
+          // concurrent detectOnce calls would cross-contaminate frames.
           const detections_by_camera = {};
           for (const src of sources) {
             const dets = await detectOnce(entry, { classes: queries, source: src.element });
@@ -614,22 +637,12 @@ async function dispatch(name, input) {
         if (ms < 100) break;  // any tail < 100ms is rounding noise
       }
       e.lastMotorActionAt = Date.now();
-      const results = [];
       let executed_cm = 0;
-      let gatedAt = null;
-      for (const p of pulses) {
-        // Check before each chunk — a sign that appears mid-drive halts
-        // the chain rather than letting the queued chunks blast through.
-        const gateErr = await awaitMotorGate(input.id);
-        if (gateErr) { gatedAt = gateErr; break; }
-        const r = await pulseMotors(input.id, dir * speed, dir * speed, p.duration_ms);
-        results.push(r);
-        if (!r?.ok) break;
-        executed_cm += p.cm;
-        // Wait for the pulse to actually complete on-robot — otherwise
-        // the next pulse cancels the in-flight one and motion judders.
-        await new Promise(res => setTimeout(res, p.duration_ms + 30));
-      }
+      const { results, gatedAt } = await runPulseChain(
+        input.id, pulses,
+        (p) => ({ l: dir * speed, r: dir * speed, ms: p.duration_ms }),
+        (p) => { executed_cm += p.cm; },
+      );
       return {
         ok: !gatedAt,
         requested_cm: cm,
@@ -663,18 +676,12 @@ async function dispatch(name, input) {
         remaining -= ms;
       }
       e.lastMotorActionAt = Date.now();
-      const results = [];
       let executed_ms = 0;
-      let gatedAt = null;
-      for (const ms of pulses) {
-        const gateErr = await awaitMotorGate(input.id);
-        if (gateErr) { gatedAt = gateErr; break; }
-        const res = await pulseMotors(input.id, l, r, ms);
-        results.push(res);
-        if (!res?.ok) break;
-        executed_ms += ms;
-        await new Promise(res2 => setTimeout(res2, ms + 30));
-      }
+      const { results, gatedAt } = await runPulseChain(
+        input.id, pulses,
+        (ms) => ({ l, r, ms }),
+        (ms) => { executed_ms += ms; },
+      );
       return {
         ok: !gatedAt,
         total_ms: totalMs,

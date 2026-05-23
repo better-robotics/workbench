@@ -95,8 +95,7 @@ function estimatePose(corners, w, h, markerSizeMm) {
 // — entries[markerId] in iteration order — but only when no entry has
 // claimed the id explicitly, so a bound marker for an absent robot
 // doesn't shadow into positional.
-function resolveEntry(markerId) {
-  const all = [...state.devices.values()];
+function resolveEntry(markerId, all) {
   const explicit = all.find(e => e.arucoMarkerId === markerId);
   if (explicit) return explicit;
   const anyBound = all.some(e => e.arucoMarkerId === markerId);
@@ -124,13 +123,14 @@ async function tick() {
 
     const markerSizeMm = Math.max(1, parseFloat(settings.arucoMarkerSizeMm) || 100);
     const now = Date.now();
+    const devicesSnapshot = [...state.devices.values()];
     const markers = raw.map(m => {
       const c = m.corners;
       const cx = (c[0].x + c[1].x + c[2].x + c[3].x) / 4;
       const cy = (c[0].y + c[1].y + c[2].y + c[3].y) / 4;
       const headingRad = Math.atan2(c[1].y - c[0].y, c[1].x - c[0].x);
       const pose = estimatePose(c, w, h, markerSizeMm);
-      const entry = resolveEntry(m.id);
+      const entry = resolveEntry(m.id, devicesSnapshot);
       if (entry && pose) {
         entry.arucoPosition = {
           x: pose.x, y: pose.y,

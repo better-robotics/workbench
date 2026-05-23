@@ -2981,18 +2981,19 @@ body.phone textarea {
   box-shadow: 0 -1px 0 var(--border-subtle);
 }
 
-/* Attached-mode: phone is mounted on the robot, not in an operator's
-   hand. Operator chrome is dead weight on the robot's "face" — hide
-   everything except the incoming camera tile. The Stop button hides
-   too: the operator is remote (desktop or hand-held phone), and
-   anyone in the room who needs to halt the robot is closer to the
-   robot itself than to a small overlay button on the robot's face. */
-body.phone-attached { background: #000; }
-body.phone-attached .phone-main {
+/* Phone mounted on a robot — chrome is dead weight on the face. Stop
+   button included: operator's Stop lives on desktop / another phone,
+   and the audience is closer to the robot than to a tiny screen
+   overlay. body.phone-mounted carries the shared "fullscreen, black,
+   chrome hidden" rules; per-mode classes add only the :not(...)
+   exclusion for the surface that survives. */
+body.phone-mounted { background: #000; }
+body.phone-mounted .phone-main {
   padding: 0;
   min-height: 100dvh;
 }
-body.phone-attached .phone-main > *:not(#phone-cam-section):not(#phone-ask-dialog) {
+body.phone-attached .phone-main > *:not(#phone-cam-section):not(#phone-ask-dialog),
+body.phone-face .phone-main > *:not(#pip-face):not(#phone-ask-dialog) {
   display: none !important;
 }
 body.phone-attached #phone-cam-section {
@@ -3021,18 +3022,10 @@ body.phone-attached #phone-cam-label,
 body.phone-attached #phone-cam-picker,
 body.phone-attached #phone-cam-overlay { display: none; }
 
-/* Pip face — full-screen SVG rendered when the phone is in pip-face
-   mode (sibling of operator-cam mode). The face module mounts an SVG
-   with pip-core's robot shape (head + antennas + ears + spark + Z's)
-   plus morphing rounded-rect eyes. transform-box: fill-box lets each
-   eye scale/translate around its own center without cx/cy bookkeeping.
-   Stop button hidden for the same reason as attached mode — operator
-   is not on the phone. */
-body.phone-face .phone-main > *:not(#pip-face):not(#phone-ask-dialog) {
-  display: none !important;
-}
-body.phone-face { background: #000; }
-.pip-face {
+/* Pip face surface — fullscreen SVG with pip-core's robot shape +
+   morphing eyes. transform-box: fill-box lets each eye scale/
+   translate around its own center without cx/cy bookkeeping. */
+body.phone-face .pip-face {
   position: fixed;
   inset: 0;
   background: #000;
@@ -3041,7 +3034,6 @@ body.phone-face { background: #000; }
   align-items: center;
   justify-content: center;
 }
-body.phone-face .pip-face { display: flex; }
 .pip-face-svg {
   width: 100%;
   height: 100%;

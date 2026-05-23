@@ -66,22 +66,9 @@ export function formatUptime(telemetry) {
   return `up ${Math.floor(s / 86400)}d`;
 }
 
-// "WiFi 192.168.1.42" / "WiFi joining…" / null when nothing useful to show.
-// Status shape matches pi_robot.py's wifi-status JSON ({st, ssid, ip}).
-export function formatWifi(wifiStatus) {
-  const w = wifiStatus;
-  if (!w) return null;
-  if (w.st === "joined") return `WiFi ${w.ip || w.ssid || "joined"}`;
-  if (w.st === "joining") return "WiFi joining…";
-  if (w.st === "scanning") return "WiFi scanning";
-  if (w.st === "failed")   return "WiFi failed";
-  return null;  // idle / unknown — caller renders nothing
-}
-
-// Terser WiFi for the primary row, where width is precious — drops the IP
-// (which lives in the system line / WiFi section). "WiFi" / "WiFi joining…" /
-// "WiFi failed". Stays null for idle so an offline robot's row doesn't carry
-// an empty label.
+// "WiFi" / "WiFi joining…" / "WiFi failed", null for idle so an
+// offline robot's row doesn't carry an empty label. Status shape
+// matches pi_robot.py's wifi-status JSON ({st, ssid, ip}).
 export function formatWifiShort(wifiStatus) {
   const w = wifiStatus;
   if (!w) return null;

@@ -246,7 +246,11 @@ export async function connect(id) {
       entry.robotStatus = decodeJson(await statusChar.readValue()) || null;
       await statusChar.startNotifications();
       statusChar.addEventListener("characteristicvaluechanged", (e) => {
-        entry.robotStatus = decodeJson(e.target.value) || null;
+        const next = decodeJson(e.target.value) || null;
+        // Firmware sometimes re-publishes identical status; skip the
+        // DOM patch when the payload hasn't changed.
+        if (JSON.stringify(next) === JSON.stringify(entry.robotStatus)) return;
+        entry.robotStatus = next;
         renderers.patchRobotStateLine(entry);  // surgical, no full-card flash
       });
     } catch {

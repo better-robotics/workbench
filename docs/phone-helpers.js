@@ -1,6 +1,8 @@
 import { $, escapeHtml } from "./dom.js";
 import { listPhones, setPhonesChangeHandler, notifyRobotStreamChange, requestPhoneCameraShare, setPhoneFeedStream } from "./phones.js";
-import { emit as busEmit } from "./event-bus.js";
+import { emit as busEmit, TOPICS } from "./event-bus.js";
+import { reapplyPhoneScreenMode, resolveAttachedMode } from "./phone-screen-mode-plugin.js";
+import { SCREEN_MODES } from "./phones.js";
 import { state } from "./state.js";
 import { settings, saveSettings } from "./settings.js";
 import { setOverheadSource, clearOverheadSource } from "./aruco.js";
@@ -52,6 +54,7 @@ export function initHelpers() {
   if (navigator.mediaDevices?.addEventListener) {
     navigator.mediaDevices.addEventListener("devicechange", () => enumerateLocalCameras());
   }
+  wireDelegation();
   render();
 }
 
@@ -223,7 +226,7 @@ export function attachPhoneCameraTo(phoneId, robotId) {
   }
   if (!robotId) {
     _phoneAttachments.delete(phoneId);
-    busEmit("phone.detached", { phoneId });
+    busEmit(TOPICS.PHONE_DETACHED, { phoneId });
   } else {
     if (settings.arucoOverheadPhoneId === phoneId) {
       settings.arucoOverheadPhoneId = null;
@@ -233,10 +236,7 @@ export function attachPhoneCameraTo(phoneId, robotId) {
     const ps = _phoneStreams.get(phoneId);
     if (ps?.stream) routeAttachedStream(phoneId, ps.stream);
     const robot = state.devices.get(robotId);
-    // Mode resolution (pip-face vs operator-cam) is owned by phone-
-    // screen-mode-plugin.js — this module just emits the attach event
-    // and lets the plugin decide what to do with it.
-    busEmit("phone.attached", { phoneId, robotId, robotLabel: robot?.name || null });
+    busEmit(TOPICS.PHONE_ATTACHED, { phoneId, robotId, robotLabel: robot?.name || null });
   }
   render();
 }
@@ -383,13 +383,13 @@ function renderPhoneCard(p) {
   // autonomy shape; Operator camera is the telepresence shape (laptop
   // cam → operator's face on the robot, requires a local cam in "Send
   // to phone" role). Global setting — applies to all attached phones.
-  const screenMode = settings.phoneAttachedMode === "operator-cam" ? "operator-cam" : "pip-face";
+  const screenMode = resolveAttachedMode();
   const screenPicker = attachedRobot ? `
     <label class="phone-mount">
       <span class="meta-prose">Screen shows</span>
       <select data-action="phone-screen-mode" data-phone-id="${escapeHtml(p.id)}">
-        <option value="pip-face" ${screenMode === "pip-face" ? "selected" : ""}>Pip face</option>
-        <option value="operator-cam" ${screenMode === "operator-cam" ? "selected" : ""}>Operator camera</option>
+        <option value="${SCREEN_MODES.PIP_FACE}" ${screenMode === SCREEN_MODES.PIP_FACE ? "selected" : ""}>Pip face</option>
+        <option value="${SCREEN_MODES.OPERATOR_CAM}" ${screenMode === SCREEN_MODES.OPERATOR_CAM ? "selected" : ""}>Operator camera</option>
       </select>
     </label>
   ` : "";
@@ -706,35 +706,40 @@ function paintOverhead(helperId, { markers, frameCount, error }) {
   }
 }
 
+// One delegated change-listener on the helpers list so we don't re-
+// attach per-element handlers every time render() rebuilds the
+// innerHTML. Wired once from initHelpers; subsequent renders inherit.
+function wireDelegation() {
+  const list = $("helpers-list");
+  if (!list) return;
+  list.addEventListener("change", (e) => {
+    const sel = e.target.closest("select[data-action]");
+    if (!sel) return;
+    switch (sel.dataset.action) {
+      case "phone-role":
+        setPhoneRole(sel.dataset.phoneId, sel.value);
+        return;
+      case "local-role":
+        // Empty value = placeholder = no role active; setter takes "off".
+        setLocalCameraRole(sel.dataset.localId, sel.value || "off");
+        return;
+      case "phone-screen-mode":
+        settings.phoneAttachedMode = sel.value;
+        saveSettings();
+        for (const [phoneId, robotId] of _phoneAttachments) {
+          const robot = state.devices.get(robotId);
+          reapplyPhoneScreenMode(phoneId, robot?.name || null);
+        }
+        render();
+        return;
+    }
+  });
+}
+
 function wire() {
   const list = $("helpers-list");
   if (!list) return;
 
-  list.querySelectorAll('[data-action="phone-role"]').forEach(sel => {
-    sel.addEventListener("change", () => {
-      setPhoneRole(sel.dataset.phoneId, sel.value);
-    });
-  });
-  list.querySelectorAll('[data-action="local-role"]').forEach(sel => {
-    sel.addEventListener("change", () => {
-      // Empty value = placeholder = no role active; setter takes "off".
-      setLocalCameraRole(sel.dataset.localId, sel.value || "off");
-    });
-  });
-  list.querySelectorAll('[data-action="phone-screen-mode"]').forEach(sel => {
-    sel.addEventListener("change", () => {
-      settings.phoneAttachedMode = sel.value;
-      saveSettings();
-      // Re-emit phone.attached for every currently-attached phone so the
-      // mode-resolver plugin re-evaluates the setting. Global preference,
-      // so all attached phones flip together.
-      for (const [phoneId, robotId] of _phoneAttachments) {
-        const robot = state.devices.get(robotId);
-        busEmit("phone.attached", { phoneId, robotId, robotLabel: robot?.name || null });
-      }
-      render();
-    });
-  });
   // Mount the live MediaStream into the freshly-rendered <video> elements.
   // Has to happen after innerHTML rebuild — srcObject before DOM attach is
   // OK but we re-render on every state change so we re-attach unconditionally.
@@ -742,7 +747,7 @@ function wire() {
     const helperId = `phone:${phoneId}`;
     const pv = list.querySelector(`[data-helper-video="${CSS.escape(helperId)}"]`);
     if (pv && entry.stream) {
-      pv.srcObject = entry.stream;
+      if (pv.srcObject !== entry.stream) pv.srcObject = entry.stream;
       _videoEls.set(helperId, pv);
     }
   }
@@ -751,7 +756,7 @@ function wire() {
     const helperId = `local:${cam.deviceId}`;
     const pv = list.querySelector(`[data-helper-video="${CSS.escape(helperId)}"]`);
     if (pv) {
-      pv.srcObject = cam.stream;
+      if (pv.srcObject !== cam.stream) pv.srcObject = cam.stream;
       _videoEls.set(helperId, pv);
     }
   }

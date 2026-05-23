@@ -40,8 +40,7 @@ export async function uploadFile(id, filename, destPath, contentBytes, { restart
   }
 }
 
-let renderEntry = () => {};
-export function setRender(fn) { renderEntry = fn; }
+import { renderEntry } from "./runtime/render-bus.js";
 
 // Patch existing OTA section in place; avoids full innerHTML rewrite on
 // every progress tick (which would destroy hovered elements and flicker).

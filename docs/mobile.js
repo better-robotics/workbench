@@ -68,38 +68,54 @@ function wireStopButton() {
 }
 
 
-// Wire: see askHuman() in phones.js. One ask on screen at a time; a second
-// replaces the first, prior resolves as skipped when its server-side timer
-// fires.
-function showAsk(msg) {
+// Shared phone-side dialog for ask-human and camera-share-request.
+// One dialog on screen at a time; a second showPhoneAskDialog call
+// replaces the first (the prior's pending response resolves through
+// the server-side timeout). `options` is either:
+//   - array of strings → tappable answer buttons (each calls onRespond
+//     with its label, once)
+//   - array of {label, onClick} → custom click handler (e.g. for the
+//     camera-share Share button that needs to run async work)
+// `freeText` enables the text input fallback when no options exist.
+function showPhoneAskDialog({ question, imageDataUrl, options, freeText, skipValue, onRespond }) {
   const dialog = $("phone-ask-dialog");
   const img = $("phone-ask-image");
   const q = $("phone-ask-question");
   const optsEl = $("phone-ask-options");
   const free = $("phone-ask-free");
   const freeInput = $("phone-ask-free-input");
-
-  if (msg.imageDataUrl) { img.src = msg.imageDataUrl; img.hidden = false; }
-  else { img.hidden = true; img.src = ""; }
-  q.textContent = msg.question || "";
-
+  let responded = false;
+  const close = () => { if (!responded) { responded = true; dialog.close(); } };
   const respond = (answer) => {
-    _peer?.send({ type: "ask-reply", askId: msg.askId, answer });
+    if (responded) return;
+    responded = true;
+    onRespond(answer);
     dialog.close();
   };
 
+  if (imageDataUrl) { img.src = imageDataUrl; img.hidden = false; }
+  else { img.hidden = true; img.src = ""; }
+  q.textContent = question || "";
+
   optsEl.innerHTML = "";
-  if (Array.isArray(msg.options) && msg.options.length > 0) {
-    free.hidden = true;
-    for (const opt of msg.options) {
+  const hasOptions = Array.isArray(options) && options.length > 0;
+  if (hasOptions) {
+    for (const opt of options) {
       const b = document.createElement("button");
       b.type = "button";
       b.className = "ask-option sm";
-      b.textContent = String(opt);
-      b.addEventListener("click", () => respond(String(opt)), { once: true });
+      if (typeof opt === "string") {
+        b.textContent = opt;
+        b.addEventListener("click", () => respond(opt), { once: true });
+      } else {
+        b.textContent = opt.label;
+        b.addEventListener("click", () => opt.onClick({ respond, close }), { once: true });
+      }
       optsEl.appendChild(b);
     }
-  } else {
+  }
+
+  if (freeText && !hasOptions) {
     free.hidden = false;
     freeInput.value = "";
     free.onsubmit = (e) => {
@@ -107,78 +123,58 @@ function showAsk(msg) {
       const v = freeInput.value.trim();
       if (v) respond(v);
     };
+  } else {
+    free.hidden = true;
   }
 
-  $("phone-ask-skip").onclick = () => respond(null);
+  $("phone-ask-skip").onclick = () => respond(skipValue);
   if (!dialog.open) dialog.showModal();
-  // Autofocus the free input when there are no tappable options, so the
-  // keyboard pops up immediately on mobile.
-  if (free.hidden === false) setTimeout(() => freeInput.focus(), 50);
+  // Autofocus the free input so the soft keyboard pops up on mobile.
+  if (!free.hidden) setTimeout(() => freeInput.focus(), 50);
 }
 
-// Desktop relayed a "please share your camera" prompt over the data
-// channel. Browsers won't let getUserMedia() run without a user gesture
-// in this tab; the Share button click below IS that gesture, so
-// toggleShareCamera() called synchronously from the handler can call
-// getUserMedia successfully. The handler awaits the share flow and
-// reports back so the desktop's startHelperCamera tool can resolve
+function showAsk(msg) {
+  showPhoneAskDialog({
+    question: msg.question,
+    imageDataUrl: msg.imageDataUrl,
+    options: msg.options,
+    freeText: true,
+    skipValue: null,
+    onRespond: (answer) => _peer?.send({ type: "ask-reply", askId: msg.askId, answer }),
+  });
+}
+
+// Browsers won't let getUserMedia() run without a user gesture in
+// this tab; the Share button click below IS that gesture. The handler
+// reports back so the desktop's startHelperCamera tool resolves
 // instead of dead-ending on a string error.
-//
-// Reuses the phone-ask-dialog DOM rather than introducing a parallel
-// modal — same Share / Not now affordance shape as askHuman.
 function showCameraShareRequest(msg) {
-  const dialog = $("phone-ask-dialog");
-  const img = $("phone-ask-image");
-  const q = $("phone-ask-question");
-  const optsEl = $("phone-ask-options");
-  const free = $("phone-ask-free");
-  let responded = false;
-
-  img.hidden = true; img.src = "";
-  q.textContent = "Pip wants to use this phone's camera. Share it?";
-  free.hidden = true;
-  optsEl.innerHTML = "";
-
-  const respond = (result, error) => {
-    if (responded) return;
-    responded = true;
-    _peer?.send({ type: "camera-share-result", requestId: msg.requestId, result, error });
-    dialog.close();
-  };
-
-  const shareBtn = document.createElement("button");
-  shareBtn.type = "button";
-  shareBtn.className = "ask-option sm";
-  shareBtn.textContent = _shareStream ? "Already sharing" : "Share camera";
-  shareBtn.addEventListener("click", async () => {
-    // Already-sharing fast path — desktop sometimes asks before its
-    // onTrack handler has registered the stream we already sent.
-    if (_shareStream) { respond("shared"); return; }
-    // toggleShareCamera() awaits getUserMedia internally; the user
-    // gesture from this click propagates through the first await per
-    // the user-activation spec, so the permission dialog (if any) is
-    // allowed to show. The {ok, error} return surfaces the real
-    // permission / device error to the desktop instead of collapsing
-    // every failure to "user dismissed".
-    try {
-      const res = await toggleShareCamera();
-      if (res?.ok) respond("shared");
-      else respond("error", res?.error || "getUserMedia returned no stream");
-    } catch (err) {
-      respond("error", err.message || String(err));
-    }
-  }, { once: true });
-  optsEl.appendChild(shareBtn);
-
-  const cancelBtn = document.createElement("button");
-  cancelBtn.type = "button";
-  cancelBtn.className = "ask-option sm";
-  cancelBtn.textContent = "Not now";
-  cancelBtn.addEventListener("click", () => respond("denied"), { once: true });
-  optsEl.appendChild(cancelBtn);
-
-  $("phone-ask-skip").onclick = () => respond("denied");
-  if (!dialog.open) dialog.showModal();
+  const send = (result, error) => _peer?.send({
+    type: "camera-share-result", requestId: msg.requestId, result, error,
+  });
+  showPhoneAskDialog({
+    question: "Pip wants to use this phone's camera. Share it?",
+    skipValue: "denied",
+    onRespond: (answer) => send(answer ?? "denied"),
+    options: [
+      {
+        label: _shareStream ? "Already sharing" : "Share camera",
+        onClick: async ({ respond, close }) => {
+          // Desktop sometimes asks before its onTrack handler has
+          // registered the stream we already sent — short-circuit.
+          if (_shareStream) { respond("shared"); return; }
+          try {
+            const res = await toggleShareCamera();
+            if (res?.ok) respond("shared");
+            else { send("error", res?.error || "getUserMedia returned no stream"); close(); }
+          } catch (err) {
+            send("error", err.message || String(err)); close();
+          }
+        },
+      },
+      { label: "Not now", onClick: ({ respond }) => respond("denied") },
+    ],
+  });
 }
 
 // Pairing layer fires onTrack per track; both video tracks of one stream
@@ -308,24 +304,32 @@ function onPeerMessage(msg) {
 // transparent) so anyone in the room can still halt the robot. Desktop
 // owns the choice; the phone has no local override. Reset on peer.
 // onClose so a disconnect leaves the user with normal UI to reconnect.
+let _currentScreenMode = "default";
 function applyScreenMode(mode, robotLabel) {
   const body = document.body;
-  body.classList.remove("phone-attached", "phone-face");
+  // Same-mode re-emit (reconnect path): keep the mounted face's timer
+  // chain alive instead of tearing down + remounting.
+  if (mode === _currentScreenMode) {
+    body.dataset.attachedTo = robotLabel || "";
+    return;
+  }
+  body.classList.remove("phone-mounted", "phone-attached", "phone-face");
   delete body.dataset.attachedTo;
   unmountPipFace();
   const face = $("pip-face");
   if (face) face.hidden = true;
-  if (mode === "operator-cam" || mode === "attached") {
-    body.classList.add("phone-attached");
+  if (mode === "operator-cam") {
+    body.classList.add("phone-mounted", "phone-attached");
     body.dataset.attachedTo = robotLabel || "";
   } else if (mode === "pip-face") {
-    body.classList.add("phone-face");
+    body.classList.add("phone-mounted", "phone-face");
     body.dataset.attachedTo = robotLabel || "";
     if (face) {
       face.hidden = false;
       mountPipFace(face);
     }
   }
+  _currentScreenMode = mode === "operator-cam" || mode === "pip-face" ? mode : "default";
 }
 
 function wireJoypad() {

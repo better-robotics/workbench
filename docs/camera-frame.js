@@ -37,7 +37,14 @@ export function captureFrameDataUrl(entry, maxDim = 320, quality = 0.75) {
   catch { return null; }
 }
 
-export function drawFrameToCanvas(entry, maxDim, source = null) {
+// Module-scope canvas reused by the detector hot-path (mediapipe /
+// yolo26 / aruco call drawFrameToCanvas at 10–30 Hz). Without reuse,
+// a fresh HTMLCanvasElement allocation per tick burns through GC.
+// view_robot_frame still gets a fresh canvas — it converts to JPEG
+// and may be called concurrently with detector ticks at low rates.
+const _detectorCanvas = document.createElement("canvas");
+
+export function drawFrameToCanvas(entry, maxDim, source = null, { reuse = false } = {}) {
   const el = source || findPrimaryCameraElement(entry);
   if (!el) return null;
   const isCanvas = el instanceof HTMLCanvasElement;
@@ -49,8 +56,9 @@ export function drawFrameToCanvas(entry, maxDim, source = null) {
     w = Math.round(w * s);
     h = Math.round(h * s);
   }
-  const canvas = document.createElement("canvas");
-  canvas.width = w; canvas.height = h;
+  const canvas = reuse ? _detectorCanvas : document.createElement("canvas");
+  if (canvas.width !== w) canvas.width = w;
+  if (canvas.height !== h) canvas.height = h;
   // The card preview's "Flip 180°" toggle is a CSS transform on the <video>;
   // drawImage reads raw pixels and ignores it, so Pip / mediapipe would
   // see un-flipped frames. Re-apply the rotation at capture time so every
@@ -61,6 +69,9 @@ export function drawFrameToCanvas(entry, maxDim, source = null) {
   const flip = !!entry.cameraFlip && !isAttachedPhone;
   try {
     const ctx = canvas.getContext("2d");
+    // Reset transform — reused canvas keeps the prior tick's
+    // translate/rotate otherwise, which compounds across frames.
+    if (reuse) ctx.setTransform(1, 0, 0, 1, 0, 0);
     if (flip) {
       ctx.translate(w, h);
       ctx.rotate(Math.PI);

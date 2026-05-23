@@ -239,8 +239,12 @@ export function makeWifiScanCap(schema) {
         entry[statusState] = decodeJson(await entry[statusField].readValue()) || { st: "idle" };
         await entry[statusField].startNotifications();
         entry[statusField].addEventListener("characteristicvaluechanged", (e) => {
-          entry[statusState] = decodeJson(e.target.value) || { st: "idle" };
-          const { st, ssid, err: errMsg } = entry[statusState];
+          const next = decodeJson(e.target.value) || { st: "idle" };
+          // Skip when payload is identical — ESP32 re-publishes status
+          // on flap/coex events without state change.
+          if (JSON.stringify(next) === JSON.stringify(entry[statusState])) return;
+          entry[statusState] = next;
+          const { st, ssid, err: errMsg } = next;
           logFor(entry, `${name} ${st}${ssid ? ` [${ssid}]` : ""}${errMsg ? ` — ${errMsg}` : ""}`);
           renderEntry(entry);
         });

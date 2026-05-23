@@ -1,6 +1,5 @@
 import { $ } from "./dom.js";
 
-let _lastLogNode = null;
 let _lastLogMsgNode = null;
 let _lastLogNameNode = null;
 let _lastLogKey = null;
@@ -90,7 +89,6 @@ export const log = (msg, name = "") => {
   if (name && name === _lastLogName && _lastLogNameNode) {
     _lastLogNameNode.classList.add("dup");
   }
-  _lastLogNode = line;
   _lastLogMsgNode = msgSpan;
   _lastLogNameNode = nameSpan;
   _lastLogName = name;

@@ -1,5 +1,5 @@
-import { escapeHtml } from "./dom.js";
-import { on as busOn } from "./event-bus.js";
+import { escapeHtml } from "../dom.js";
+import { on as busOn, TOPICS } from "../event-bus.js";
 
 // L2 reflex-fire bridge. On every watcher fire-event:
 //   - queue a synthetic observation for askWithTools to drain on the
@@ -14,7 +14,7 @@ import { on as busOn } from "./event-bus.js";
 //   "follow-lost"      — follow-mode lost the hand for N consecutive ticks
 //   "follow-reacquire" — follow-mode regained the hand after a lost streak
 export function wireWatcherFireBridge({ turn, scrollToBottom }) {
-  busOn("watcher.fire", ({ entry, detection: det, kind = "fire" }) => {
+  busOn(TOPICS.WATCHER_FIRE, ({ entry, detection: det, kind = "fire" }) => {
     const ts = new Date(det?.ts || Date.now()).toISOString();
     const score = typeof det?.score === "number" ? det.score.toFixed(2) : "?";
     const action = entry?.watcher?.action || "?";
@@ -48,11 +48,12 @@ export function wireWatcherFireBridge({ turn, scrollToBottom }) {
         noticeHtml = `Reflex: saw <strong>${escapeHtml(String(det?.label || ""))}</strong> (${score}) — action <code>${escapeHtml(action)}</code> executed.`;
         isReleaseShape = false;
     }
+    // Only push the observation when the turn is mid-flight — turn.start
+    // clears observations, so pushes between turns are silently dropped.
+    // Notice DOM still renders inline in the active turn below if there
+    // is one.
+    if (!turn.isActive()) return;
     turn.pushObservation(obsText);
-    // (The Pip-face react-to-fire path lives in pip-face-plugin.js,
-    // subscribing to the same bus topic. This bridge handles only the
-    // planner-observation + chat-notice concern.)
-    if (!turn.isActive()) return;  // not mid-turn — planner sees it on the next user turn via convo replay
     const el = document.createElement("div");
     el.className = `pip-reflex-notice${isReleaseShape ? " pip-reflex-notice--clear" : ""}`;
     el.innerHTML =

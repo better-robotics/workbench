@@ -1,19 +1,19 @@
 import { ask, askWithTools, activeModelForBackend } from "./claude.js";
 import { setAgentState } from "./agent-light.js";
-import { escapeHtml } from "./dom.js";
+import { escapeHtml } from "../dom.js";
 import { getTools, executor, setAskInChatHandler, isVisionAvailable } from "./pip-tools.js";
-import { labelTool, summarizeTool } from "./format.js";
-import { settings, saveSettings } from "./settings.js";
-import { state } from "./state.js";
+import { labelTool, summarizeTool } from "../format.js";
+import { settings, saveSettings } from "../settings.js";
+import { state } from "../state.js";
 import { tryMatchCommand, SAFETY_INTENTS } from "./voice-commands.js";
 import { tryMatchDemo, STATIC_DEMO_PHRASES } from "./demos.js";
-import { prewarmCache as prewarmTtsCache } from "./voice.js";
+import { prewarmCache as prewarmTtsCache } from "../voice.js";
 import { setDeps as setVoiceDeps, makeMicConfig, wireTtsGating } from "./assistant-voice.js";
 import { registerSlashCommands } from "./assistant-slash.js";
 import { wireWatcherFireBridge } from "./assistant-watcher-bridge.js";
-import { releaseAllGates } from "./watcher.js";
-import { emit as busEmit } from "./event-bus.js";
-import { AUTH_URL } from "./endpoints.js";
+import { releaseAllGates } from "../watcher.js";
+import { emit as busEmit, TOPICS } from "../event-bus.js";
+import { AUTH_URL } from "../endpoints.js";
 
 // pip-core is dynamic-imported inside initAssistant() (not statically at
 // module-load) so that a CDN failure on the jsdelivr URL cannot brick
@@ -29,16 +29,10 @@ const HISTORY_LIMIT = 12;
 
 // Executor-enforced rules (signed-pair clamp, firmware pulse caps) live
 // in pip-tools.js. Per-tool guidance (when to detect vs view, ask_human
-// routing) lives in tool descriptions and ships on every turn. Static
-// system prompt carries identity + discovery posture; the current
-// connected-robot snapshot is appended per-turn by buildSystem() so Pip
-// can skip list_robots when ids are unambiguous.
-// Trimmed via lens audit (signal-to-noise + attention-routing): every
-// reactive single-incident patch removed. Tool descriptions carry
-// per-tool guidance; the system prompt carries only identity + the rules
-// the planner can't infer from schemas. Hardware constraints (dist_cm,
-// firmware clip) live in get_robot_state / move_motor descriptions where
-// the planner reads them at the moment of relevance.
+// routing) lives in tool descriptions. The system prompt carries only
+// identity + the rules the planner can't infer from schemas. The
+// connected-robot snapshot is appended per-turn by buildSystem() so
+// Pip can skip list_robots when ids are unambiguous.
 const PIP_SYSTEM = [
   "You are an assistant in a browser robotics dashboard for ESP32 and Pi robots.",
   // Anti-narrate-without-acting — dominant failure mode in patrol runs;
@@ -77,12 +71,8 @@ function currentRobotsLine() {
 }
 
 function buildSystem() {
-  // Per-turn time + capability injection. Research consensus is one "now"
-  // per turn (Claude Code's UserPromptSubmit hook, OpenAI Codex's
-  // turn_started_at_unix_ms) rather than per tool — surfaces wall-clock
-  // context where the planner reasons. Vision availability flagged here
-  // so Pip stops narrating "let me take a snapshot" when the tool is
-  // filtered out of getTools().
+  // Vision availability flagged here so Pip doesn't narrate "let me
+  // take a snapshot" when the tool is filtered out of getTools().
   const now = new Date().toISOString();
   const vision = isVisionAvailable()
     ? "view_robot_frame is available — use it for visual queries."
@@ -121,27 +111,41 @@ const turn = {
 // and the labelTool / summarizeTool name formatting.
 function appendStepPill(turnEl, name, input = null) {
   setAgentState(name === "ask_human" ? "asking" : "working");
-  // Tool-call event is emitted on the shared bus; subscribers (pip
-  // face plugin today, audit/log/OSC bridges later) attach without
-  // this function knowing about them.
-  busEmit("tool.call", { tool: name, input });
+  busEmit(TOPICS.TOOL_CALL, { tool: name, input });
   return _pip.appendToolPill(turnEl, name, { label: `${labelTool(name)} …` });
 }
 function finishStepPill(pill, name, input, result, error, durationMs) {
   setAgentState("thinking");
-  busEmit("tool.result", {
-    tool: name, input, result,
+  busEmit(TOPICS.TOOL_RESULT, {
+    tool: name,
     ok: !error && !(result?.error),
     error: error || result?.error || null,
-    durationMs,
   });
-  // null durationMs to summarizeTool — pip-core's pill renders elapsed in
-  // its own span; we keep the label semantic (name + arg summary) and
-  // let pip handle the right-edge timing.
+  // pip-core's pill renders elapsed time in its own span; we pass
+  // null durationMs to summarizeTool so the label stays semantic
+  // (name + arg summary) and pip handles right-edge timing.
   pill?.finish({
     label: summarizeTool(name, input, result, error, null),
     input, result, error, durationMs,
   });
+}
+
+// Pill lifecycle + tool execution in one place. Returns
+// { ok, result, error } where error is an Error on a JS throw or a
+// string on an in-band failure (caller can branch via instanceof).
+async function executeWithPill(turnEl, tool, input) {
+  const pill = appendStepPill(turnEl, tool, input);
+  const startedAt = performance.now();
+  try {
+    const result = await executor(tool, input);
+    const isErr = result && (result.error || result.ok === false);
+    const errMsg = isErr ? (result.error || "failed") : null;
+    finishStepPill(pill, tool, input, result, errMsg, performance.now() - startedAt);
+    return { ok: !isErr, result, error: errMsg };
+  } catch (err) {
+    finishStepPill(pill, tool, input, null, err, performance.now() - startedAt);
+    return { ok: false, result: null, error: err };
+  }
 }
 
 function pickRobotId() {
@@ -174,18 +178,8 @@ async function injectVoiceMidTurn(text) {
       return true;
     }
     const input = { id: robotId, ...cmd.partialInput };
-    const pill = appendStepPill(turn.el, cmd.tool, input);
-    const startedAt = performance.now();
-    let resultStr;
-    try {
-      const result = await executor(cmd.tool, input);
-      const isErr = result && (result.error || result.ok === false);
-      finishStepPill(pill, cmd.tool, input, result, isErr ? (result.error || "failed") : null, performance.now() - startedAt);
-      resultStr = isErr ? `error: ${result.error || "failed"}` : "ok";
-    } catch (err) {
-      finishStepPill(pill, cmd.tool, input, null, err, performance.now() - startedAt);
-      resultStr = `error: ${err?.message || err}`;
-    }
+    const r = await executeWithPill(turn.el, cmd.tool, input);
+    const resultStr = r.ok ? "ok" : `error: ${r.error?.message || r.error}`;
     const ts = new Date().toISOString();
     turn.pushObservation(
       `[user-voice ${ts}] User said "${text}" — direct-dispatched ${cmd.tool}(${JSON.stringify(input)}) → ${resultStr}. ` +
@@ -410,17 +404,9 @@ async function runTurn(text, turnEl) {
   // affordance as LLM-driven tool calls, so direct commands and demo
   // sequences are visually indistinguishable from agent work.
   const runStep = async (tool, input) => {
-    const pill = appendStepPill(turnEl, tool, input);
-    const startedAt = performance.now();
-    try {
-      const result = await executor(tool, input);
-      const isErr = result && (result.error || result.ok === false);
-      finishStepPill(pill, tool, input, result, isErr ? (result.error || "failed") : null, performance.now() - startedAt);
-      return result;
-    } catch (err) {
-      finishStepPill(pill, tool, input, null, err, performance.now() - startedAt);
-      throw err;
-    }
+    const r = await executeWithPill(turnEl, tool, input);
+    if (r.error instanceof Error) throw r.error;
+    return r.result;
   };
   const noRobot = () => {
     _pip.appendReplyBubble(turnEl).setHtml("No robot connected — pair one first.");

@@ -15,8 +15,9 @@
 // those directly. Less dictionary marshaling at the call site, and
 // each demo's actual dependencies are visible in its file's imports.
 
-import { onWatcherFire, awaitReflexGate } from "./watcher.js";
-import { state } from "./state.js";
+import { awaitReflexGate } from "../watcher.js";
+import { on as busOn, TOPICS } from "../event-bus.js";
+import { state } from "../state.js";
 import { askAboutFrame } from "./claude.js";
 //
 // Design philosophy (revised after first-pass screenshots showed tiny,
@@ -143,8 +144,7 @@ async function react(ctx) {
   for (let i = 0; i < 14; i++) {
     if (ctx.shouldAbort?.()) return;
     const r = await ctx.exec("get_robot_detections", { id: ctx.id, queries: ["person"] });
-    const hits = r?.detections || (Array.isArray(r) ? r : []);
-    const hit = hits.find(d => (d?.score ?? 0) > 0.4);
+    const hit = (r?.detections || []).find(d => (d?.score ?? 0) > 0.4);
     if (hit) { found = hit; break; }
     await pulse(ctx, -SPEED, SPEED, 400);
   }
@@ -192,8 +192,7 @@ async function follow(ctx, target = "person") {
   for (let i = 0; i < STEPS; i++) {
     if (ctx.shouldAbort?.()) return;
     const r = await ctx.exec("get_robot_detections", { id: ctx.id, queries: [target] });
-    const hits = r?.detections || r?.results || (Array.isArray(r) ? r : []);
-    const det = hits[0];
+    const det = r?.detections?.[0];
     if (!det) {
       await pulse(ctx, -SPEED, SPEED, 400);  // scan-spin to re-acquire
       continue;
@@ -331,8 +330,7 @@ async function selfie(ctx) {
   await ctx.sleep(800);
   const probes = ["person", "laptop", "cup", "cell phone", "chair"];
   const r = await ctx.exec("get_robot_detections", { id: ctx.id, queries: probes });
-  const hits = (r?.detections || r?.results || (Array.isArray(r) ? r : []))
-    .filter(d => d?.label && (d.score ?? 1) > 0.3);
+  const hits = (r?.detections || []).filter(d => d?.label && (d.score ?? 1) > 0.3);
   if (hits.length === 0) {
     await ctx.exec("speak", { text: "I can't quite make out the room. Bring something closer?" });
     return;
@@ -354,7 +352,7 @@ async function selfie(ctx) {
 //      The watcher's halt action is the firmware-level safety floor:
 //      the robot stops the *moment* it sees the sign, regardless of
 //      where we are in the loop. The demo also listens to the same
-//      fire event via ctx.onWatcherFire so it can break out of its
+//      fire event via the watcher.fire bus topic so it can break out of its
 //      sweep and narrate the catch.
 async function stopsignPatrol(ctx) {
   // Intentionally do NOT announce what we're watching for — the demo's
@@ -383,8 +381,8 @@ async function stopsignPatrol(ctx) {
   // still holding the sign while the watcher cool-down re-fires).
   let catchCount = 0;
   let lastAnnounceTs = 0;
-  const unsub = onWatcherFire((entry, det) => {
-    if (entry?.id === ctx.id && det?.label === "stop sign") firedThisCycle = true;
+  const unsub = busOn(TOPICS.WATCHER_FIRE, ({ entry, detection }) => {
+    if (entry?.id === ctx.id && detection?.label === "stop sign") firedThisCycle = true;
   });
   const breakLeg = () => firedThisCycle || ctx.shouldAbort?.();
 

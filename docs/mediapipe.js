@@ -11,6 +11,7 @@
 // for the deployment scene — slower but better small-object recall.
 
 import { drawFrameToCanvas } from "./camera-frame.js";
+import { pollUntilHit } from "./detector-poll.js";
 
 // Unversioned tracks current 0.10.x — WASM bundle path matches the
 // imported JS version.
@@ -90,7 +91,7 @@ function toBoxes(raw, w, h) {
 // always scores all 80 COCO classes; filtering is a free operation).
 export async function detectOnce(entry, { classes, source = null, threshold } = {}) {
   if (_detectorFailed) return null;
-  const canvas = drawFrameToCanvas(entry, MAX_DIM, source);
+  const canvas = drawFrameToCanvas(entry, MAX_DIM, source, { reuse: true });
   if (!canvas) return null;
   const det = await ensureDetector();
   if (!det) return null;
@@ -120,35 +121,10 @@ export async function detectOnce(entry, { classes, source = null, threshold } = 
 // the first matching detection, or null on timeout / detector-unavailable
 // / manual stop(). Designed for `await robot.watchFor(...)` to linearize
 // reflex-shaped scripts around the next sighting.
-export function startDetection(entry, { classes, source = null, threshold, intervalMs = DEFAULT_INTERVAL_MS, timeoutMs = 0 } = {}) {
-  let stopped = false;
-  let timer = null;
-  let timeoutTimer = null;
-  let resolveResult;
-  const promise = new Promise((resolve) => { resolveResult = resolve; });
-  const finish = (val) => {
-    if (stopped) return;
-    stopped = true;
-    if (timer) { clearTimeout(timer); timer = null; }
-    if (timeoutTimer) { clearTimeout(timeoutTimer); timeoutTimer = null; }
-    resolveResult(val);
-  };
-  const loop = async () => {
-    if (stopped) return;
-    const dets = await detectOnce(entry, { classes, source, threshold });
-    if (stopped) return;
-    if (dets === null) {
-      // Distinguish hard failure (detector dead — abandon) from transient
-      // null (no frame this tick — camera element missing or 0-sized).
-      // Persistent watchers need to ride out brief camera blips.
-      if (_detectorFailed) { finish(null); return; }
-      timer = setTimeout(loop, intervalMs);
-      return;
-    }
-    if (dets.length > 0) { finish(dets[0]); return; }
-    timer = setTimeout(loop, intervalMs);
-  };
-  if (timeoutMs > 0) timeoutTimer = setTimeout(() => finish(null), timeoutMs);
-  loop();
-  return { promise, stop: () => finish(null) };
+export function startDetection(entry, opts = {}) {
+  return pollUntilHit(
+    { detectOnce, isFailed: () => _detectorFailed },
+    entry,
+    { intervalMs: DEFAULT_INTERVAL_MS, ...opts },
+  );
 }

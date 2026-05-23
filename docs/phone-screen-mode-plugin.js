@@ -1,31 +1,28 @@
-// Desktop-side phone-screen-mode resolver. Subscribes to phone.
-// attached / phone.detached events on the shared bus and translates
-// them into setPhoneScreenMode calls, reading the user's preference
-// (settings.phoneAttachedMode) to pick between sibling rendering
-// modes.
-//
-// Before this plugin existed, the resolution was duplicated in two
-// places (phones.js reconnect path and phone-helpers.js attachPhone-
-// CameraTo) with no single owner of "what does mounted mean visually."
-// Both call sites now just emit phone.attached and forget; this file
-// is the only place the settings key is read.
-//
-// Off-switch: don't call initPhoneScreenModePlugin() in app.js. Phones
-// stay in "default" mode on mount (the operator chrome doesn't hide).
-// One-line cut.
+// Sole reader of settings.phoneAttachedMode; both attach sites emit
+// phone.attached and forget. Off via not calling init.
 
-import { on } from "./event-bus.js";
-import { setPhoneScreenMode } from "./phones.js";
+import { on, TOPICS } from "./event-bus.js";
+import { setPhoneScreenMode, SCREEN_MODES } from "./phones.js";
 import { settings } from "./settings.js";
 
+export function resolveAttachedMode() {
+  return settings.phoneAttachedMode === SCREEN_MODES.OPERATOR_CAM
+    ? SCREEN_MODES.OPERATOR_CAM
+    : SCREEN_MODES.PIP_FACE;
+}
+
 export function initPhoneScreenModePlugin() {
-  on("phone.attached", ({ phoneId, robotLabel }) => {
-    const mode = settings.phoneAttachedMode === "operator-cam"
-      ? "operator-cam"
-      : "pip-face";
-    setPhoneScreenMode(phoneId, mode, robotLabel);
+  on(TOPICS.PHONE_ATTACHED, ({ phoneId, robotLabel }) => {
+    setPhoneScreenMode(phoneId, resolveAttachedMode(), robotLabel);
   });
-  on("phone.detached", ({ phoneId }) => {
-    setPhoneScreenMode(phoneId, "default");
+  on(TOPICS.PHONE_DETACHED, ({ phoneId }) => {
+    setPhoneScreenMode(phoneId, SCREEN_MODES.DEFAULT);
   });
+}
+
+// Public re-apply: callers that want to refresh a phone's mode without
+// faking a fresh attach use this. Settings flips and reconnect paths
+// hit this; the bus topic stays attach/detach-only.
+export function reapplyPhoneScreenMode(phoneId, robotLabel = null) {
+  setPhoneScreenMode(phoneId, resolveAttachedMode(), robotLabel);
 }
