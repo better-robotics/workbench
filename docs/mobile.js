@@ -341,36 +341,58 @@ let _shareSenders = [];
 let _shareFacing = "user";  // "user" (front) | "environment" (back)
 let _shareSwitching = false;
 
+// Find the widest available back lens by label. Returns null when
+// labels are blank (permission not yet granted) or no ultra-wide is
+// exposed (older iPhones, most Android phones). iOS post-17 labels look
+// like "Back Ultra Wide Camera"; the 0.5 fallback catches third-party
+// browser labelings.
+async function findWidestBackLens() {
+  try {
+    const devs = await navigator.mediaDevices.enumerateDevices();
+    const backs = devs.filter(d => d.kind === "videoinput" && d.label && /back/i.test(d.label));
+    return backs.find(d => /ultra\s*wide|0\.5/i.test(d.label)) || null;
+  } catch { return null; }
+}
+
 // Pick the widest available back lens when the user wants "Back". For
 // every use case the phone serves here — mounted on the rover for FPV,
 // hand-held showing Pip context, or just a quick view forwarded to the
-// desktop — wider FOV beats the main sensor's narrower framing. iOS
-// post-17 exposes Ultra-Wide as its own deviceId with a "Ultra Wide"
-// label; Android labels are inconsistent so the heuristic falls back to
-// the OS default on no match.
+// desktop — wider FOV beats the main sensor's narrower framing.
 //
-// Two-call shape: a facingMode request is needed regardless to surface
-// the permission prompt and populate device labels (browsers blank
-// labels until permission lands). After that, if a wider back lens is
-// available and different from what we already have, swap to it and
-// stop the original tracks. Front (`user`) bypasses this — phones
-// rarely expose multiple front lenses, and iOS may misbehave with
-// deviceId selection on the front. Older iPhones with no ultra-wide
-// (SE, base 11/12) return no match and keep the OS-chosen lens.
+// Two paths:
+//   Fast — labels already populated (permission granted in this session
+//   or prior, since Safari/Chrome both persist origin permission). Pick
+//   the ultra-wide deviceId up front, one getUserMedia call, no main-
+//   lens flicker.
+//   Slow — first-time permission or no ultra-wide visible. Open with
+//   facingMode to surface the prompt and populate labels, then upgrade
+//   if a wider lens is now available.
+//
+// Front (`user`) bypasses this — phones rarely expose multiple front
+// lenses, and iOS may misbehave with deviceId selection on the front.
 async function openCameraStream(facing) {
+  if (facing !== "environment") {
+    return navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: facing } },
+      audio: false,
+    });
+  }
+  const preferred = await findWidestBackLens();
+  if (preferred) {
+    try {
+      return await navigator.mediaDevices.getUserMedia({
+        video: { deviceId: { exact: preferred.deviceId } },
+        audio: false,
+      });
+    } catch { /* stale deviceId or revoked permission — fall through */ }
+  }
   const stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: { ideal: facing } },
+    video: { facingMode: { ideal: "environment" } },
     audio: false,
   });
-  if (facing !== "environment") return stream;
-  let widest = null;
-  try {
-    const devs = await navigator.mediaDevices.enumerateDevices();
-    const backs = devs.filter(d => d.kind === "videoinput" && /back/i.test(d.label));
-    widest = backs.find(d => /ultra\s*wide|0\.5/i.test(d.label)) || null;
-  } catch { return stream; }
+  const widest = await findWidestBackLens();
   if (!widest) return stream;
-  const current = stream.getVideoTracks()[0]?.getSettings?.().deviceId;
+  const current = stream.getVideoTracks()[0]?.getSettings?.()?.deviceId;
   if (current === widest.deviceId) return stream;
   let upgraded;
   try {
