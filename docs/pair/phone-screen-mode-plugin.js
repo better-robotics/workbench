@@ -1,9 +1,9 @@
 // Sole reader of settings.phoneAttachedMode; both attach sites emit
 // phone.attached and forget. Off via not calling init.
 
-import { on, TOPICS } from "./event-bus.js";
+import { on, TOPICS } from "../event-bus.js";
 import { setPhoneScreenMode, SCREEN_MODES } from "./phones.js";
-import { settings } from "./settings.js";
+import { settings } from "../settings.js";
 
 export function resolveAttachedMode() {
   return settings.phoneAttachedMode === SCREEN_MODES.OPERATOR_CAM

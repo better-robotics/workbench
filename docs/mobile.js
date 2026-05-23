@@ -1,17 +1,17 @@
 import { $ } from "./dom.js";
-import { joinPairingRoom } from "./pairing.js";
-import { attachJoypad } from "./joypad.js";
+import { joinPairingRoom } from "./pair/pairing.js";
+import { attachJoypad } from "./input/joypad.js";
 import { getMyPubkeyB64 } from "./signal-sdk/v1/peer-key.js";
 import { makeTrustStore } from "./trust.js";
 import {
   setupServiceWorker, wireInstallMenuItem, wireCheckUpdatesMenuItem,
   wireHardRefresh, wireDiagnosticsMenuItem, setReportIssueLink, readSwVersion,
 } from "./app-menu.js";
-import { wireTiltDrive, stopTilt } from "./mobile-tilt-drive.js";
+import { wireTiltDrive, stopTilt } from "./input/mobile-tilt-drive.js";
 import {
   showReconnect, hideReconnect, wireReconnect, cameraUnavailableReason,
-} from "./mobile-qr-scan.js";
-import { startNearbyDiscovery, deviceLabel } from "./mobile-nearby-discovery.js";
+} from "./pair/mobile-qr-scan.js";
+import { startNearbyDiscovery, deviceLabel } from "./pair/mobile-nearby-discovery.js";
 import { mountPipFace, unmountPipFace, applyPipEvent } from "./pip/mobile-pip-face.js";
 const _trust = makeTrustStore("better-robotics:trust:v1");
 

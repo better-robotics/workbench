@@ -1,10 +1,10 @@
-import { $, escapeHtml } from "./dom.js";
+import { $, escapeHtml } from "../dom.js";
 import { listPhones, setPhonesChangeHandler, notifyRobotStreamChange, requestPhoneCameraShare, setPhoneFeedStream } from "./phones.js";
-import { emit as busEmit, TOPICS } from "./event-bus.js";
+import { emit as busEmit, TOPICS } from "../event-bus.js";
 import { reapplyPhoneScreenMode, resolveAttachedMode } from "./phone-screen-mode-plugin.js";
 import { SCREEN_MODES } from "./phones.js";
-import { state } from "./state.js";
-import { settings, saveSettings } from "./settings.js";
+import { state } from "../state.js";
+import { settings, saveSettings } from "../settings.js";
 import { setOverheadSource, clearOverheadSource } from "./perception/aruco.js";
 
 // Permanent print-marker affordance, rendered whenever a helper is the

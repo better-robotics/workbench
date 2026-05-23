@@ -13,7 +13,7 @@ import {
 } from "./format.js";
 import { updateFirmware, updateFromFile } from "./capabilities/ota.js";
 import { restartService, rebootRobot, enrollKey } from "./capabilities/runtime/command.js";
-import { initGamepad } from "./gamepad.js";
+import { initGamepad } from "./input/gamepad.js";
 import { initMotorsKeyboard } from "./capabilities/runtime/signed-pair.js";
 // prepare.js / pinout.js / recovery.js are lazy-loaded on first use (~750 LOC
 // combined, none of it needed for first paint). See the dynamic import()
@@ -21,13 +21,13 @@ import { initMotorsKeyboard } from "./capabilities/runtime/signed-pair.js";
 import { initAuthUI, fingerprint as dashFingerprint, pubkeySsh, onKeyChange } from "./auth.js";
 import { initPasswordsUI } from "./passwords.js";
 import { initAssistant } from "./pip/assistant.js";
-import { initPhones, listPhones } from "./phones.js";
+import { initPhones, listPhones } from "./pair/phones.js";
 import { initPipFacePlugin } from "./pip/pip-face-plugin.js";
-import { initPhoneScreenModePlugin } from "./phone-screen-mode-plugin.js";
+import { initPhoneScreenModePlugin } from "./pair/phone-screen-mode-plugin.js";
 import {
   initHelpers, setHelpersRobotRenderer,
   attachPhoneCameraTo, getPhoneAttachment,
-} from "./phone-helpers.js";
+} from "./pair/phone-helpers.js";
 // aruco.js is wired through phone-helpers.js — phone helpers can be designated
 // as the overhead camera; detection runs against the helper's existing
 // preview tile. No init call here.

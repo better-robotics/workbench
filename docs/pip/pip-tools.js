@@ -2,10 +2,10 @@ import { state } from "../state.js";
 import { settings } from "../settings.js";
 import { waitOpsResponse } from "../ops-response.js";
 import { getLog, getConfig, restartService } from "../capabilities/runtime/command.js";
-import { listPhones, askHuman } from "../phones.js";
+import { listPhones, askHuman } from "../pair/phones.js";
 import {
   listHelpers, startHelperCamera, stopHelperCamera, takeHelperSnapshot,
-} from "../phone-helpers.js";
+} from "../pair/phone-helpers.js";
 import { pulseMotors } from "../capabilities/runtime/signed-pair.js";
 import { setRgbValue } from "../capabilities/runtime/rgb.js";
 import { setLevelValue } from "../capabilities/runtime/level.js";

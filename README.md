@@ -7,21 +7,9 @@
 
 ## What this is
 
-Open a Chrome tab. Pair a robot over BLE. Write JavaScript that drives it.
+Open a Chrome tab. Pair a robot over BLE. Write code that drives it.
 
-```js
-// Multi-robot is a forEach.
-for (const r of robots) {
-  await r.led(true);
-  await r.move({ left: 30, right: 30, durationMs: 400 });
-  await r.led(false);
-}
-```
-
-- **Browser is the IDE.** Scripts panel + capability cards. localStorage is the file system; BLE is the runtime link.
-- **Models run in the browser too.** Open-vocab detector runs client-side. No GPU server, no inference bill.
-- **Two authorable surfaces, co-equal:** user code (you write JS) and Pip (a tool-using LLM with ask-human, currently Claude). Both bound by the same firmware safety floor.
-- **No backend, no accounts.** Static-site dashboard; no data leaves the browser.
+- **Browser is the IDE.** Coding panel + capability cards. localStorage is the file system; BLE is the runtime link.
 
 ## Architecture
 
@@ -31,7 +19,7 @@ for (const r of robots) {
 │  (Web Bluetooth) │   commands · state · ops · triggers    │  (ESP32 or Pi)   │
 └──────────────────┘                                        └──────────────────┘
           ▲                                                           ▲
-          ├─────────── WiFi (data plane, optional) ────────────────── ┤
+          ├─────────── WiFi (data plane) ────────────────── ┤
           │   camera (WebRTC ↔ HTTP MJPEG, per-camera toggle)         │
           │                                                           │
           └─────── USB-C (recovery plane, last-resort, Pi only) ───── ┘

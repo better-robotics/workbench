@@ -13,7 +13,7 @@
 // fixed role key. The server's `state` snapshot recovers signals sent
 // before late-joiners arrive; applied only when we're not already on a
 // healthy connection.
-import { SIGNAL_WS, TURN_URL } from "./endpoints.js";
+import { SIGNAL_WS, TURN_URL } from "../endpoints.js";
 // TURN proxy mints short-lived Cloudflare Realtime creds. STUN stays in
 // line as a zero-roundtrip fallback so a degraded proxy (offline, rate-
 // limited, mis-deployed) still gives us STUN-only pairing instead of nothing.
@@ -51,7 +51,7 @@ const QUEUE_MAX = 1000;
 // as long as the dialog is — cleanup happens on dialog close.
 const ICE_TIMEOUT_MS = 30000;
 
-import { parseCandidate, probeNetwork } from "./net-probe.js";
+import { parseCandidate, probeNetwork } from "../net-probe.js";
 
 // Per-attempt diagnostic capture: every local + remote ICE candidate this
 // side has seen during the most recent pair attempt. The Diagnostics

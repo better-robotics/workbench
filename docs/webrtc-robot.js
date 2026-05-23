@@ -20,7 +20,7 @@
 // webrtc-cert.js for the keygen + self-sign and the matching firmware
 // handler in webrtc_peer.c / dtls_srtp_supply_cert.
 
-import { fetchIceServers } from "./pairing.js";
+import { fetchIceServers } from "./pair/pairing.js";
 import { generateSessionCert } from "./webrtc-cert.js";
 
 // 90s. ESP32 + libpeer's ICE pairing is sequential — each candidate pair

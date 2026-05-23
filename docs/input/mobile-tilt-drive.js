@@ -1,4 +1,4 @@
-import { $ } from "./dom.js";
+import { $ } from "../dom.js";
 import { mix } from "./joypad.js";
 
 // Phone-as-steering-wheel + on-screen throttle pedals. Rolling the phone

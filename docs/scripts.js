@@ -9,7 +9,7 @@ import { sendCommand } from "./capabilities/runtime/command.js";
 import { waitOpsResponse } from "./ops-response.js";
 import { captureFrameDataUrl } from "./perception/camera-frame.js";
 import { detectOnce as detDetectOnce, startDetection as detStartDetection } from "./perception/detectors.js";
-import { listPhones, askHuman } from "./phones.js";
+import { listPhones, askHuman } from "./pair/phones.js";
 import { ask as claudeAsk } from "./pip/claude.js";
 import { speak as voiceSpeak } from "./voice.js";
 

@@ -1,7 +1,7 @@
-import { $ } from "./dom.js";
-import { discover } from "./signal-sdk/v1/discover.js";
-import { getMyPubkeyB64 } from "./signal-sdk/v1/peer-key.js";
-import { pairRequestClient } from "./signal-sdk/v1/pair-request.js";
+import { $ } from "../dom.js";
+import { discover } from "../signal-sdk/v1/discover.js";
+import { getMyPubkeyB64 } from "../signal-sdk/v1/peer-key.js";
+import { pairRequestClient } from "../signal-sdk/v1/pair-request.js";
 
 // LAN discovery — request/accept flow.
 //

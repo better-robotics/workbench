@@ -6,17 +6,17 @@
 // Pip's internals (see assistant.js's handleRemoteChat). webmcp-style tools
 // in pip-tools.js call listPhones()/sendToPhone() to let the agent see and
 // notify paired phones.
-import { $ } from "./dom.js";
-import { log } from "./log.js";
+import { $ } from "../dom.js";
+import { log } from "../log.js";
 import { hostPairingRoom } from "./pairing.js";
 import { sendPairById, pickMotorsTarget } from "./capabilities/runtime/signed-pair.js";
-import { state } from "./state.js";
+import { state } from "../state.js";
 import { setPhoneStream, getPhoneAttachment } from "./phone-helpers.js";
 import { reapplyPhoneScreenMode } from "./phone-screen-mode-plugin.js";
-import { discover } from "./signal-sdk/v1/discover.js";
-import { getMyPubkeyB64 } from "./signal-sdk/v1/peer-key.js";
-import { makeTrustStore } from "./trust.js";
-import { pairRequestClient } from "./signal-sdk/v1/pair-request.js";
+import { discover } from "../signal-sdk/v1/discover.js";
+import { getMyPubkeyB64 } from "../signal-sdk/v1/peer-key.js";
+import { makeTrustStore } from "../trust.js";
+import { pairRequestClient } from "../signal-sdk/v1/pair-request.js";
 const _trust = makeTrustStore("better-robotics:trust:v1");
 
 // Single shared lobby in signed mode: ads carry our device pubkey so the

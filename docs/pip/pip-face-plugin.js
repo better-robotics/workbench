@@ -2,7 +2,7 @@
 // events and forwards to every phone in pip-face screen mode.
 
 import { on, TOPICS } from "../event-bus.js";
-import { sendPipFaceEvent } from "../phones.js";
+import { sendPipFaceEvent } from "../pair/phones.js";
 
 export function initPipFacePlugin() {
   on(TOPICS.TOOL_CALL,    ({ tool, input }) => sendPipFaceEvent("tool_call", { tool, input }));

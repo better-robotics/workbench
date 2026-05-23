@@ -1,4 +1,4 @@
-import { $ } from "./dom.js";
+import { $ } from "../dom.js";
 
 let _scanStream = null;
 let _scanRaf = 0;
