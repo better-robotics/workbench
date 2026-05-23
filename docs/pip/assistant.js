@@ -1,19 +1,19 @@
 import { ask, askWithTools, activeModelForBackend } from "./claude.js";
 import { setAgentState } from "./agent-light.js";
-import { escapeHtml } from "./dom.js";
+import { escapeHtml } from "../dom.js";
 import { getTools, executor, setAskInChatHandler, isVisionAvailable } from "./pip-tools.js";
-import { labelTool, summarizeTool } from "./format.js";
-import { settings, saveSettings } from "./settings.js";
-import { state } from "./state.js";
+import { labelTool, summarizeTool } from "../format.js";
+import { settings, saveSettings } from "../settings.js";
+import { state } from "../state.js";
 import { tryMatchCommand, SAFETY_INTENTS } from "./voice-commands.js";
 import { tryMatchDemo, STATIC_DEMO_PHRASES } from "./demos.js";
-import { prewarmCache as prewarmTtsCache } from "./voice.js";
+import { prewarmCache as prewarmTtsCache } from "../voice.js";
 import { setDeps as setVoiceDeps, makeMicConfig, wireTtsGating } from "./assistant-voice.js";
 import { registerSlashCommands } from "./assistant-slash.js";
 import { wireWatcherFireBridge } from "./assistant-watcher-bridge.js";
-import { releaseAllGates } from "./watcher.js";
-import { emit as busEmit } from "./event-bus.js";
-import { AUTH_URL } from "./endpoints.js";
+import { releaseAllGates } from "../watcher.js";
+import { emit as busEmit } from "../event-bus.js";
+import { AUTH_URL } from "../endpoints.js";
 
 // pip-core is dynamic-imported inside initAssistant() (not statically at
 // module-load) so that a CDN failure on the jsdelivr URL cannot brick

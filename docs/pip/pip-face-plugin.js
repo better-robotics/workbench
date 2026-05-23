@@ -10,8 +10,8 @@
 // cam") is still in phones.js + phone-helpers.js attachPhoneCameraTo;
 // consolidating that here is the next refactor.
 
-import { on } from "./event-bus.js";
-import { sendPipFaceEvent } from "./phones.js";
+import { on } from "../event-bus.js";
+import { sendPipFaceEvent } from "../phones.js";
 
 export function initPipFacePlugin() {
   on("tool.call", ({ tool, input }) => {

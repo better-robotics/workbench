@@ -1,29 +1,29 @@
-import { state } from "./state.js";
-import { settings } from "./settings.js";
-import { waitOpsResponse } from "./ops-response.js";
-import { getLog, getConfig, restartService } from "./capabilities/runtime/command.js";
-import { listPhones, askHuman } from "./phones.js";
+import { state } from "../state.js";
+import { settings } from "../settings.js";
+import { waitOpsResponse } from "../ops-response.js";
+import { getLog, getConfig, restartService } from "../capabilities/runtime/command.js";
+import { listPhones, askHuman } from "../phones.js";
 import {
   listHelpers, startHelperCamera, stopHelperCamera, takeHelperSnapshot,
-} from "./phone-helpers.js";
-import { pulseMotors } from "./capabilities/runtime/signed-pair.js";
-import { setRgbValue } from "./capabilities/runtime/rgb.js";
-import { setLevelValue } from "./capabilities/runtime/level.js";
+} from "../phone-helpers.js";
+import { pulseMotors } from "../capabilities/runtime/signed-pair.js";
+import { setRgbValue } from "../capabilities/runtime/rgb.js";
+import { setLevelValue } from "../capabilities/runtime/level.js";
 import { notePipRgbOverride } from "./agent-light.js";
 import {
   listCameraSources,
   captureFrameDataUrl,
   drawFrameToCanvas,
-} from "./camera-frame.js";
+} from "../camera-frame.js";
 
 // Injected from assistant.js so dispatch can render an in-bubble question
 // with options or free-text. Falls back to the phone path; ask_human
 // surfaces an error if neither transport is available.
 let _askInChat = null;
 export function setAskInChatHandler(fn) { _askInChat = fn; }
-import { detectOnce, isDetectorFailed, getActiveVocabulary, getActiveDetectorName } from "./detectors.js";
-import { startWatcher, stopWatcher, ACTION_NAMES, watcherStatus, awaitReflexGate, isReflexGated } from "./watcher.js";
-import { speak as voiceSpeak } from "./voice.js";
+import { detectOnce, isDetectorFailed, getActiveVocabulary, getActiveDetectorName } from "../detectors.js";
+import { startWatcher, stopWatcher, ACTION_NAMES, watcherStatus, awaitReflexGate, isReflexGated } from "../watcher.js";
+import { speak as voiceSpeak } from "../voice.js";
 
 // Motor-tool gate. Blocks a tool call while the reflex watcher's halt
 // gate is engaged (a halt class visible, or a pause gesture held). 10s

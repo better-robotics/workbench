@@ -20,9 +20,9 @@ import { initMotorsKeyboard } from "./capabilities/runtime/signed-pair.js";
 // calls in the DOMContentLoaded wiring below.
 import { initAuthUI, fingerprint as dashFingerprint, pubkeySsh, onKeyChange } from "./auth.js";
 import { initPasswordsUI } from "./passwords.js";
-import { initAssistant } from "./assistant.js";
+import { initAssistant } from "./pip/assistant.js";
 import { initPhones, listPhones } from "./phones.js";
-import { initPipFacePlugin } from "./pip-face-plugin.js";
+import { initPipFacePlugin } from "./pip/pip-face-plugin.js";
 import { initPhoneScreenModePlugin } from "./phone-screen-mode-plugin.js";
 import {
   initHelpers, setHelpersRobotRenderer,

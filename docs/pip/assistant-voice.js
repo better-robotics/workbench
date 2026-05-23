@@ -1,5 +1,5 @@
 import { tryMatchCommand, SAFETY_INTENTS } from "./voice-commands.js";
-import { onSpeakingChange } from "./voice.js";
+import { onSpeakingChange } from "../voice.js";
 
 // Robotics-side wiring on top of pip-core's built-in mic (see
 // createPip({mic: ...}) — pip-core 2.10+). We get the dictation button,

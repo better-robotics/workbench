@@ -1,5 +1,5 @@
-import { escapeHtml } from "./dom.js";
-import { on as busOn } from "./event-bus.js";
+import { escapeHtml } from "../dom.js";
+import { on as busOn } from "../event-bus.js";
 
 // L2 reflex-fire bridge. On every watcher fire-event:
 //   - queue a synthetic observation for askWithTools to drain on the

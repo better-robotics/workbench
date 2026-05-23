@@ -24,9 +24,9 @@
 //   asking   — "Push" envelope on PEAK_AMBER + servo at ENGAGED.
 //   done     — PEAK_WHITE, linear fade to off over 600 ms → idle.
 
-import { state } from "./state.js";
-import { setRgbValue } from "./capabilities/runtime/rgb.js";
-import { setLevelValue } from "./capabilities/runtime/level.js";
+import { state } from "../state.js";
+import { setRgbValue } from "../capabilities/runtime/rgb.js";
+import { setLevelValue } from "../capabilities/runtime/level.js";
 
 // Peak colors at full saturation. The Yahboom BST-03 is physically dim
 // (indicator-class, not illumination); keeping peaks at max preserves

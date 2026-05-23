@@ -15,8 +15,8 @@
 // those directly. Less dictionary marshaling at the call site, and
 // each demo's actual dependencies are visible in its file's imports.
 
-import { onWatcherFire, awaitReflexGate } from "./watcher.js";
-import { state } from "./state.js";
+import { onWatcherFire, awaitReflexGate } from "../watcher.js";
+import { state } from "../state.js";
 import { askAboutFrame } from "./claude.js";
 //
 // Design philosophy (revised after first-pass screenshots showed tiny,

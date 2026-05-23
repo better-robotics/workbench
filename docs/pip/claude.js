@@ -8,7 +8,7 @@
 //               from settings. Browser-stored, "user's responsibility" model.
 //   openai    — direct fetch() to api.openai.com (chat/completions, function-
 //               calling). Different protocol from Anthropic; translated below.
-import { settings } from "./settings.js";
+import { settings } from "../settings.js";
 
 const BRIDGE_PROXY_URL = "http://127.0.0.1:7337";
 
