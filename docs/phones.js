@@ -11,7 +11,7 @@ import { log } from "./log.js";
 import { hostPairingRoom } from "./pairing.js";
 import { sendPairById, pickMotorsTarget } from "./capabilities/runtime/signed-pair.js";
 import { state } from "./state.js";
-import { setPhoneStream } from "./phone-helpers.js";
+import { setPhoneStream, getPhoneAttachment } from "./phone-helpers.js";
 import { discover } from "./signal-sdk/v1/discover.js";
 import { getMyPubkeyB64 } from "./signal-sdk/v1/peer-key.js";
 import { makeTrustStore } from "./trust.js";
@@ -243,6 +243,21 @@ function syncPhoneFeedToPhone(phone) {
 export function setPhoneFeedStream(stream) {
   _phoneFeedStream = stream || null;
   for (const p of _phones.values()) syncPhoneFeedToPhone(p);
+}
+
+// Tell a paired phone to flip its on-screen presentation. When the
+// phone is mounted on a robot (attachPhoneCameraTo in phone-helpers.js),
+// the operator chrome on the phone screen is dead weight — the phone
+// is now part of the robot's chassis, not a hand-held controller.
+// "attached" hides the chrome and shows whichever incoming stream is
+// playing in phone-cam-section full-screen (laptop cam → operator's
+// face, otherwise black). "default" restores normal UI.
+export function setPhoneScreenMode(phoneId, mode, robotLabel = null) {
+  const phone = _phones.get(phoneId);
+  if (!phone || phone.status === "failed") return;
+  try {
+    phone.peer.send({ type: "screen-mode", mode, robotLabel });
+  } catch {}
 }
 
 function closePairing() {
@@ -489,6 +504,14 @@ function _registerPairedPhone(id, peer, defaultLabel) {
   }
   // And the laptop-cam feed, if the operator has it running.
   syncPhoneFeedToPhone(phone);
+  // Restore attached-mode if this phone was already mounted on a robot
+  // when it dropped + reconnected. Without this, a fleeting WebRTC
+  // hiccup leaves the on-robot phone showing operator chrome again.
+  const attachedRobotId = getPhoneAttachment(id);
+  if (attachedRobotId) {
+    const robot = state.devices.get(attachedRobotId);
+    setPhoneScreenMode(id, "attached", robot?.name || null);
+  }
 }
 
 async function beginPairing() {
