@@ -128,15 +128,17 @@ const FOLLOW_REVERSE_SPEED = FOLLOW_DRIVE_SPEED;
 // to planner" pattern from Butter-Bench / ExploreVLM). `kind` is "fire"
 // (target entered frame) or "clear" (target left frame); only halt-mode
 // watchers emit "clear" — speak/notify have no concept of "stopped seeing."
-const _fireListeners = new Set();
+//
+// Fan-out goes through the shared event-bus topic "watcher.fire".
+// onWatcherFire is kept as a thin wrapper for callers that prefer the
+// (entry, det, kind) callback signature (demos.js, mostly); new
+// subscribers should `import { on } from "./event-bus.js"` directly.
+import { emit as _busEmit, on as _busOn } from "./event-bus.js";
 export function onWatcherFire(fn) {
-  _fireListeners.add(fn);
-  return () => _fireListeners.delete(fn);
+  return _busOn("watcher.fire", ({ entry, detection, kind }) => fn(entry, detection, kind));
 }
 function emitFire(entry, det, kind = "fire") {
-  for (const fn of _fireListeners) {
-    try { fn(entry, det, kind); } catch (err) { console.warn("[watcher] fire listener:", err); }
-  }
+  _busEmit("watcher.fire", { entry, detection: det, kind });
 }
 
 // Per-entry motor gate. While `blocked`, motor tools in pip-tools.js await

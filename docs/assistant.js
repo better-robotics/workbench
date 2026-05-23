@@ -12,7 +12,7 @@ import { setDeps as setVoiceDeps, makeMicConfig, wireTtsGating } from "./assista
 import { registerSlashCommands } from "./assistant-slash.js";
 import { wireWatcherFireBridge } from "./assistant-watcher-bridge.js";
 import { onWatcherFire, releaseAllGates, awaitReflexGate } from "./watcher.js";
-import { sendPipFaceEvent } from "./phones.js";
+import { emit as busEmit } from "./event-bus.js";
 import { AUTH_URL } from "./endpoints.js";
 
 // pip-core is dynamic-imported inside initAssistant() (not statically at
@@ -121,15 +121,20 @@ const turn = {
 // and the labelTool / summarizeTool name formatting.
 function appendStepPill(turnEl, name, input = null) {
   setAgentState(name === "ask_human" ? "asking" : "working");
-  // Fan tool-call event out to any phone in pip-face mode so the eye
-  // state-machine can pick the right expression. Pure side channel —
-  // no-op when nobody is rendering the face.
-  sendPipFaceEvent("tool_call", { tool: name, input });
+  // Tool-call event is emitted on the shared bus; subscribers (pip
+  // face plugin today, audit/log/OSC bridges later) attach without
+  // this function knowing about them.
+  busEmit("tool.call", { tool: name, input });
   return _pip.appendToolPill(turnEl, name, { label: `${labelTool(name)} …` });
 }
 function finishStepPill(pill, name, input, result, error, durationMs) {
   setAgentState("thinking");
-  sendPipFaceEvent("tool_result", { tool: name, ok: !error && !(result?.error), error: error || result?.error || null });
+  busEmit("tool.result", {
+    tool: name, input, result,
+    ok: !error && !(result?.error),
+    error: error || result?.error || null,
+    durationMs,
+  });
   // null durationMs to summarizeTool — pip-core's pill renders elapsed in
   // its own span; we keep the label semantic (name + arg summary) and
   // let pip handle the right-edge timing.

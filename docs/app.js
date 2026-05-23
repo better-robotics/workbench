@@ -22,6 +22,7 @@ import { initAuthUI, fingerprint as dashFingerprint, pubkeySsh, onKeyChange } fr
 import { initPasswordsUI } from "./passwords.js";
 import { initAssistant } from "./assistant.js";
 import { initPhones, listPhones } from "./phones.js";
+import { initPipFacePlugin } from "./pip-face-plugin.js";
 import {
   initHelpers, setHelpersRobotRenderer,
   attachPhoneCameraTo, getPhoneAttachment,
@@ -1139,6 +1140,10 @@ document.addEventListener("DOMContentLoaded", () => {
   initPhones();
   initHelpers();
   initRobotPresence();
+  // Pip face on attached phones is a bus-driven plugin — subscribes
+  // to tool.*/watcher.* topics and fans them out to phones currently
+  // in pip-face screen mode. Off-switch: delete this line.
+  initPipFacePlugin();
 
   // Lazy-load prepare.js on first click — it's ~230 LOC and touches the File
   // System Access API; no reason to pull it into first-paint. prepare.js's
