@@ -1,6 +1,6 @@
-import { $, escapeHtml } from "./dom.js";
-import { SERVICE_UUID, PIN_CONFIG_CHAR_UUID, encodeJson } from "./ble.js";
-import { beginMotorsCalibration } from "./motors-calibrate.js";
+import { $, escapeHtml } from "../dom.js";
+import { SERVICE_UUID, PIN_CONFIG_CHAR_UUID, encodeJson } from "../ble.js";
+import { beginMotorsCalibration } from "../motors-calibrate.js";
 import { boardById, cameraReservedSet, boardForbiddenSet, boardMaxGpio, boardPinDefaults } from "./boards.js";
 import { flattenPins, wireUpMotorChains, clearPinHighlight } from "./pinout-shared.js";
 

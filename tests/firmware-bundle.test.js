@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 const root = new URL("..", import.meta.url);
-const prepareSrc = fs.readFileSync(new URL("./docs/prepare.js", root), "utf8");
+const prepareSrc = fs.readFileSync(new URL("./docs/recovery/prepare.js", root), "utf8");
 const pyDir = new URL("./firmware/pi_robot/", root);
 const pySrc = fs.readFileSync(new URL("./pi_robot.py", pyDir), "utf8");
 

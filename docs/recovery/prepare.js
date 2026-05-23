@@ -1,6 +1,6 @@
-import { $, freshUrl, fetchWithTimeout } from "./dom.js";
-import { pubkeySsh } from "./auth.js";
-import { ensurePassword } from "./passwords.js";
+import { $, freshUrl, fetchWithTimeout } from "../dom.js";
+import { pubkeySsh } from "../auth.js";
+import { ensurePassword } from "../passwords.js";
 
 const FIRMWARE_URL    = "firmware/pi_robot";
 const FIRMWARE_FILES  = [

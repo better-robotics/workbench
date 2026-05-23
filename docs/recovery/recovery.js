@@ -1,7 +1,7 @@
 // Works even when BLE is dead: the USB gadget runs under its own systemd unit
 // (usb-gadget.service) independently of pi-robot.
-import { $ } from "./dom.js";
-import { log } from "./log.js";
+import { $ } from "../dom.js";
+import { log } from "../log.js";
 import { mountTerminal } from "./xterm-host.js";
 
 let _port = null;

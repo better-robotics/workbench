@@ -1,7 +1,7 @@
 // ESP32 USB serial console + flash. Companion to recovery.js (Pi USB-CDC);
 // shares xterm.js + Web Serial primitives via xterm-host.js.
-import { $ } from "./dom.js";
-import { log } from "./log.js";
+import { $ } from "../dom.js";
+import { log } from "../log.js";
 import { mountTerminal } from "./xterm-host.js";
 import { BOARDS, boardsForChip } from "./boards.js";
 

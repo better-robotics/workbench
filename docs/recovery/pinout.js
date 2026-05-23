@@ -1,5 +1,5 @@
-import { $ } from "./dom.js";
-import { state } from "./state.js";
+import { $ } from "../dom.js";
+import { state } from "../state.js";
 import { openPi, resetPi } from "./pinout-pi.js";
 import { openEsp32, resetEsp32 } from "./pinout-esp32.js";
 

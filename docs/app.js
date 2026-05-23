@@ -38,7 +38,7 @@ import {
   wireHardRefresh, wireDiagnosticsMenuItem, setReportIssueLink, readSwVersion,
 } from "./app-menu.js";
 import { initRobotPresence } from "./wifi-presence.js";
-import { wireLogDialog } from "./log-dialog.js";
+import { wireLogDialog } from "./recovery/log-dialog.js";
 
 setCapabilityRenderer((entry) => renderEntry(entry));
 setHelpersRobotRenderer((entry) => renderEntry(entry));
@@ -756,10 +756,10 @@ async function _setConsoleMode(mode) {
   $("console-mode-pi")?.setAttribute("aria-pressed", String(mode === "pi"));
   $("console-mode-esp")?.setAttribute("aria-pressed", String(mode === "esp"));
   if (mode === "pi") {
-    const mod = await import("./recovery.js");
+    const mod = await import("./recovery/recovery.js");
     mod.init();
   } else {
-    const mod = await import("./esp-serial.js");
+    const mod = await import("./recovery/esp-serial.js");
     mod.init();
   }
 }
@@ -920,7 +920,7 @@ document.addEventListener("DOMContentLoaded", () => {
     closeMenu();
     const entry = state.devices.get(id);
     if (!entry || entry.status !== "connected" || !entry.fwInfo) return;
-    const mod = await import("./pinout.js");
+    const mod = await import("./recovery/pinout.js");
     mod.openPinoutDialog(id);
   });
   // Shell — lazy-import so xterm.js + WebRTC plumbing only load when the
@@ -930,7 +930,7 @@ document.addEventListener("DOMContentLoaded", () => {
     closeMenu();
     const entry = state.devices.get(id);
     if (!entry || entry.fwType !== "pi" || entry.status !== "connected") return;
-    const mod = await import("./shell.js");
+    const mod = await import("./recovery/shell.js");
     mod.openShellDialog(id);
   });
   $("menu-console").addEventListener("click", () => {
@@ -1118,10 +1118,10 @@ document.addEventListener("DOMContentLoaded", () => {
         $("setup-dialog").close();
         // Release any console-held port before installEsp32 picks a new one.
         await Promise.all([
-          import("./recovery.js").then(m => m.releasePort?.()).catch(() => {}),
-          import("./esp-serial.js").then(m => m.releasePort?.()).catch(() => {}),
+          import("./recovery/recovery.js").then(m => m.releasePort?.()).catch(() => {}),
+          import("./recovery/esp-serial.js").then(m => m.releasePort?.()).catch(() => {}),
         ]);
-        const { installEsp32 } = await import("./esp-serial.js");
+        const { installEsp32 } = await import("./recovery/esp-serial.js");
         await installEsp32();
       });
     }
@@ -1153,11 +1153,11 @@ document.addEventListener("DOMContentLoaded", () => {
   // openDialog() runs its own initOnce() internally so one-time setup still
   // happens. ?prepare URL param keeps working via the same path.
   $("prepare-open-btn").addEventListener("click", async () => {
-    const mod = await import("./prepare.js");
+    const mod = await import("./recovery/prepare.js");
     await mod.openDialog();
   });
   if (new URLSearchParams(location.search).get("prepare") !== null) {
-    import("./prepare.js").then(m => m.openDialog());
+    import("./recovery/prepare.js").then(m => m.openDialog());
   }
   loadPaired().then(() => {
     highlightKnownRobotFromUrl();

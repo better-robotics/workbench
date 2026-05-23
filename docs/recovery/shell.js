@@ -11,10 +11,10 @@
 // DataChannel can be layered on top later if the trust model needs upgrade
 // (run ssh2 in a WebContainer, hand it a Duplex over the channel).
 
-import { $ } from "./dom.js";
-import { state } from "./state.js";
-import { log } from "./log.js";
-import { openChannel, closePeer } from "./webrtc-robot.js";
+import { $ } from "../dom.js";
+import { state } from "../state.js";
+import { log } from "../log.js";
+import { openChannel, closePeer } from "../webrtc-robot.js";
 import { mountTerminal } from "./xterm-host.js";
 
 let _wired = false;

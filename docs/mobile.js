@@ -12,7 +12,7 @@ import {
   showReconnect, hideReconnect, wireReconnect, cameraUnavailableReason,
 } from "./mobile-qr-scan.js";
 import { startNearbyDiscovery, deviceLabel } from "./mobile-nearby-discovery.js";
-import { mountPipFace, unmountPipFace, applyPipEvent } from "./mobile-pip-face.js";
+import { mountPipFace, unmountPipFace, applyPipEvent } from "./pip/mobile-pip-face.js";
 const _trust = makeTrustStore("better-robotics:trust:v1");
 
 let _peer = null;
