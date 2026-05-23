@@ -366,7 +366,7 @@ function renderPhoneCard(p) {
   // robot card (see attachPhoneCameraTo callers in app.js). The mounted
   // status surfaces in the meta line above.
   const currentRole = isOverhead ? "overhead" : "operator";
-  const picker = (live && !attachedRobot) ? `
+  const rolePicker = (live && !attachedRobot) ? `
     <label class="phone-mount">
       <span class="meta-prose">Camera role</span>
       <select data-action="phone-role" data-phone-id="${escapeHtml(p.id)}">
@@ -375,6 +375,25 @@ function renderPhoneCard(p) {
       </select>
     </label>
   ` : "";
+
+  // "Screen shows" picker — visible only when the phone is mounted on a
+  // robot. Inverse of rolePicker: once attached, what the phone's own
+  // camera does is decided by mount; what matters now is what the
+  // audience sees on the phone screen. Pip face (default) is the
+  // autonomy shape; Operator camera is the telepresence shape (laptop
+  // cam → operator's face on the robot, requires a local cam in "Send
+  // to phone" role). Global setting — applies to all attached phones.
+  const screenMode = settings.phoneAttachedMode === "operator-cam" ? "operator-cam" : "pip-face";
+  const screenPicker = attachedRobot ? `
+    <label class="phone-mount">
+      <span class="meta-prose">Screen shows</span>
+      <select data-action="phone-screen-mode" data-phone-id="${escapeHtml(p.id)}">
+        <option value="pip-face" ${screenMode === "pip-face" ? "selected" : ""}>Pip face</option>
+        <option value="operator-cam" ${screenMode === "operator-cam" ? "selected" : ""}>Operator camera</option>
+      </select>
+    </label>
+  ` : "";
+  const picker = rolePicker + screenPicker;
 
   // Preview tile lives here whenever the stream isn't mounted on a robot.
   // When overhead is designated, an SVG overlay paints detected markers
@@ -700,6 +719,20 @@ function wire() {
     sel.addEventListener("change", () => {
       // Empty value = placeholder = no role active; setter takes "off".
       setLocalCameraRole(sel.dataset.localId, sel.value || "off");
+    });
+  });
+  list.querySelectorAll('[data-action="phone-screen-mode"]').forEach(sel => {
+    sel.addEventListener("change", () => {
+      settings.phoneAttachedMode = sel.value;
+      saveSettings();
+      // Re-emit phone.attached for every currently-attached phone so the
+      // mode-resolver plugin re-evaluates the setting. Global preference,
+      // so all attached phones flip together.
+      for (const [phoneId, robotId] of _phoneAttachments) {
+        const robot = state.devices.get(robotId);
+        busEmit("phone.attached", { phoneId, robotId, robotLabel: robot?.name || null });
+      }
+      render();
     });
   });
   // Mount the live MediaStream into the freshly-rendered <video> elements.
