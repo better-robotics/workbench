@@ -3,7 +3,6 @@
 **Open a tab, pair a robot, ship code.**
 
 [![Build firmware](https://github.com/jonasneves/better-robotics/actions/workflows/build-firmware.yml/badge.svg)](https://github.com/jonasneves/better-robotics/actions/workflows/build-firmware.yml)
-[![Web Bluetooth](https://img.shields.io/badge/Web%20Bluetooth-Chrome%20%7C%20Edge-orange)](#browser-support)
 
 ## What this is
 
