@@ -27,8 +27,6 @@ The **browser-native robotics dev environment** — vibe-code robots in a tab, r
 
 - **Promotion trigger: vocabulary closure, not file count.** Files belong in their own folder when they (1) share a naming prefix, (2) change together for the same reason, (3) expose ≤2 symbols outward. A 3-file sealed vocabulary (`pinout-*`) is more ready than a 6-file loose collection (`mobile-*`). When a prefix collects files that change for *different* reasons, split — don't folder.
 
-- **Fork-readability is the test for folder names.** A subsystem folder is well-named when the duke-ai sibling can decide to copy it (substrate) or skip it (fork-specific) from the name alone, without opening files. If the name doesn't answer that, rename before promoting. Today: `capabilities/` reads as substrate ✓, `pip/` reads as fork-specific ✓.
-
 # Subsystem map
 
 - **Pair layer** — `pairing.js`, `phones.js`, `mobile.js` + `phone.html`. Desktop ↔ phone WebRTC.
