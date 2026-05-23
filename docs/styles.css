@@ -2981,6 +2981,63 @@ body.phone textarea {
   box-shadow: 0 -1px 0 var(--border-subtle);
 }
 
+/* Attached-mode: phone is mounted on the robot, not in an operator's
+   hand. Operator chrome is dead weight on the robot's "face" — hide it
+   and fill the viewport with the incoming camera tile (which is the
+   only thing the audience is going to look at). Sticky Stop stays
+   visible (semi-transparent) so anyone in the room can still halt the
+   robot without finding the desktop. Triggered by the screen-mode
+   message from phones.js setPhoneScreenMode. */
+body.phone-attached { background: #000; }
+body.phone-attached .phone-main {
+  padding: 0;
+  min-height: 100dvh;
+}
+body.phone-attached .phone-main > *:not(#phone-cam-section):not(#phone-command):not(#phone-ask-dialog) {
+  display: none !important;
+}
+body.phone-attached #phone-cam-section {
+  position: fixed;
+  inset: 0;
+  margin: 0;
+  background: #000;
+  z-index: 1;
+}
+body.phone-attached #phone-cam-section .phone-cam-tap {
+  width: 100vw;
+  height: 100dvh;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: #000;
+}
+body.phone-attached #phone-cam {
+  width: 100vw;
+  height: 100dvh;
+  object-fit: cover;
+  border-radius: 0;
+}
+body.phone-attached #phone-cam-label,
+body.phone-attached #phone-cam-picker,
+body.phone-attached #phone-cam-overlay { display: none; }
+body.phone-attached #phone-command {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 11;
+  margin: 0;
+  padding: 8px 16px calc(8px + env(safe-area-inset-bottom));
+  background: transparent;
+  box-shadow: none;
+}
+body.phone-attached #phone-stop-btn {
+  background: color-mix(in srgb, var(--danger) 78%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 78%, transparent);
+  backdrop-filter: blur(6px);
+}
+
 /* Pip accordion. Collapsed = just a row with title + status + unread dot;
    expanded = the chat bubble + input. Auto-expanded by mobile.js when Pip
    pushes a message worth reading. The "details > summary" pattern is

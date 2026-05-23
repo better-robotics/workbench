@@ -262,6 +262,7 @@ function renderCameraPicker() {
 function onPeerMessage(msg) {
   if (msg.type === "ask") { showAsk(msg); return; }
   if (msg.type === "request-camera-share") { showCameraShareRequest(msg); return; }
+  if (msg.type === "screen-mode") { applyScreenMode(msg.mode, msg.robotLabel); return; }
   if (msg.type === "available-sources") {
     _availableSources.set(msg.robotId, {
       sources: msg.sources || [], active: msg.active || null,
@@ -292,6 +293,25 @@ function onPeerMessage(msg) {
       targetEl.textContent = "No robot connected";
       _joypad?.reset();
     }
+  }
+}
+
+// Attached-mode: phone is mounted on the robot, screen becomes the
+// robot's "face." Hide operator chrome; the incoming phone-cam-section
+// is what fills the viewport. Sticky Stop stays visible (semi-
+// transparent) so anyone in the room can still halt the robot without
+// having to find the operator. Desktop owns the toggle (set via
+// attachPhoneCameraTo → setPhoneScreenMode); phone-side has no local
+// override. Reset on peer.onClose so a disconnect leaves the user with
+// normal UI to reconnect from.
+function applyScreenMode(mode, robotLabel) {
+  const body = document.body;
+  if (mode === "attached") {
+    body.classList.add("phone-attached");
+    body.dataset.attachedTo = robotLabel || "";
+  } else {
+    body.classList.remove("phone-attached");
+    delete body.dataset.attachedTo;
   }
 }
 
@@ -680,6 +700,10 @@ async function init() {
       $("phone-cam-section").hidden = true;
       _stopSharing();
       $("phone-share").hidden = true;
+      // Exit attached-mode on disconnect so the user lands on normal UI
+      // to reconnect from. Desktop will re-send "attached" on reconnect
+      // if this phone was mounted (see phones.js phone-connect path).
+      applyScreenMode("default");
       showReconnect("Lost the desktop. Scan a fresh QR to reconnect.");
       startNearbyDiscovery();
     });
