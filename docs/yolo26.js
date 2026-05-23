@@ -6,6 +6,7 @@
 
 import { drawFrameToCanvas } from "./camera-frame.js";
 import { COCO_80 } from "./detectors.js";
+import { pollUntilHit } from "./detector-poll.js";
 
 // Bundled minified build embeds the WASM bytes inline — no separate
 // wasm-path config needed. WebGPU EP is registered; falls back to WASM
@@ -211,34 +212,12 @@ export async function detectOnce(entry, { classes, source = null, threshold = DE
   return out;
 }
 
-// Same poll-loop shape + semantics as mediapipe.startDetection — callers
-// upstream (watcher.js, pip-tools.js) don't care which backend they hit.
-export function startDetection(entry, { classes, source = null, threshold, intervalMs = DEFAULT_INTERVAL_MS, timeoutMs = 0 } = {}) {
-  let stopped = false;
-  let timer = null;
-  let timeoutTimer = null;
-  let resolveResult;
-  const promise = new Promise((resolve) => { resolveResult = resolve; });
-  const finish = (val) => {
-    if (stopped) return;
-    stopped = true;
-    if (timer) { clearTimeout(timer); timer = null; }
-    if (timeoutTimer) { clearTimeout(timeoutTimer); timeoutTimer = null; }
-    resolveResult(val);
-  };
-  const loop = async () => {
-    if (stopped) return;
-    const dets = await detectOnce(entry, { classes, source, threshold });
-    if (stopped) return;
-    if (dets === null) {
-      if (_failed) { finish(null); return; }
-      timer = setTimeout(loop, intervalMs);
-      return;
-    }
-    if (dets.length > 0) { finish(dets[0]); return; }
-    timer = setTimeout(loop, intervalMs);
-  };
-  if (timeoutMs > 0) timeoutTimer = setTimeout(() => finish(null), timeoutMs);
-  loop();
-  return { promise, stop: () => finish(null) };
+// Same poll-loop semantics as mediapipe — callers upstream
+// (watcher.js, pip-tools.js) don't care which backend they hit.
+export function startDetection(entry, opts = {}) {
+  return pollUntilHit(
+    { detectOnce, isFailed: () => _failed },
+    entry,
+    { intervalMs: DEFAULT_INTERVAL_MS, ...opts },
+  );
 }
