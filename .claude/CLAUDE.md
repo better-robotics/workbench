@@ -64,7 +64,8 @@ Before adding a logical layer, registry, wrapper, or routing decision, audit who
 
 The "openpilot panda" pattern: safety enforced *below* the intelligent layer, not inside it.
 
-- Firmware caps motor speed, pulse duration, and watchdog auto-stop. The LLM planner can't bypass them — not even via a malformed tool call.
+- Firmware caps pulse duration and watchdog auto-stop. LLM-issued motion auto-stops at the end of the pulse window (4s on Pi, same on ESP32); the watchdog cuts persistent commands when the dashboard goes silent. The ultrasonic dist_cm clip stops pure-forward motion at walls regardless of who issued the move. The planner can't bypass these — not even via a malformed tool call.
+- Magnitude is *not* capped LLM-side anymore. Joypad and Pip share the same signed-byte range; the time-bound is what bounds a single bad decision. Earlier versions used `LLM_MAX_SPEED = 70` as an extra "reduced envelope for the planner" rung, but the duration cap already bounds the wrong-direction excursion, and the cap was making demos / Pip-driven motion artificially slow vs joypad without buying meaningful safety.
 - LLM-issued motion is pulse-bounded (`duration_ms` mandatory; firmware auto-stops). Persistent speed is reserved for human joystick control where there's a 20Hz+ decision loop.
 - `ask_human_via_phone` is the terminal rung of the decision cascade — the planner asks to be overridden rather than waits for the operator to step in.
 

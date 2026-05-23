@@ -17,9 +17,10 @@
 //     each apply; fires if the operator stops sending updates (BLE drop,
 //     dashboard tab closed, etc.).
 //   - Pulse:    LLM tool calls go through motors_pulse() with a bounded
-//     duration. Speed clamped to LLM_MAX_SPEED, dur to LLM_MAX_DURATION_MS,
-//     and a one-shot timer auto-stops at the end. A newer apply (joystick,
-//     newer pulse) wins via pulse_id check inside the timer fire.
+//     duration (LLM_MAX_DURATION_MS). One-shot timer auto-stops at the
+//     end; a newer apply (joystick, newer pulse) wins via pulse_id check
+//     inside the timer fire. Magnitude is unbounded beyond signed-byte —
+//     duration + watchdog + dist_cm clip are the safety floor.
 //   - Stall:    when encoders are wired, a commanded side that hasn't
 //     ticked inside ~200ms is jammed. Auto-stop both sides before the
 //     H-bridge cooks. No-op when encoders aren't configured.

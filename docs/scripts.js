@@ -143,10 +143,10 @@ log(\`\${robot.name} caps: \${robot.capabilities.join(", ") || "(none)"}\`);
 const cfg = await robot.op("get-config");
 log("config:", cfg.text?.slice(0, 200) || "(empty)");
 
-// Pulse-bounded motion (firmware-clamped to ±40 / 50–2000 ms):
-await robot.move({ left: 30, right: 30, durationMs: 400 });
+// Pulse-bounded motion (firmware-clamped to 50–2000 ms duration):
+await robot.move({ left: 60, right: 60, durationMs: 400 });
 await sleep(500);
-await robot.move({ left: -30, right: -30, durationMs: 400 });
+await robot.move({ left: -60, right: -60, durationMs: 400 });
 log("done");
 `,
   },
@@ -174,8 +174,8 @@ log("done");
   {
     id: "square",
     name: "Square dance — patterned drive",
-    body: `// Drive a rough square. The ±40 / 2000 ms caps that pulseMotors
-// enforces are the LLM-grade safety floor — same caps Pip is bound by.
+    body: `// Drive a rough square. The 2000ms pulse cap that pulseMotors
+// enforces is the LLM-grade safety floor — same cap Pip is bound by.
 // Tune the durations for your robot's actual turn rate.
 
 if (!robot) { log("Pair a robot first."); return; }

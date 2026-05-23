@@ -25,8 +25,18 @@
 //     These are the ones competitors can't fake with timed pulses
 //     because the planner-loop is the control system.
 
-const SPEED = 40;        // saturate; firmware caps to ±40 anyway
-const MAX = 2000;        // firmware duration cap per pulse
+// Demo speed = full LLM-pulse range. The firmware no longer caps
+// magnitude (only duration + watchdog + dist_cm clip remain as the
+// safety floor), so demos run at the same max the joypad reaches.
+const SPEED = 100;
+const MAX = 2000;        // firmware duration cap per pulse (move_motor schema cap)
+// 180° spin at the current SPEED on this chassis, derived from the
+// empirical calibration at speed 40 (1 MAX pulse = 180°). Lets the few
+// demo beats with a specific angular intent (turn-around, "spin" verb)
+// stay geometry-stable as SPEED moves. Other demo spins are
+// intentionally left in MAX units — bigger spins read as "more
+// energetic," which fits the demo brief.
+const SPIN_180_MS = Math.round(MAX * 40 / SPEED);
 
 // pulse-and-settle: move_motor is bounded; we wait the pulse duration
 // plus a small settle so we don't queue pulses on top of each other
@@ -265,14 +275,15 @@ async function introduce(ctx) {
     pulse(ctx, SPEED, SPEED, 700),
   ]);
 
-  // spin: 2 chained max pulses ≈ 360° on this chassis. The motion is
-  // longer than the word "spin", so the robot keeps spinning briefly
-  // after the audio — appropriate for the verb being demonstrated.
+  // spin: roughly one full rotation. Two chained SPIN_180_MS pulses
+  // delivers ~360° on this chassis at the current SPEED. The motion
+  // lasts a bit longer than the word "spin", which is appropriate for
+  // the verb being demonstrated.
   await Promise.all([
     speakAndWait(ctx, "spin"),
     (async () => {
-      await pulse(ctx, -SPEED, SPEED, MAX);
-      await pulse(ctx, -SPEED, SPEED, MAX);
+      await pulse(ctx, -SPEED, SPEED, SPIN_180_MS);
+      await pulse(ctx, -SPEED, SPEED, SPIN_180_MS);
     })(),
   ]);
 
@@ -373,9 +384,8 @@ async function stopsignPatrol(ctx) {
   // max-duration pulse so the sweep covers serious ground per loop.
   //
   // Tuned for "real patrol" feel: 12 segments × 2000ms ≈ 24s of forward
-  // motion per leg ≈ 7-8m at 35 cm/s. Firmware caps speed at 40 and
-  // pulse duration at 2000ms so this is as fast as a single leg can go
-  // without changing the firmware floor.
+  // motion per leg. Pulse duration is firmware-capped at 2000ms; a
+  // single leg's speed is the demos.js SPEED constant (full LLM range).
   //
   // dist_cm guard: firmware silently clips pure-forward motion when
   // dist_cm < ~15 and still returns ok:true, so without this check the
@@ -400,15 +410,15 @@ async function stopsignPatrol(ctx) {
     }
   };
 
-  // 180° turn-around. Empirically 1 MAX pulse at speed 40 ≈ 180° on
-  // this chassis (earlier "2 pulses = half rotation" comment was wrong;
-  // 2 pulses = full 360° = robot ends up facing the SAME way it was,
-  // which is why patrol seemed to stop making progress — the firmware
-  // ultrasonic clip stopped it, then we "turned" all the way around
-  // back toward the same wall).
+  // 180° turn-around. Uses SPIN_180_MS (derived from the empirical
+  // calibration at speed 40, 1 MAX pulse ≈ 180°) so the angle stays
+  // ~180° regardless of where SPEED is set. Earlier "2 pulses = half
+  // rotation" comment was wrong; the bug was an over-turn that brought
+  // the robot back to facing the SAME wall, which was why patrol
+  // seemed to stop making progress.
   const turnAround = async () => {
     if (breakLeg()) return;
-    await pulse(ctx, -SPEED, SPEED, MAX);
+    await pulse(ctx, -SPEED, SPEED, SPIN_180_MS);
   };
 
   try {

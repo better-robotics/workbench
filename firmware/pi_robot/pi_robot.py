@@ -107,16 +107,13 @@ MOTOR_WATCHDOG_MS = 500
 
 # Control-loop invariants — see .claude/CLAUDE.md. LLM-issued motion comes
 # as a 4-byte payload [l, r, dur_hi, dur_lo] with a duration_ms that the
-# firmware honors by auto-stopping at the end of the pulse. Magnitude and
-# duration are clamped to these caps regardless of what the dashboard
-# sends; firmware is the safety floor, not Pip / Claude.
-#
-# 70/4000 is the demo-tuned shape: 40% PWM frequently can't overcome
-# stiction on carpet (wheels buzz but don't turn); 70% gives a meaningful
-# walk-pace traversal. 4 s lets a pulse cross most of a room without
-# Claude needing to re-issue every two seconds, while the safety floor +
-# 100 ms watchdog still cut in-flight motion when an obstacle appears.
-LLM_MAX_SPEED = 70
+# firmware honors by auto-stopping at the end of the pulse. Duration is
+# clamped here; magnitude shares the full signed-byte range with joypad
+# payloads. The duration cap + motor watchdog + ultrasonic dist_cm clip
+# are the firmware safety floor — they bound a single bad pulse in time
+# (and stop forward motion at walls) even when the planner is wrong
+# about direction. 4 s lets a pulse cross most of a room without
+# Claude needing to re-issue every two seconds.
 LLM_MAX_DURATION_MS = 4000
 
 # BLE OTA protocol:
@@ -982,9 +979,8 @@ def _motor_handle_write(data: bytearray) -> None:
     """Motor char accepts two payload shapes:
       2 bytes [l, r]                   — persistent (user joystick). Watchdog
                                           stops after MOTOR_WATCHDOG_MS silence.
-                                          No LLM caps (user controls directly).
-      4 bytes [l, r, dur_hi, dur_lo]  — time-bounded pulse (LLM). Clamped to
-                                          LLM_MAX_SPEED / LLM_MAX_DURATION_MS,
+      4 bytes [l, r, dur_hi, dur_lo]  — time-bounded pulse (LLM). Duration
+                                          clamped to LLM_MAX_DURATION_MS,
                                           firmware auto-stops at duration end.
     Any write bumps _motor_pulse_id so a later write invalidates an earlier
     pulse's scheduled stop — the newer command always wins.
@@ -997,8 +993,8 @@ def _motor_handle_write(data: bytearray) -> None:
         _motor_pulse_id += 1
         _apply_motors(signed(data[0]), signed(data[1]))
     elif len(data) == 4:
-        l = max(-LLM_MAX_SPEED, min(LLM_MAX_SPEED, signed(data[0])))
-        r = max(-LLM_MAX_SPEED, min(LLM_MAX_SPEED, signed(data[1])))
+        l = signed(data[0])
+        r = signed(data[1])
         duration_ms = max(50, min(LLM_MAX_DURATION_MS, (data[2] << 8) | data[3]))
         _motor_last_write_at = asyncio.get_event_loop().time()
         _motor_pulse_id += 1

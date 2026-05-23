@@ -178,7 +178,7 @@ const ALL_TOOLS = [
   },
   {
     name: "move_motor",
-    description: "Time-bounded motor pulse: (l, r) speeds in [-100, 100], duration_ms in [50, 2000]. Firmware caps speed to ±40, auto-stops at end of window, and clips pure-forward motion when dist_cm < ~15. Returns { ok, applied:{l,r,duration_ms} } or { ok:false, error }. PREFER drive_distance_cm or approach_until for non-trivial moves — they save 1-2 LLM round-trips per logical action.",
+    description: "Time-bounded motor pulse: (l, r) speeds in [-100, 100], duration_ms in [50, 2000]. Firmware auto-stops at end of window and clips pure-forward motion when dist_cm < ~15. Returns { ok, applied:{l,r,duration_ms} } or { ok:false, error }. PREFER drive_distance_cm or approach_until for non-trivial moves — they save 1-2 LLM round-trips per logical action.",
     input_schema: {
       type: "object",
       properties: {
@@ -193,13 +193,13 @@ const ALL_TOOLS = [
   },
   {
     name: "drive_distance_cm",
-    description: "Drive forward (positive cm) or backward (negative cm) a target distance at fixed speed. Auto-chains move_motor pulses if the distance exceeds one max pulse (~70cm at speed 40). Forward still auto-clips at dist_cm<15 (firmware floor). Returns { ok, requested_cm, executed_pulses, results }. Use when you KNOW how far to go (e.g. 'drive 50cm') — saves a frame+reframe between sub-pulses.",
+    description: "Drive forward (positive cm) or backward (negative cm) a target distance at fixed speed. Auto-chains move_motor pulses if the distance exceeds one max pulse (~175cm at speed 100). Forward still auto-clips at dist_cm<15 (firmware floor). Returns { ok, requested_cm, executed_pulses, results }. Use when you KNOW how far to go (e.g. 'drive 50cm') — saves a frame+reframe between sub-pulses.",
     input_schema: {
       type: "object",
       properties: {
         id:    { type: "string" },
         cm:    { type: "number", minimum: -300, maximum: 300, description: "Target distance; positive = forward, negative = reverse." },
-        speed: { type: "number", minimum: 5,    maximum: 40,  description: "Optional speed magnitude 5-40 (default 40)." },
+        speed: { type: "number", minimum: 5,    maximum: 100, description: "Optional speed magnitude 5-100 (default 100). 40+ to overcome stiction on carpet." },
       },
       required: ["id", "cm"],
     },
@@ -207,13 +207,13 @@ const ALL_TOOLS = [
   },
   {
     name: "drive_arc",
-    description: "Drive a curved/circular path at a chosen wheel-speed ratio for a target duration. Single call → executor chains 2000ms move_motor pulses inline at ~30 Hz, no LLM round-trips between pulses. Same primitive that powers drive_distance_cm for straight motion. Use this for ANY sustained-curve motion (full circles, arcs, gentle veers) instead of issuing repeated move_motor pulses — saves 1-2s of planning latency per pulse and BLE round-trips. Common patterns: full circle ≈ {l:40, r:20, total_ms:10000} (radius ~30cm); tight circle ≈ {l:40, r:0, total_ms:6000}; wide arc ≈ {l:40, r:30, total_ms:5000}; figure-eight = two arcs with flipped l/r in succession. Negate both l and r for reverse arcs. Returns { ok, total_ms, executed_pulses, results }.",
+    description: "Drive a curved/circular path at a chosen wheel-speed ratio for a target duration. Single call → executor chains 2000ms move_motor pulses inline at ~30 Hz, no LLM round-trips between pulses. Same primitive that powers drive_distance_cm for straight motion. Use this for ANY sustained-curve motion (full circles, arcs, gentle veers) instead of issuing repeated move_motor pulses — saves 1-2s of planning latency per pulse and BLE round-trips. Common patterns: full circle ≈ {l:100, r:50, total_ms:4000} (radius ~30cm); tight circle ≈ {l:100, r:0, total_ms:2400}; wide arc ≈ {l:100, r:70, total_ms:2000}; figure-eight = two arcs with flipped l/r in succession. Negate both l and r for reverse arcs. Returns { ok, total_ms, executed_pulses, results }.",
     input_schema: {
       type: "object",
       properties: {
         id:       { type: "string" },
-        l:        { type: "number", minimum: -40, maximum: 40, description: "Left wheel speed, [-40, 40]. Equal to r = straight; bigger = arc toward the opposite wheel." },
-        r:        { type: "number", minimum: -40, maximum: 40, description: "Right wheel speed, [-40, 40]." },
+        l:        { type: "number", minimum: -100, maximum: 100, description: "Left wheel speed, [-100, 100]. Equal to r = straight; bigger gap = tighter arc toward the slower wheel." },
+        r:        { type: "number", minimum: -100, maximum: 100, description: "Right wheel speed, [-100, 100]." },
         total_ms: { type: "number", minimum: 100, maximum: 30000, description: "Total motion duration in ms (chunked to firmware's 2000ms pulse cap)." },
       },
       required: ["id", "l", "r", "total_ms"],
@@ -231,7 +231,7 @@ const ALL_TOOLS = [
         target:         { type: "string", description: "Optional COCO class to center on ('person', 'cup', 'stop sign', etc.). Omit for pure straight-line approach using dist_cm only." },
         stop_bbox_area: { type: "number", minimum: 0.05, maximum: 0.9, description: "When `target` is set, also stop when its bbox covers this fraction of the frame. Default 0.25 (~half-frame width = close enough by sight). Smaller (~0.1) for distant approach; larger (~0.4) to get very close." },
         max_seconds:    { type: "number", minimum: 1, maximum: 30, description: "Safety cap on total approach time. Default 15." },
-        speed:          { type: "number", minimum: 5, maximum: 40, description: "Drive speed magnitude 5-40 (default 40)." },
+        speed:          { type: "number", minimum: 5, maximum: 100, description: "Drive speed magnitude 5-100 (default 100). 40+ to overcome stiction on carpet." },
       },
       required: ["id"],
     },
@@ -579,11 +579,11 @@ async function dispatch(name, input) {
       return { ok: true, status };
     }
     case "move_motor": {
-      // Each pulse is firmware-bounded (speed ±40, duration 50–2000 ms,
-      // watchdog auto-stop, dist_cm forward-clip). The planner decides
-      // when to look or ask for help — no executor-imposed observation
-      // cadence between pulses. Stamp the action so subsequent
-      // get_robot_state returns can flag motion-invalidated telemetry.
+      // Each pulse is firmware-bounded (duration 50–2000 ms, watchdog
+      // auto-stop, dist_cm forward-clip). The planner decides when to
+      // look or ask for help — no executor-imposed observation cadence
+      // between pulses. Stamp the action so subsequent get_robot_state
+      // returns can flag motion-invalidated telemetry.
       const gateErr = await awaitMotorGate(input.id);
       if (gateErr) return gateErr;
       const e = state.devices.get(input.id);
@@ -595,7 +595,7 @@ async function dispatch(name, input) {
       if (!e) return { error: `no robot with id ${input.id}` };
       const cm = Math.max(-300, Math.min(300, Number(input.cm) || 0));
       if (cm === 0) return { error: "cm must be non-zero" };
-      const speed = Math.max(5, Math.min(40, Number(input.speed) || 40));
+      const speed = Math.max(5, Math.min(100, Number(input.speed) || 100));
       const dir = cm > 0 ? 1 : -1;
       // Linear-velocity calibration. Tune CM_PER_SEC_AT_40 if the robot
       // overshoots/undershoots; everything else derives from it. Pulled
@@ -649,8 +649,8 @@ async function dispatch(name, input) {
       // arc halts the chain instead of letting queued chunks blast through.
       const e = state.devices.get(input.id);
       if (!e) return { error: `no robot with id ${input.id}` };
-      const l = Math.max(-40, Math.min(40, Number(input.l) || 0));
-      const r = Math.max(-40, Math.min(40, Number(input.r) || 0));
+      const l = Math.max(-100, Math.min(100, Number(input.l) || 0));
+      const r = Math.max(-100, Math.min(100, Number(input.r) || 0));
       const totalMs = Math.max(100, Math.min(30000, Number(input.total_ms) || 0));
       if (totalMs === 0) return { error: "total_ms must be > 0" };
       const PULSE_MAX = 2000;   // firmware cap per move_motor pulse
@@ -689,7 +689,7 @@ async function dispatch(name, input) {
       if (!e) return { error: `no robot with id ${input.id}` };
       const stopDistCm = Math.max(10, Math.min(200, Number(input.stop_dist_cm) || 20));
       const maxSeconds = Math.max(1, Math.min(30, Number(input.max_seconds) || 15));
-      const speed = Math.max(5, Math.min(40, Number(input.speed) || 40));
+      const speed = Math.max(5, Math.min(100, Number(input.speed) || 100));
       const target = input.target ? String(input.target).toLowerCase() : null;
       const stopBboxArea = Math.max(0.05, Math.min(0.9, Number(input.stop_bbox_area) || 0.25));
       const startedAt = Date.now();

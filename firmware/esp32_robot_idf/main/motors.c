@@ -36,11 +36,12 @@ static const char *TAG = "motors";
 #define MOTOR_RES        LEDC_TIMER_8_BIT
 
 #define MOTOR_WATCHDOG_MS    500
-// 70/4000 matches the Pi caps — see firmware/pi_robot/pi_robot.py for the
-// rationale (40% PWM stalls on carpet; 4s pulses let a planner-loop cross
-// a room without re-issuing every two seconds; safety floors elsewhere
-// still gate forward motion when an obstacle is close).
-#define LLM_MAX_SPEED        70
+// 4 s matches the Pi cap — see firmware/pi_robot/pi_robot.py for the
+// rationale. LLM-issued pulses get the full signed-byte magnitude
+// range (same as joypad). Duration + watchdog + the ultrasonic
+// dist_cm clip elsewhere are the firmware safety floor; a single bad
+// pulse is bounded in time even when the planner is wrong about
+// direction.
 #define LLM_MAX_DURATION_MS  4000
 
 // Stall rung: a commanded side that hasn't ticked for STALL_THRESHOLD_MS
@@ -296,10 +297,6 @@ void motors_apply(int8_t left, int8_t right) {
 }
 
 void motors_pulse(int8_t left, int8_t right, uint16_t dur_ms) {
-    if (left  < -LLM_MAX_SPEED) left  = -LLM_MAX_SPEED;
-    if (left  >  LLM_MAX_SPEED) left  =  LLM_MAX_SPEED;
-    if (right < -LLM_MAX_SPEED) right = -LLM_MAX_SPEED;
-    if (right >  LLM_MAX_SPEED) right =  LLM_MAX_SPEED;
     if (dur_ms < 50)                  dur_ms = 50;
     if (dur_ms > LLM_MAX_DURATION_MS) dur_ms = LLM_MAX_DURATION_MS;
 
@@ -312,14 +309,11 @@ void motors_pulse(int8_t left, int8_t right, uint16_t dur_ms) {
 void motors_pulse_raw(int motor_idx, int8_t signed_speed, uint16_t dur_ms) {
     if (!s_attached) return;
     if (motor_idx != 0 && motor_idx != 1) return;
-    // No LLM_MAX_SPEED clamp here. This verb is the calibration wizard, which
-    // a human explicitly clicked "Pulse" on with the robot in a known-safe
-    // spot; its job is to spin the wheel enough that the user can see which
-    // one moved. Clamping to 40 means the PWM whines at ~1 kHz but never
-    // breaks static friction on typical gearmotors — calibration looks
-    // broken. WASD already drives at ±100 via motors_apply, so the chip
-    // and the driver board handle this range fine. Duration cap stays —
-    // brief, bounded, single-motor.
+    // Calibration wizard: a human explicitly clicked "Pulse" on with the
+    // robot in a known-safe spot, and the verb's job is to spin the wheel
+    // enough that the user can see which one moved. Magnitude clamped only
+    // to the signed-byte range; duration cap stays as the bounded-pulse
+    // guarantee.
     if (signed_speed < -100) signed_speed = -100;
     if (signed_speed >  100) signed_speed =  100;
     if (dur_ms < 50)                   dur_ms = 50;

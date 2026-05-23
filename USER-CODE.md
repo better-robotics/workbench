@@ -41,9 +41,9 @@ The `pip` namespace is deliberately thin: today just `pip.ask(prompt, opts?)`, r
 
 ## Safety floor
 
-Firmware enforces motor watchdog + pulse magnitude/duration caps regardless of who issued the writes. User code, Pip, joypad — all see the same limits.
+Firmware enforces motor watchdog + pulse duration cap + ultrasonic dist_cm forward-clip regardless of who issued the writes. User code, Pip, joypad — all see the same limits.
 
-`robot.move()` calls `pulseMotors`, carrying the same ±40 magnitude / 50–2000 ms duration caps the LLM is bound by. Dashboard-side clamps are advisory; firmware enforcement is binding.
+`robot.move()` calls `pulseMotors`, carrying the same 50–2000 ms duration cap the LLM is bound by. Magnitude is the signed-byte range, no LLM-specific clamp. Dashboard-side clamps are advisory; firmware enforcement is binding.
 
 ## Deployment model
 

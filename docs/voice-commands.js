@@ -9,7 +9,7 @@
 // input and dictated input since it sits in onSubmit, not in
 // voice-input.js — speech is just one way to produce text.
 
-const SPEED = 40;        // firmware caps to ±40 anyway; saturating is fine
+const SPEED = 100;       // full LLM-pulse range (firmware no longer caps magnitude)
 const PULSE_MS = 500;    // default drive duration
 const TURN_MS  = 300;    // tighter for in-place turns
 const SPIN_MS  = 1000;   // longer for sustained spins
