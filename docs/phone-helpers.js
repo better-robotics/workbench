@@ -1,7 +1,7 @@
 import { $, escapeHtml } from "./dom.js";
 import { listPhones, setPhonesChangeHandler, notifyRobotStreamChange, requestPhoneCameraShare, setPhoneFeedStream } from "./phones.js";
 import { emit as busEmit, TOPICS } from "./event-bus.js";
-import { reapplyPhoneScreenMode } from "./phone-screen-mode-plugin.js";
+import { reapplyPhoneScreenMode, resolveAttachedMode } from "./phone-screen-mode-plugin.js";
 import { SCREEN_MODES } from "./phones.js";
 import { state } from "./state.js";
 import { settings, saveSettings } from "./settings.js";
@@ -383,9 +383,7 @@ function renderPhoneCard(p) {
   // autonomy shape; Operator camera is the telepresence shape (laptop
   // cam → operator's face on the robot, requires a local cam in "Send
   // to phone" role). Global setting — applies to all attached phones.
-  const screenMode = settings.phoneAttachedMode === SCREEN_MODES.OPERATOR_CAM
-    ? SCREEN_MODES.OPERATOR_CAM
-    : SCREEN_MODES.PIP_FACE;
+  const screenMode = resolveAttachedMode();
   const screenPicker = attachedRobot ? `
     <label class="phone-mount">
       <span class="meta-prose">Screen shows</span>

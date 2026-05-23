@@ -459,12 +459,14 @@ function runFollowLoop(entry, cfg) {
     // (1) Movement. If pointing-direction override fires, spin that way
     // at max turn speed. Otherwise default to palm-centroid P-tracking.
     if (det) {
-      if (lostCount >= FOLLOW_LOST_TICKS) {
+      const wasLost = lostCount >= FOLLOW_LOST_TICKS;
+      if (wasLost) {
         const now = Date.now();
         if (now - lastLostAnnounceTs > FOLLOW_ANNOUNCE_COOLDOWN_MS) {
           if (!cfg.silent) ttsSpeak("found you");
           emitFire(entry, { ts: now }, "follow-reacquire");
           lastLostAnnounceTs = now;
+          renderEntry(entry);  // reacquire transition — surface the badge change
         }
       }
       lostCount = 0;
@@ -498,7 +500,10 @@ function runFollowLoop(entry, cfg) {
         }
       }
       if (stopped) return;
-      renderEntry(entry);
+      // No per-tick renderEntry: the card body is unchanged at ~150 ms
+      // detection cadence (timestamps display at minute resolution),
+      // and follow runs for minutes at a time. Transitions (found,
+      // lost, reacquired) call renderEntry explicitly.
     } else {
       lostCount++;
       if (lostCount === FOLLOW_LOST_TICKS) {

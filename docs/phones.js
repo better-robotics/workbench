@@ -264,7 +264,9 @@ const _pipFacePhones = new Set();
 export function setPhoneScreenMode(phoneId, mode, robotLabel = null) {
   const phone = _phones.get(phoneId);
   if (!phone || phone.status === "failed") return;
+  if (phone.screenMode === mode && phone.screenRobotLabel === robotLabel) return;
   phone.screenMode = mode;
+  phone.screenRobotLabel = robotLabel;
   if (mode === SCREEN_MODES.PIP_FACE) _pipFacePhones.add(phoneId);
   else _pipFacePhones.delete(phoneId);
   try {

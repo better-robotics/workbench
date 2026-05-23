@@ -423,6 +423,25 @@ async function _localAsk(userText, { system, onDelta, signal } = {}) {
   return text.trim() || null;
 }
 
+// Wrap one tool dispatch in the onToolStart/onToolEnd hook lifecycle
+// + try/catch shape that all three providers share. Returns
+// { result, error } — error is a string when the executor threw,
+// null otherwise. Providers stay responsible for packing the result
+// into provider-specific tool_result content.
+async function callToolWithHooks(executor, name, input, onToolStart, onToolEnd) {
+  const startedAt = performance.now();
+  onToolStart?.({ name, input });
+  try {
+    const result = await executor(name, input);
+    onToolEnd?.({ name, input, result, error: null, durationMs: performance.now() - startedAt });
+    return { result, error: null };
+  } catch (err) {
+    const error = String(err.message || err);
+    onToolEnd?.({ name, input, result: null, error, durationMs: performance.now() - startedAt });
+    return { result: null, error };
+  }
+}
+
 // Tool-using loop against pip-core 3.8's local provider event stream.
 // Mirrors _anthropicAskWithTools' shape: same executor callback, same
 // onToolStart/onToolEnd hooks, same shouldAbort/onMaxIterations gates,
@@ -485,18 +504,15 @@ async function _localAskWithTools(messages, { system, tools, executor, maxIterat
     const toolUses = assistantContent.filter(b => b.type === "tool_use");
     const toolResults = [];
     for (const tu of toolUses) {
-      const startedAt = performance.now();
-      onToolStart?.({ name: tu.name, input: tu.input });
-      try {
-        const out = await executor(tu.name, tu.input);
-        onToolEnd?.({ name: tu.name, input: tu.input, result: out, error: null, durationMs: performance.now() - startedAt });
+      const { result: out, error } = await callToolWithHooks(executor, tu.name, tu.input, onToolStart, onToolEnd);
+      if (error) {
+        toolResults.push({ type: "tool_result", tool_use_id: tu.id, name: tu.name, content: `Error: ${error}`, is_error: true });
+      } else {
+        // local provider can't render image blocks; flatten _pipContent to JSON.
         const content = (out && out._pipContent)
-          ? JSON.stringify(out._pipContent)  // local provider can't render image blocks; flatten to JSON
+          ? JSON.stringify(out._pipContent)
           : (typeof out === "string" ? out : JSON.stringify(out));
         toolResults.push({ type: "tool_result", tool_use_id: tu.id, name: tu.name, content });
-      } catch (err) {
-        onToolEnd?.({ name: tu.name, input: tu.input, result: null, error: err.message || String(err), durationMs: performance.now() - startedAt });
-        toolResults.push({ type: "tool_result", tool_use_id: tu.id, name: tu.name, content: `Error: ${err.message || err}`, is_error: true });
       }
     }
     convo.push({ role: "user", content: toolResults });
@@ -629,36 +645,20 @@ async function _anthropicAskWithTools(messages, { system, tools, executor, maxIt
     const toolUses = result.content.filter(b => b.type === "tool_use");
     const toolResults = [];
     for (const tu of toolUses) {
-      const startedAt = performance.now();
-      onToolStart?.({ name: tu.name, input: tu.input });
-      try {
-        const toolOut = await executor(tu.name, tu.input);
-        onToolEnd?.({ name: tu.name, input: tu.input, result: toolOut, error: null, durationMs: performance.now() - startedAt });
+      const { result: toolOut, error } = await callToolWithHooks(executor, tu.name, tu.input, onToolStart, onToolEnd);
+      if (error) {
+        toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify({ error }), is_error: true });
+      } else {
         // _pipContent sentinel — micro-protocol any executor can use.
-        // Default contract: executor returns a JS object, we JSON-stringify
-        // it. Opt-in: executor returns { _pipContent: [...blocks] } where
+        // Default: executor returns a JS object, we JSON-stringify it.
+        // Opt-in: executor returns { _pipContent: [...blocks] } where
         // blocks follow Anthropic's tool_result content shape (text +
-        // image are the useful ones). Used by view_robot_frame to attach
-        // the actual image so Claude's next turn sees pixels, not base64.
-        // Future tools that want the same: return { _pipContent: [...] };
-        // no plumbing change needed.
+        // image). view_robot_frame uses this so Claude's next turn
+        // sees pixels, not base64.
         const content = (toolOut && toolOut._pipContent)
           ? toolOut._pipContent
           : JSON.stringify(toolOut);
-        toolResults.push({
-          type: "tool_result",
-          tool_use_id: tu.id,
-          content,
-        });
-      } catch (err) {
-        const error = String(err.message || err);
-        onToolEnd?.({ name: tu.name, input: tu.input, result: null, error, durationMs: performance.now() - startedAt });
-        toolResults.push({
-          type: "tool_result",
-          tool_use_id: tu.id,
-          content: JSON.stringify({ error }),
-          is_error: true,
-        });
+        toolResults.push({ type: "tool_result", tool_use_id: tu.id, content });
       }
     }
     // Drain any host-queued out-of-band observations (e.g. reflex-watcher
@@ -730,17 +730,9 @@ async function _openaiAskWithTools(messages, { system, tools, executor, maxItera
       let input;
       try { input = JSON.parse(tc.function?.arguments || "{}"); }
       catch (err) { input = { _parseError: String(err.message || err), raw: tc.function?.arguments }; }
-      const startedAt = performance.now();
-      onToolStart?.({ name, input });
-      try {
-        const result = await executor(name, input);
-        onToolEnd?.({ name, input, result, error: null, durationMs: performance.now() - startedAt });
-        convo.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify(result) });
-      } catch (err) {
-        const error = String(err.message || err);
-        onToolEnd?.({ name, input, result: null, error, durationMs: performance.now() - startedAt });
-        convo.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify({ error }) });
-      }
+      const { result, error } = await callToolWithHooks(executor, name, input, onToolStart, onToolEnd);
+      const content = error ? JSON.stringify({ error }) : JSON.stringify(result);
+      convo.push({ role: "tool", tool_call_id: tc.id, content });
     }
     i++;
     if (i >= budget && onMaxIterations) {

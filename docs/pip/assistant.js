@@ -29,16 +29,10 @@ const HISTORY_LIMIT = 12;
 
 // Executor-enforced rules (signed-pair clamp, firmware pulse caps) live
 // in pip-tools.js. Per-tool guidance (when to detect vs view, ask_human
-// routing) lives in tool descriptions and ships on every turn. Static
-// system prompt carries identity + discovery posture; the current
-// connected-robot snapshot is appended per-turn by buildSystem() so Pip
-// can skip list_robots when ids are unambiguous.
-// Trimmed via lens audit (signal-to-noise + attention-routing): every
-// reactive single-incident patch removed. Tool descriptions carry
-// per-tool guidance; the system prompt carries only identity + the rules
-// the planner can't infer from schemas. Hardware constraints (dist_cm,
-// firmware clip) live in get_robot_state / move_motor descriptions where
-// the planner reads them at the moment of relevance.
+// routing) lives in tool descriptions. The system prompt carries only
+// identity + the rules the planner can't infer from schemas. The
+// connected-robot snapshot is appended per-turn by buildSystem() so
+// Pip can skip list_robots when ids are unambiguous.
 const PIP_SYSTEM = [
   "You are an assistant in a browser robotics dashboard for ESP32 and Pi robots.",
   // Anti-narrate-without-acting — dominant failure mode in patrol runs;
@@ -77,12 +71,8 @@ function currentRobotsLine() {
 }
 
 function buildSystem() {
-  // Per-turn time + capability injection. Research consensus is one "now"
-  // per turn (Claude Code's UserPromptSubmit hook, OpenAI Codex's
-  // turn_started_at_unix_ms) rather than per tool — surfaces wall-clock
-  // context where the planner reasons. Vision availability flagged here
-  // so Pip stops narrating "let me take a snapshot" when the tool is
-  // filtered out of getTools().
+  // Vision availability flagged here so Pip doesn't narrate "let me
+  // take a snapshot" when the tool is filtered out of getTools().
   const now = new Date().toISOString();
   const vision = isVisionAvailable()
     ? "view_robot_frame is available — use it for visual queries."
@@ -140,11 +130,9 @@ function finishStepPill(pill, name, input, result, error, durationMs) {
   });
 }
 
-// Render a pill + run a tool + finish the pill. Returns
-// { ok, result, error, thrown } — `thrown` distinguishes a real JS
-// exception from an in-band {error,...} result. runStep and the
-// voice-mid-turn path collapse onto this so they don't duplicate
-// startedAt + try/catch + isErr unwrap.
+// Pill lifecycle + tool execution in one place. Returns
+// { ok, result, error } where error is an Error on a JS throw or a
+// string on an in-band failure (caller can branch via instanceof).
 async function executeWithPill(turnEl, tool, input) {
   const pill = appendStepPill(turnEl, tool, input);
   const startedAt = performance.now();
@@ -153,10 +141,10 @@ async function executeWithPill(turnEl, tool, input) {
     const isErr = result && (result.error || result.ok === false);
     const errMsg = isErr ? (result.error || "failed") : null;
     finishStepPill(pill, tool, input, result, errMsg, performance.now() - startedAt);
-    return { ok: !isErr, result, error: errMsg, thrown: false };
+    return { ok: !isErr, result, error: errMsg };
   } catch (err) {
     finishStepPill(pill, tool, input, null, err, performance.now() - startedAt);
-    return { ok: false, result: null, error: err, thrown: true };
+    return { ok: false, result: null, error: err };
   }
 }
 
@@ -191,9 +179,7 @@ async function injectVoiceMidTurn(text) {
     }
     const input = { id: robotId, ...cmd.partialInput };
     const r = await executeWithPill(turn.el, cmd.tool, input);
-    const resultStr = r.ok
-      ? "ok"
-      : `error: ${r.thrown ? (r.error?.message || r.error) : r.error}`;
+    const resultStr = r.ok ? "ok" : `error: ${r.error?.message || r.error}`;
     const ts = new Date().toISOString();
     turn.pushObservation(
       `[user-voice ${ts}] User said "${text}" — direct-dispatched ${cmd.tool}(${JSON.stringify(input)}) → ${resultStr}. ` +
@@ -419,7 +405,7 @@ async function runTurn(text, turnEl) {
   // sequences are visually indistinguishable from agent work.
   const runStep = async (tool, input) => {
     const r = await executeWithPill(turnEl, tool, input);
-    if (r.thrown) throw r.error;
+    if (r.error instanceof Error) throw r.error;
     return r.result;
   };
   const noRobot = () => {

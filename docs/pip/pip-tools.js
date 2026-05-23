@@ -44,6 +44,30 @@ async function awaitMotorGate(id) {
   return null;
 }
 
+// Execute a chunked pulse chain on a robot, gating each chunk through
+// the reflex motor-gate so a fire that arrives mid-chain halts
+// remaining pulses instead of letting them blast through. derive(p)
+// returns { l, r, ms } per chunk; onSuccess(p) is called after each
+// successful pulse (used by drive_distance_cm to accumulate cm, by
+// drive_arc to accumulate ms). Returns { results, gatedAt }.
+async function runPulseChain(robotId, pulses, derive, onSuccess) {
+  const results = [];
+  let gatedAt = null;
+  for (const p of pulses) {
+    const gateErr = await awaitMotorGate(robotId);
+    if (gateErr) { gatedAt = gateErr; break; }
+    const { l, r, ms } = derive(p);
+    const res = await pulseMotors(robotId, l, r, ms);
+    results.push(res);
+    if (!res?.ok) break;
+    onSuccess?.(p);
+    // Wait for the pulse to complete on-robot — otherwise the next
+    // pulse cancels the in-flight one and motion judders.
+    await new Promise(resolve => setTimeout(resolve, ms + 30));
+  }
+  return { results, gatedAt };
+}
+
 // Linear-velocity calibration for drive_distance_cm / approach_until.
 // Rough first guess: a small wheeled robot at max firmware speed (40)
 // covers ~35 cm/sec on flat floor. Tune by driving a known distance
@@ -416,12 +440,8 @@ async function dispatch(name, input) {
       const e = state.devices.get(input.id);
       if (!e) return { error: `no robot with id ${input.id}` };
       const now = Date.now();
-      // motion_invalidated: true when a motor pulse fired AFTER the last
-      // telemetry sample, so dist_cm reflects pre-motion state. Single
-      // boolean — the planner doesn't need to reconstruct it from age
-      // fields (the lens audit flagged the prior three-derived-fields
-      // shape as the "same fact in three places" anti-pattern). Watcher
-      // fire-events flow exclusively through the L2 injection path.
+      // motion_invalidated: true when a motor pulse fired AFTER the
+      // last telemetry sample, so dist_cm reflects pre-motion state.
       const motion_invalidated = !!(
         e.telemetryUpdatedAt && e.lastMotorActionAt
         && e.lastMotorActionAt > e.telemetryUpdatedAt
@@ -614,22 +634,12 @@ async function dispatch(name, input) {
         if (ms < 100) break;  // any tail < 100ms is rounding noise
       }
       e.lastMotorActionAt = Date.now();
-      const results = [];
       let executed_cm = 0;
-      let gatedAt = null;
-      for (const p of pulses) {
-        // Check before each chunk — a sign that appears mid-drive halts
-        // the chain rather than letting the queued chunks blast through.
-        const gateErr = await awaitMotorGate(input.id);
-        if (gateErr) { gatedAt = gateErr; break; }
-        const r = await pulseMotors(input.id, dir * speed, dir * speed, p.duration_ms);
-        results.push(r);
-        if (!r?.ok) break;
-        executed_cm += p.cm;
-        // Wait for the pulse to actually complete on-robot — otherwise
-        // the next pulse cancels the in-flight one and motion judders.
-        await new Promise(res => setTimeout(res, p.duration_ms + 30));
-      }
+      const { results, gatedAt } = await runPulseChain(
+        input.id, pulses,
+        (p) => ({ l: dir * speed, r: dir * speed, ms: p.duration_ms }),
+        (p) => { executed_cm += p.cm; },
+      );
       return {
         ok: !gatedAt,
         requested_cm: cm,
@@ -663,18 +673,12 @@ async function dispatch(name, input) {
         remaining -= ms;
       }
       e.lastMotorActionAt = Date.now();
-      const results = [];
       let executed_ms = 0;
-      let gatedAt = null;
-      for (const ms of pulses) {
-        const gateErr = await awaitMotorGate(input.id);
-        if (gateErr) { gatedAt = gateErr; break; }
-        const res = await pulseMotors(input.id, l, r, ms);
-        results.push(res);
-        if (!res?.ok) break;
-        executed_ms += ms;
-        await new Promise(res2 => setTimeout(res2, ms + 30));
-      }
+      const { results, gatedAt } = await runPulseChain(
+        input.id, pulses,
+        (ms) => ({ l, r, ms }),
+        (ms) => { executed_ms += ms; },
+      );
       return {
         ok: !gatedAt,
         total_ms: totalMs,

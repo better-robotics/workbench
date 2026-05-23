@@ -5,7 +5,7 @@ import { on, TOPICS } from "./event-bus.js";
 import { setPhoneScreenMode, SCREEN_MODES } from "./phones.js";
 import { settings } from "./settings.js";
 
-function resolveAttachedMode() {
+export function resolveAttachedMode() {
   return settings.phoneAttachedMode === SCREEN_MODES.OPERATOR_CAM
     ? SCREEN_MODES.OPERATOR_CAM
     : SCREEN_MODES.PIP_FACE;

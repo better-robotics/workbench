@@ -144,8 +144,7 @@ async function react(ctx) {
   for (let i = 0; i < 14; i++) {
     if (ctx.shouldAbort?.()) return;
     const r = await ctx.exec("get_robot_detections", { id: ctx.id, queries: ["person"] });
-    const hits = r?.detections || (Array.isArray(r) ? r : []);
-    const hit = hits.find(d => (d?.score ?? 0) > 0.4);
+    const hit = (r?.detections || []).find(d => (d?.score ?? 0) > 0.4);
     if (hit) { found = hit; break; }
     await pulse(ctx, -SPEED, SPEED, 400);
   }
@@ -193,8 +192,7 @@ async function follow(ctx, target = "person") {
   for (let i = 0; i < STEPS; i++) {
     if (ctx.shouldAbort?.()) return;
     const r = await ctx.exec("get_robot_detections", { id: ctx.id, queries: [target] });
-    const hits = r?.detections || r?.results || (Array.isArray(r) ? r : []);
-    const det = hits[0];
+    const det = r?.detections?.[0];
     if (!det) {
       await pulse(ctx, -SPEED, SPEED, 400);  // scan-spin to re-acquire
       continue;
@@ -332,8 +330,7 @@ async function selfie(ctx) {
   await ctx.sleep(800);
   const probes = ["person", "laptop", "cup", "cell phone", "chair"];
   const r = await ctx.exec("get_robot_detections", { id: ctx.id, queries: probes });
-  const hits = (r?.detections || r?.results || (Array.isArray(r) ? r : []))
-    .filter(d => d?.label && (d.score ?? 1) > 0.3);
+  const hits = (r?.detections || []).filter(d => d?.label && (d.score ?? 1) > 0.3);
   if (hits.length === 0) {
     await ctx.exec("speak", { text: "I can't quite make out the room. Bring something closer?" });
     return;
