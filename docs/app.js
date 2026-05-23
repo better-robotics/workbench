@@ -8,7 +8,7 @@ import {
   setBleRenderers, loadPaired, scanForNew, connect, disconnect, forgetDevice,
 } from "./ble-lifecycle.js";
 import {
-  formatUptime, formatWifi, formatWifiShort, formatResetReason,
+  formatUptime, formatWifiShort, formatResetReason,
   formatRssi, rssiSeverity, tempSeverity,
 } from "./format.js";
 import { updateFirmware, updateFromFile } from "./capabilities/ota.js";

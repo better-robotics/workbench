@@ -48,8 +48,12 @@ export function wireWatcherFireBridge({ turn, scrollToBottom }) {
         noticeHtml = `Reflex: saw <strong>${escapeHtml(String(det?.label || ""))}</strong> (${score}) — action <code>${escapeHtml(action)}</code> executed.`;
         isReleaseShape = false;
     }
+    // Only push the observation when the turn is mid-flight — turn.start
+    // clears observations, so pushes between turns are silently dropped.
+    // Notice DOM still renders inline in the active turn below if there
+    // is one.
+    if (!turn.isActive()) return;
     turn.pushObservation(obsText);
-    if (!turn.isActive()) return;  // not mid-turn — planner sees it on the next user turn via convo replay
     const el = document.createElement("div");
     el.className = `pip-reflex-notice${isReleaseShape ? " pip-reflex-notice--clear" : ""}`;
     el.innerHTML =

@@ -728,7 +728,15 @@ async function _openaiAskWithTools(messages, { system, tools, executor, maxItera
       try { input = JSON.parse(tc.function?.arguments || "{}"); }
       catch (err) { input = { _parseError: String(err.message || err), raw: tc.function?.arguments }; }
       const { result, error } = await callToolWithHooks(executor, name, input, onToolStart, onToolEnd);
-      const content = error ? JSON.stringify({ error }) : JSON.stringify(result);
+      // OpenAI tool role can't render image blocks; flatten _pipContent
+      // to JSON the same way the local provider does, so a tool that
+      // emits the sentinel (view_robot_frame) doesn't end up serializing
+      // base64 into the tool message body.
+      const content = error
+        ? JSON.stringify({ error })
+        : (result && result._pipContent)
+          ? JSON.stringify(result._pipContent)
+          : JSON.stringify(result);
       convo.push({ role: "tool", tool_call_id: tc.id, content });
     }
     i++;

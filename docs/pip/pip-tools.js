@@ -562,13 +562,15 @@ async function dispatch(name, input) {
         : "couldn't capture a frame — camera not started or video element 0-sized";
       try {
         if (camera === "all") {
-          // Detector is async-safe per call; run all sources in parallel.
-          const results = await Promise.all(
-            sources.map(src => detectOnce(entry, { classes: queries, source: src.element }))
-          );
-          if (results.some(r => r === null)) return { error: captureErr };
+          // Sequential: detectors share a reusable preprocess canvas
+          // (camera-frame _detectorCanvas, yolo26 _lbCanvas), so two
+          // concurrent detectOnce calls would cross-contaminate frames.
           const detections_by_camera = {};
-          sources.forEach((src, i) => { detections_by_camera[src.label] = results[i]; });
+          for (const src of sources) {
+            const dets = await detectOnce(entry, { classes: queries, source: src.element });
+            if (dets === null) return { error: captureErr };
+            detections_by_camera[src.label] = dets;
+          }
           return { detections_by_camera };
         }
         const pick = sources.find(s => s.label === camera);

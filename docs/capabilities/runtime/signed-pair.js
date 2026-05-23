@@ -86,6 +86,11 @@ export function makeSignedPairCap(schema) {
     cleanup(entry) {
       entry[charField] = null;
       entry[leftField] = entry[rightField] = 0;
+      // Match level/rgb cleanup — without this, a session that calls
+      // cleanup without re-running initEntry would leave Sending=true
+      // and block every future coalescedWrite forever.
+      entry[`${name}Sending`] = false;
+      entry[`${name}Pending`] = null;
     },
 
     renderSection(entry) {
