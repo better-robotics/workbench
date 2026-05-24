@@ -2981,6 +2981,76 @@ body.phone textarea {
   box-shadow: 0 -1px 0 var(--border-subtle);
 }
 
+/* Phone mounted on a robot — chrome is dead weight on the face. Stop
+   button included: operator's Stop lives on desktop / another phone,
+   and the audience is closer to the robot than to a tiny screen
+   overlay. body.phone-mounted carries the shared "fullscreen, black,
+   chrome hidden" rules; per-mode classes add only the :not(...)
+   exclusion for the surface that survives. */
+body.phone-mounted { background: #000; }
+body.phone-mounted .phone-main {
+  padding: 0;
+  min-height: 100dvh;
+}
+body.phone-attached .phone-main > *:not(#phone-cam-section):not(#phone-ask-dialog) {
+  display: none !important;
+}
+body.phone-attached #phone-cam-section {
+  position: fixed;
+  inset: 0;
+  margin: 0;
+  background: #000;
+  z-index: 1;
+}
+body.phone-attached #phone-cam-section .phone-cam-tap {
+  width: 100vw;
+  height: 100dvh;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: #000;
+}
+body.phone-attached #phone-cam {
+  width: 100vw;
+  height: 100dvh;
+  object-fit: cover;
+  border-radius: 0;
+}
+body.phone-attached #phone-cam-label,
+body.phone-attached #phone-cam-picker,
+body.phone-attached #phone-cam-overlay { display: none; }
+
+/* Waiting overlay — visible in operator-cam mode while no incoming
+   stream is present. Sits over the empty video element so the phone
+   screen never reads as a black void. Hidden the instant a track
+   lands; resurrected if every track ends. */
+.phone-cam-waiting { display: none; }
+body.phone-attached #phone-cam-waiting:not([hidden]) {
+  display: flex;
+  position: fixed;
+  inset: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+  padding: 0 24px;
+  text-align: center;
+  pointer-events: none;
+}
+.phone-cam-waiting-label {
+  color: rgba(216, 226, 232, 0.95);
+  font: 600 22px/1.25 system-ui, -apple-system, sans-serif;
+  letter-spacing: -0.01em;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+.phone-cam-waiting-label span { color: rgba(255, 255, 255, 1); }
+.phone-cam-waiting-sub {
+  margin-top: 8px;
+  color: rgba(216, 226, 232, 0.6);
+  font: 400 14px/1.35 system-ui, -apple-system, sans-serif;
+}
+
 /* Pip accordion. Collapsed = just a row with title + status + unread dot;
    expanded = the chat bubble + input. Auto-expanded by mobile.js when Pip
    pushes a message worth reading. The "details > summary" pattern is

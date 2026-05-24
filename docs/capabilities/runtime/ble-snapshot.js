@@ -3,7 +3,7 @@
 // Pairs a write-trigger char with a notify-out chunked stream. Same envelope
 // the OTA path uses (just outbound here): 0x01 begin+u32 len, 0x02 chunk,
 // 0x03 commit, 0xff err+text. ~10-30 KB JPEG over BLE → ~1-2s per shot.
-import { UUIDS_BY_CAP } from "../../ble.js";
+import { UUIDS_BY_CAP } from "../../ble/ble.js";
 import { escapeHtml } from "../../dom.js";
 import { logFor } from "../../log.js";
 import { capSection, setOpen } from "./cap-section.js";

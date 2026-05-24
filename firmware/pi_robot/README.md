@@ -21,7 +21,7 @@ All characteristics live under one service UUID. Presence is config-driven (`/bo
 
 ## Companion services
 
-Three services run alongside `pi-robot.service`, each independently restartable:
+Alongside `pi-robot.service`, each independently restartable:
 
 - **`pi-robot-heartbeat.service`** — minimal always-on BLE advertiser (`heartbeat.py`). Keeps the robot observable when `pi-robot.service` is down: dashboard shows a "firmware-down" banner with the LAN IP and a recovery button. The connection-first invariant — connectivity outlives capabilities.
 - **`pi-robot-health.service`** — stdlib HTTP server on `:81` exposing `GET /health` returning `{ok, type:"pi", robotId, ip, uptime_s, pi_robot_service}`. Pulled by the dashboard's mDNS + cached-IP probe (every 30 s per paired robot). Same recovery convention as heartbeat — its own unit, zero dependency on `pi_robot.py`. avahi-daemon publishes `<hostname>._http._tcp.local` so the probe can resolve `<name>.local` without an internet rendezvous (`/etc/avahi/services/betterrobot.service`).
@@ -35,7 +35,7 @@ First boot runs entirely offline: no WiFi, no captive portal, no PyPI roundtrip.
 
 After that, Pi runs BLE-only. WiFi is onboarded from the dashboard via the `wifi-scan` + `wifi-join` characteristics. SD card holds no credentials.
 
-Developers: wheels + template Customize-card consumes live under `docs/firmware/pi_robot/`. CI refreshes them on any push touching `firmware/**`. Run `make publish-pi-firmware` locally only to test artifacts before pushing.
+Developers: wheels + template Customize-card consumes live under `docs/firmware/pi_robot/`. CI refreshes them on any push touching `firmware/**`. `make publish-pi-firmware` tests artifacts locally before pushing.
 
 ## Manual run (development)
 
@@ -58,7 +58,7 @@ Registering BLE advertisements via BlueZ on Pi OS requires root; the non-root D-
 
 ## Auto-start on boot
 
-The SD-card first-boot flow installs `pi-robot.service` automatically. For manual install on an existing Pi:
+SD-card first-boot installs `pi-robot.service`. Manual install on an existing Pi:
 
 ```bash
 sudo install -m 644 pi-robot.service /etc/systemd/system/pi-robot.service
@@ -72,7 +72,7 @@ Same pattern as ESP32: add new characteristics inside the existing service. Moto
 
 ## Optional: Camera (WebRTC)
 
-A Pi Camera Module (CSI ribbon) or a USB UVC webcam both work. With either attached and the optional deps installed, firmware advertises `camera-signal` + `camera-status` and the dashboard shows a Camera section with a live video feed.
+A Pi Camera Module (CSI ribbon) or a USB UVC webcam both work. With either attached and the optional deps installed, firmware advertises `camera-signal` + `camera-status` and the dashboard shows a live video feed.
 
 ```bash
 sudo apt install -y python3-picamera2 ffmpeg

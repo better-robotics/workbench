@@ -7,7 +7,7 @@ import { capSection } from "./cap-section.js";
 import { startMjpegForward, stopMjpegForward } from "./mjpeg-restream.js";
 import { persist } from "../../state.js";
 import { startWatcher, stopWatcher } from "../../watcher.js";
-import { isDetectorFailed } from "../../detectors.js";
+import { isDetectorFailed } from "../../perception/detectors.js";
 
 import { renderEntry } from "./render-bus.js";
 

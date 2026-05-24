@@ -1,6 +1,6 @@
 // Schema: { name: "ops", char: "…d9c", type: "command" }
 // Op-name vocabulary must match Pi's `_ops_handle_write` dispatcher.
-import { UUIDS_BY_CAP, encodeJson } from "../../ble.js";
+import { UUIDS_BY_CAP, encodeJson } from "../../ble/ble.js";
 import { logFor } from "../../log.js";
 import { state } from "../../state.js";
 

@@ -50,4 +50,4 @@ ota_1   0x1F0000 1920K
 ## Targets
 
 - **ESP32-CAM-MB** (AI-Thinker, classic ESP32 + 4 MB SPI PSRAM): current dev target. Camera over MJPEG; WebRTC video routed as binary data-channel frames since browsers can't decode MJPEG video tracks.
-- **ESP32-S3** (planned): same firmware via build-time target switch. Octal PSRAM + hardware H.264 would let video flow as a real WebRTC video track once libpeer's H.264 path lands.
+- **ESP32-S3** (planned): same firmware via build-time target switch. Octal PSRAM + hardware H.264 unlocks a real WebRTC video track once libpeer's H.264 path lands.

@@ -3,17 +3,17 @@
 //           install?: { pkg: "camera", confirm: "..." } }
 // Chunked opcode protocol both ways (browser→robot via signal,
 // robot→browser via status notify). Install via the `command` cap.
-import { UUIDS_BY_CAP, CHUNK_BYTES, encodeJson, decodeJson } from "../../ble.js";
+import { UUIDS_BY_CAP, CHUNK_BYTES, encodeJson, decodeJson } from "../../ble/ble.js";
 import { escapeHtml } from "../../dom.js";
 import { logFor } from "../../log.js";
 import { persist } from "../../state.js";
-import { fetchIceServers } from "../../pairing.js";
-import { registerExternalPc, unregisterExternalPc } from "../../webrtc-robot.js";
+import { fetchIceServers } from "../../pair/pairing.js";
+import { registerExternalPc, unregisterExternalPc } from "../../webrtc/webrtc-robot.js";
 import { installPackage } from "./command.js";
 import { capSection } from "./cap-section.js";
-import { notifyRobotStreamChange } from "../../phones.js";
+import { notifyRobotStreamChange } from "../../pair/phones.js";
 import { startWatcher, stopWatcher } from "../../watcher.js";
-import { isDetectorFailed } from "../../detectors.js";
+import { isDetectorFailed } from "../../perception/detectors.js";
 
 const OP_BEGIN   = 0x01;
 const OP_CHUNK   = 0x02;

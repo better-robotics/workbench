@@ -291,7 +291,7 @@ export function setReportIssueLink(anchor, version) {
     ].join("\n");
   }
   function refresh() {
-    anchor.href = `https://github.com/jonasneves/better-robotics/issues/new?body=${encodeURIComponent(buildBody())}`;
+    anchor.href = `https://github.com/better-robotics/better-robotics.github.io/issues/new?body=${encodeURIComponent(buildBody())}`;
   }
   refresh();
   // Refresh just-in-time so any errors that happened between page load

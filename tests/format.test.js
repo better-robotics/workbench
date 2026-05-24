@@ -7,7 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   shorten, labelTool, summarizeTool,
-  formatUptime, formatWifi, formatWifiShort, formatResetReason,
+  formatUptime, formatWifiShort, formatResetReason,
   formatRssi, rssiSeverity, tempSeverity,
 } from "../docs/format.js";
 
@@ -81,16 +81,6 @@ test("formatUptime: prefers seconds, falls back to ms", () => {
   assert.equal(formatUptime({ uptime_ms: 30000 }), "up 30s");
   assert.equal(formatUptime(null), null);
   assert.equal(formatUptime({}), null);
-});
-
-test("formatWifi: state machine maps cleanly to display strings", () => {
-  assert.equal(formatWifi({ st: "joined", ip: "10.0.0.5" }), "WiFi 10.0.0.5");
-  assert.equal(formatWifi({ st: "joined", ssid: "Foo" }), "WiFi Foo");
-  assert.equal(formatWifi({ st: "joining" }), "WiFi joining…");
-  assert.equal(formatWifi({ st: "scanning" }), "WiFi scanning");
-  assert.equal(formatWifi({ st: "failed" }), "WiFi failed");
-  assert.equal(formatWifi({ st: "idle" }), null);
-  assert.equal(formatWifi(null), null);
 });
 
 test("formatResetReason: suppresses routine reasons, surfaces abnormal", () => {

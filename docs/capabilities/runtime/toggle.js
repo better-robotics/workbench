@@ -1,7 +1,7 @@
 // Schema: { name: "led", char: "…d92", type: "toggle" }
 // State on entry[<name>Char] (BLE handle) + entry[<name>On] (bool); back-
 // compat with the prior hand-written LED module's entry.ledOn.
-import { UUIDS_BY_CAP } from "../../ble.js";
+import { UUIDS_BY_CAP } from "../../ble/ble.js";
 import { logFor } from "../../log.js";
 import { capSection } from "./cap-section.js";
 

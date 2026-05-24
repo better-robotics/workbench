@@ -6,37 +6,38 @@ import { ALL as CAPABILITIES, setCapabilityRenderer } from "./capabilities/index
 import { setOpen as capSetOpen } from "./capabilities/runtime/cap-section.js";
 import {
   setBleRenderers, loadPaired, scanForNew, connect, disconnect, forgetDevice,
-} from "./ble-lifecycle.js";
+} from "./ble/ble-lifecycle.js";
 import {
-  formatUptime, formatWifi, formatWifiShort, formatResetReason,
+  formatUptime, formatWifiShort, formatResetReason,
   formatRssi, rssiSeverity, tempSeverity,
 } from "./format.js";
 import { updateFirmware, updateFromFile } from "./capabilities/ota.js";
 import { restartService, rebootRobot, enrollKey } from "./capabilities/runtime/command.js";
-import { initGamepad } from "./gamepad.js";
+import { initGamepad } from "./input/gamepad.js";
 import { initMotorsKeyboard } from "./capabilities/runtime/signed-pair.js";
 // prepare.js / pinout.js / recovery.js are lazy-loaded on first use (~750 LOC
 // combined, none of it needed for first paint). See the dynamic import()
 // calls in the DOMContentLoaded wiring below.
 import { initAuthUI, fingerprint as dashFingerprint, pubkeySsh, onKeyChange } from "./auth.js";
 import { initPasswordsUI } from "./passwords.js";
-import { initAssistant } from "./assistant.js";
-import { initPhones, listPhones } from "./phones.js";
+import { initAssistant } from "./pip/assistant.js";
+import { initPhones, listPhones } from "./pair/phones.js";
+import { initPhoneScreenModePlugin } from "./pair/phone-screen-mode-plugin.js";
 import {
   initHelpers, setHelpersRobotRenderer,
   attachPhoneCameraTo, getPhoneAttachment,
-} from "./phone-helpers.js";
+} from "./pair/phone-helpers.js";
 // aruco.js is wired through phone-helpers.js — phone helpers can be designated
 // as the overhead camera; detection runs against the helper's existing
 // preview tile. No init call here.
-import "./aruco.js";
+import "./perception/aruco.js";
 import { watcherCap } from "./watcher.js";
 import {
   setupServiceWorker, wireInstallMenuItem, wireCheckUpdatesMenuItem,
   wireHardRefresh, wireDiagnosticsMenuItem, setReportIssueLink, readSwVersion,
 } from "./app-menu.js";
 import { initRobotPresence } from "./wifi-presence.js";
-import { wireLogDialog } from "./log-dialog.js";
+import { wireLogDialog } from "./recovery/log-dialog.js";
 
 setCapabilityRenderer((entry) => renderEntry(entry));
 setHelpersRobotRenderer((entry) => renderEntry(entry));
@@ -754,10 +755,10 @@ async function _setConsoleMode(mode) {
   $("console-mode-pi")?.setAttribute("aria-pressed", String(mode === "pi"));
   $("console-mode-esp")?.setAttribute("aria-pressed", String(mode === "esp"));
   if (mode === "pi") {
-    const mod = await import("./recovery.js");
+    const mod = await import("./recovery/recovery.js");
     mod.init();
   } else {
-    const mod = await import("./esp-serial.js");
+    const mod = await import("./recovery/esp-serial.js");
     mod.init();
   }
 }
@@ -918,7 +919,7 @@ document.addEventListener("DOMContentLoaded", () => {
     closeMenu();
     const entry = state.devices.get(id);
     if (!entry || entry.status !== "connected" || !entry.fwInfo) return;
-    const mod = await import("./pinout.js");
+    const mod = await import("./recovery/pinout.js");
     mod.openPinoutDialog(id);
   });
   // Shell — lazy-import so xterm.js + WebRTC plumbing only load when the
@@ -928,7 +929,7 @@ document.addEventListener("DOMContentLoaded", () => {
     closeMenu();
     const entry = state.devices.get(id);
     if (!entry || entry.fwType !== "pi" || entry.status !== "connected") return;
-    const mod = await import("./shell.js");
+    const mod = await import("./recovery/shell.js");
     mod.openShellDialog(id);
   });
   $("menu-console").addEventListener("click", () => {
@@ -1116,10 +1117,10 @@ document.addEventListener("DOMContentLoaded", () => {
         $("setup-dialog").close();
         // Release any console-held port before installEsp32 picks a new one.
         await Promise.all([
-          import("./recovery.js").then(m => m.releasePort?.()).catch(() => {}),
-          import("./esp-serial.js").then(m => m.releasePort?.()).catch(() => {}),
+          import("./recovery/recovery.js").then(m => m.releasePort?.()).catch(() => {}),
+          import("./recovery/esp-serial.js").then(m => m.releasePort?.()).catch(() => {}),
         ]);
-        const { installEsp32 } = await import("./esp-serial.js");
+        const { installEsp32 } = await import("./recovery/esp-serial.js");
         await installEsp32();
       });
     }
@@ -1139,17 +1140,21 @@ document.addEventListener("DOMContentLoaded", () => {
   initPhones();
   initHelpers();
   initRobotPresence();
+  // Phone-on-robot rendering: phone.attached/phone.detached resolve
+  // into a screen mode and the desktop sends it over WebRTC. Off-
+  // switch: delete this line.
+  initPhoneScreenModePlugin();
 
   // Lazy-load prepare.js on first click — it's ~230 LOC and touches the File
   // System Access API; no reason to pull it into first-paint. prepare.js's
   // openDialog() runs its own initOnce() internally so one-time setup still
   // happens. ?prepare URL param keeps working via the same path.
   $("prepare-open-btn").addEventListener("click", async () => {
-    const mod = await import("./prepare.js");
+    const mod = await import("./recovery/prepare.js");
     await mod.openDialog();
   });
   if (new URLSearchParams(location.search).get("prepare") !== null) {
-    import("./prepare.js").then(m => m.openDialog());
+    import("./recovery/prepare.js").then(m => m.openDialog());
   }
   loadPaired().then(() => {
     highlightKnownRobotFromUrl();

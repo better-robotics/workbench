@@ -99,6 +99,14 @@
     </button>
     <div class="hint phone-cam-label" id="phone-cam-label">Camera</div>
     <div class="phone-cam-picker" id="phone-cam-picker" hidden></div>
+    <!-- Visible only in operator-cam mode while no incoming stream is
+         present — keeps the phone screen from going to an unlabeled
+         black void when mounted on a robot with no operator camera
+         currently routed to it. -->
+    <div class="phone-cam-waiting" id="phone-cam-waiting" hidden>
+      <div class="phone-cam-waiting-label">Mounted on <span id="phone-cam-waiting-name"></span></div>
+      <div class="phone-cam-waiting-sub">Waiting for operator camera…</div>
+    </div>
   </section>
 
   <!-- Drive controls — above the fold so pedals are reachable without

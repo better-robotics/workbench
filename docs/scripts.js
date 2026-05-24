@@ -7,10 +7,10 @@ import { setToggleValue } from "./capabilities/runtime/toggle.js";
 import { pulseMotors } from "./capabilities/runtime/signed-pair.js";
 import { sendCommand } from "./capabilities/runtime/command.js";
 import { waitOpsResponse } from "./ops-response.js";
-import { captureFrameDataUrl } from "./camera-frame.js";
-import { detectOnce as detDetectOnce, startDetection as detStartDetection } from "./detectors.js";
-import { listPhones, askHuman } from "./phones.js";
-import { ask as claudeAsk } from "./claude.js";
+import { captureFrameDataUrl } from "./perception/camera-frame.js";
+import { detectOnce as detDetectOnce, startDetection as detStartDetection } from "./perception/detectors.js";
+import { listPhones, askHuman } from "./pair/phones.js";
+import { ask as claudeAsk } from "./pip/claude.js";
 import { speak as voiceSpeak } from "./voice.js";
 
 // CodeMirror 6 — lazy-loaded on first dialog open so the ~150KB ESM bundle

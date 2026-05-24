@@ -67,4 +67,3 @@ State the page can't see:
 
 - **Dev flags → URL.** Per-session diagnostics that shouldn't persist.
 - **User preferences → Settings.** Build the panel once there are 3+ real persistent preferences.
-- Keep this doc in sync when adding a URL flag, `window.*` handle, or IndexedDB store.

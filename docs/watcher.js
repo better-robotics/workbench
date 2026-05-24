@@ -20,10 +20,10 @@
 // containment principle as ask_human being the bottom rung: a
 // hallucinated Pip call can pick which verb, not invent a new one.
 
-import { startDetection, detectOnce, isDetectorFailed, getActiveVocabulary } from "./detectors.js";
-import { detectGestureOnce, isGesturesFailed, GESTURE_CLASSES } from "./gestures.js";
+import { startDetection, detectOnce, isDetectorFailed, getActiveVocabulary } from "./perception/detectors.js";
+import { detectGestureOnce, isGesturesFailed } from "./perception/gestures.js";
 import { pulseMotors } from "./capabilities/runtime/signed-pair.js";
-import { listCameraSources } from "./camera-frame.js";
+import { listCameraSources } from "./perception/camera-frame.js";
 import { capSection } from "./capabilities/runtime/cap-section.js";
 import { renderEntry } from "./capabilities/runtime/render-bus.js";
 import { escapeHtml } from "./dom.js";
@@ -123,20 +123,14 @@ const FOLLOW_GESTURE_SPEAK_SKIP = new Set(["None"]);
 const FOLLOW_REVERSE_MS = FOLLOW_DRIVE_MS;
 const FOLLOW_REVERSE_SPEED = FOLLOW_DRIVE_SPEED;
 
-// Fire-event listeners — assistant.js subscribes so it can inject a
-// synthetic observation into Pip's active turn (L2 "harness pushes state
-// to planner" pattern from Butter-Bench / ExploreVLM). `kind` is "fire"
-// (target entered frame) or "clear" (target left frame); only halt-mode
-// watchers emit "clear" — speak/notify have no concept of "stopped seeing."
-const _fireListeners = new Set();
-export function onWatcherFire(fn) {
-  _fireListeners.add(fn);
-  return () => _fireListeners.delete(fn);
-}
+// Fire-event fan-out via the shared event bus. `kind` is "fire"
+// (target entered frame), "clear" (target left frame), or one of the
+// follow-mode shapes ("gesture-detected", "follow-lost",
+// "follow-reacquire"). Only halt-mode watchers emit "clear" — speak/
+// notify have no concept of "stopped seeing."
+import { emit as _busEmit, TOPICS } from "./event-bus.js";
 function emitFire(entry, det, kind = "fire") {
-  for (const fn of _fireListeners) {
-    try { fn(entry, det, kind); } catch (err) { console.warn("[watcher] fire listener:", err); }
-  }
+  _busEmit(TOPICS.WATCHER_FIRE, { entry, detection: det, kind });
 }
 
 // Per-entry motor gate. While `blocked`, motor tools in pip-tools.js await
@@ -465,12 +459,14 @@ function runFollowLoop(entry, cfg) {
     // (1) Movement. If pointing-direction override fires, spin that way
     // at max turn speed. Otherwise default to palm-centroid P-tracking.
     if (det) {
-      if (lostCount >= FOLLOW_LOST_TICKS) {
+      const wasLost = lostCount >= FOLLOW_LOST_TICKS;
+      if (wasLost) {
         const now = Date.now();
         if (now - lastLostAnnounceTs > FOLLOW_ANNOUNCE_COOLDOWN_MS) {
           if (!cfg.silent) ttsSpeak("found you");
           emitFire(entry, { ts: now }, "follow-reacquire");
           lastLostAnnounceTs = now;
+          renderEntry(entry);  // reacquire transition — surface the badge change
         }
       }
       lostCount = 0;
@@ -504,7 +500,10 @@ function runFollowLoop(entry, cfg) {
         }
       }
       if (stopped) return;
-      renderEntry(entry);
+      // No per-tick renderEntry: the card body is unchanged at ~150 ms
+      // detection cadence (timestamps display at minute resolution),
+      // and follow runs for minutes at a time. Transitions (found,
+      // lost, reacquired) call renderEntry explicitly.
     } else {
       lostCount++;
       if (lostCount === FOLLOW_LOST_TICKS) {

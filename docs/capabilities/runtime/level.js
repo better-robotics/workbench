@@ -7,35 +7,16 @@
 // each in-flight write resolves. Without it, dragging stalls with
 // "GATT operation already in progress".
 
-import { UUIDS_BY_CAP } from "../../ble.js";
-import { logFor } from "../../log.js";
+import { UUIDS_BY_CAP } from "../../ble/ble.js";
 import { capSection } from "./cap-section.js";
-
+import { coalescedWrite } from "./coalesced-write.js";
 import { renderEntry } from "./render-bus.js";
 
 export async function setLevelValue(entry, capName, value) {
-  const ch = entry[`${capName}Char`];
-  if (!ch) return;
   const range = entry.capSchema?.find(s => s.name === capName)?.range || [0, 100];
   const [mn, mx] = range;
   const v = Math.max(mn, Math.min(mx, Math.round(Number(value) || 0)));
-  entry[`${capName}Pending`] = v;
-  if (entry[`${capName}Sending`]) return;
-  entry[`${capName}Sending`] = true;
-  try {
-    while (entry[`${capName}Pending`] != null) {
-      const next = entry[`${capName}Pending`];
-      entry[`${capName}Pending`] = null;
-      try {
-        await ch.writeValueWithResponse(Uint8Array.of(next & 0xff));
-      } catch (err) {
-        logFor(entry, `${capName} write failed: ${err.message}`);
-        break;
-      }
-    }
-  } finally {
-    entry[`${capName}Sending`] = false;
-  }
+  await coalescedWrite(entry, capName, v, (n) => Uint8Array.of(n & 0xff));
 }
 
 export function makeLevelCap(schema) {

@@ -27,7 +27,7 @@ Default firmware pins: left `forward=14, backward=15`, right `forward=13, backwa
 
 **Leave the L298N's ENA/ENB jumpers ON.** The 5V tie-up keeps the H-bridge enabled and lets PWM ride the direction pins. Forward = `forward-pin=PWM, backward-pin=LOW`; reverse = swap. Separate direction + enable control needs 6 GPIOs we don't have.
 
-GPIO 15 is a strap pin (must be HIGH at boot for normal serial output). L298N's IN pins are high-impedance CMOS, but if your board has a weak pull-down on IN that fights the strap, add a 10k pull-up from GPIO 15 to 3.3V. Symptom: garbled serial during the first second of boot. Harmless if you don't need that bootloader log.
+GPIO 15 is a strap pin — needs HIGH at boot for normal serial output. L298N's IN pins are high-impedance CMOS, but if your board has a weak pull-down on IN that fights the strap, add a 10k pull-up from GPIO 15 to 3.3V. Symptom: garbled serial during the first second of boot. Harmless if you don't need that bootloader log.
 
 ### Optional hardware mods (for stability under load)
 
@@ -65,11 +65,11 @@ Requires a USB-C **data** cable (not charge-only). Power-only variants look iden
 
 ## Board-specific knobs
 
-Two variables need to match your ESP32 board:
+Two variables track the ESP32 board:
 
 - **target** for `idf.py set-target` — `esp32` for CAM-MB; `esp32s3` for S3. Per-target defaults in `sdkconfig.defaults.esp32` / `sdkconfig.defaults.esp32s3`.
 - **`LED_PIN`** in `firmware/esp32_robot_idf/main/pin_config.c` — GPIO 33 active-low on CAM-MB. S3 boards vary; many use a WS2812 neopixel (GPIO 48 on DevKitC-S3) which needs a different driver entirely. The dashboard's Pinout editor overrides at runtime via NVS, no rebuild.
 
 The IDF partition layout (1.9 MB OTA slots, otadata at 0xE000) matches arduino-esp32's `min_spiffs` so a fielded ESP32 originally flashed with the .ino can OTA into this firmware without bricking.
 
-After changing either, push to `main` — CI rebuilds and publishes. Run `make publish-firmware` locally only to preview before pushing.
+After changing either, push to `main` — CI rebuilds and publishes. `make publish-firmware` previews locally before pushing.
