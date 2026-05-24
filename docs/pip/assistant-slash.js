@@ -7,11 +7,11 @@ import { getActiveDetectorName, getAvailableDetectors, setActiveDetector } from 
 // pip-core built-ins (v1.7.0+); these are the dashboard-specific ones.
 //
 // Provider list mirrors pip-core's bundle taxonomy (`./bundle/anthropic`,
-// `./bundle/openai`, `./bundle/local`) plus the dashboard-specific
-// transports (`bridge` = localhost ai-bridge proxy, `github` = GitHub
-// Models). Anthropic's Claude variants nest under `anthropic` rather
-// than living as sibling top-level entries — they're not providers.
-const PIP_PROVIDERS = ["github", "bridge", "anthropic", "openai", "local"];
+// `./bundle/openai`) plus the dashboard-specific transports
+// (`bridge` = localhost ai-bridge proxy, `github` = GitHub Models).
+// Anthropic's Claude variants nest under `anthropic` rather than living
+// as sibling top-level entries — they're not providers.
+const PIP_PROVIDERS = ["github", "bridge", "anthropic", "openai"];
 
 export function registerSlashCommands({ pip, loadConnectGitHub }) {
   pip.registerSlash({
@@ -44,7 +44,7 @@ export function registerSlashCommands({ pip, loadConnectGitHub }) {
   //   /model anthropic | bridge            switch provider (current variant)
   //   /model anthropic opus                switch + set Claude variant
   //   /model bridge sonnet                 same for the bridge provider
-  //   /model openai | github | local
+  //   /model openai | github
   // Both providers in CLAUDE_BACKENDS (anthropic, bridge) accept the
   // /model <provider> <variant> two-token shape — they share pipClaudeModel.
   // Setup (OAuth, API key) happens inline via pip.collectSecret so the
@@ -71,10 +71,10 @@ export function registerSlashCommands({ pip, loadConnectGitHub }) {
     handler: async (argsString) => {
       const trimmed = argsString.trim();
       if (!trimmed) {
-        const others = PIP_PROVIDERS.filter(p => p !== settings.pipBackend);
-        return {
-          reply: `Current: \`${settings.pipBackend}\` · model: \`${activeModelForBackend(settings.pipBackend)}\`. Switch with \`/model <provider>\` (${others.map(p => `\`${p}\``).join(", ")}). Claude variants: \`/model anthropic|bridge ${CLAUDE_ALIASES.join("|")}\`.`,
-        };
+        // No arg = re-open the arg-mode dropdown as a provider picker
+        // instead of logging help text to chat. Matches CLI palette
+        // behavior — "/model" + Enter feels like opening a sub-menu.
+        return { openCompletions: true };
       }
 
       const [providerArg, ...rest] = trimmed.split(/\s+/);
@@ -108,27 +108,7 @@ export function registerSlashCommands({ pip, loadConnectGitHub }) {
         // Variant staged; continue into the provider-switch logic below.
       }
 
-      // `local` is browser-resident inference via pip-core's local()
-      // runtime provider (transformers.js + WebGPU). No auth / key
-      // needed — just download the model on first use. Defaults to
-      // Gemma 4 E2B-it at q4f16 (~1.5 GB decoder, browser-cached after).
-      // Tools dispatch through pip-core's <tool_call> prompt convention
-      // (3.8+). Reliability at 2B effective params + q4f16 isn't
-      // benchmark-strong — slash commands stay as the deterministic
-      // fallback when Gemma misfires.
-      if (provider === "local") {
-        if (typeof navigator === "undefined" || !navigator.gpu) {
-          return { reply: "Local inference needs WebGPU — not available in this browser. Chrome 113+ / Edge 113+ on a recent OS with GPU acceleration enabled." };
-        }
-        settings.pipBackend = "local";
-        saveSettings();
-        pip.setModelLabel?.(activeModelForBackend("local"));
-        return {
-          reply: `Backend set to \`local\` — \`${activeModelForBackend("local")}\`. **First message downloads ~1.5 GB of weights** (browser-cached after). Tools work but small-model reliability varies; slash commands stay as the deterministic fallback.`,
-        };
-      }
-
-      // Contextual setup: providers that need auth/keys get prompted
+// Contextual setup: providers that need auth/keys get prompted
       // inline before we commit. Cancellation leaves the existing
       // selection untouched. Re-running `/model <current>` is the
       // documented re-auth path, so we re-prompt even when the
@@ -205,16 +185,6 @@ export function registerSlashCommands({ pip, loadConnectGitHub }) {
   const VISION_SUBS = ["pip", "detector"];
   const PIP_VISION_VALUES = ["on", "off"];
 
-  const visionStatus = () => {
-    const pip = settings.pipVisionEnabled ? "on" : "off";
-    const det = getActiveDetectorName();
-    const detLines = getAvailableDetectors().map(d => {
-      const marker = d.name === det ? "•" : " ";
-      return `  ${marker} \`${d.name}\` — ${d.label}`;
-    }).join("\n");
-    return `Vision surfaces:\n- \`pip\` (planner sees frames): \`${pip}\` — toggle with \`/vision pip on|off\`\n- \`detector\` (in-browser reflex): \`${det}\` — switch with \`/vision detector <name>\`\n${detLines}`;
-  };
-
   pip.registerSlash({
     name: "vision",
     description: "switch planner vision (pip on|off) or reflex detector (detector mediapipe|yolo26)",
@@ -240,7 +210,10 @@ export function registerSlashCommands({ pip, loadConnectGitHub }) {
     },
     handler: (argsString) => {
       const trimmed = argsString.trim();
-      if (!trimmed) return { reply: visionStatus() };
+      // No arg = re-open the arg-mode dropdown (sub-menu of pip/detector).
+      // Same UX as /model. Status text is still available via /vision status
+      // if needed in the future, but the default is the picker.
+      if (!trimmed) return { openCompletions: true };
 
       const [sub, ...rest] = trimmed.split(/\s+/);
       const subArg = rest.join(" ").trim().toLowerCase();

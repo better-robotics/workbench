@@ -32,14 +32,7 @@ export const settings = Object.assign(
   //   Lite0 via @mediapipe/tasks-vision) or "yolo26" (~10MB ONNX via
   //   onnxruntime-web + WebGPU). Switch via /detector <name>; persists
   //   here so the next session picks up the same backend.
-  // pipLocalModel / pipLocalDtype: in-browser model via transformers.js +
-  //   WebGPU for the `local` backend. Default targets Gemma 4 E2B-it
-  //   (~1.5GB decoder at q4f16, browser-cached after first load). q4f16
-  //   over q4: smaller and faster on WebGPU since activations stay fp16
-  //   (no int4→fp16 reroll per layer). Sampling defaults baked into
-  //   claude.js's _localAsk match Google's documented Gemma-4 standards
-  //   (temperature 1.0, top_k 64, top_p 0.95, no repetition_penalty).
-  { pipBackend: "github", pipApiKey: "", pipOpenaiKey: "", pipClaudeModel: "claude-sonnet-4-6", githubAuth: null, pipVisionEnabled: true, pipDetector: "mediapipe", pipLocalModel: "onnx-community/gemma-4-E2B-it-ONNX", pipLocalDtype: "q4f16", arucoOverheadPhoneId: null, arucoOverheadLocalId: null, arucoMarkerSizeMm: 100 },
+  { pipBackend: "github", pipApiKey: "", pipOpenaiKey: "", pipClaudeModel: "claude-sonnet-4-6", githubAuth: null, pipVisionEnabled: true, pipDetector: "mediapipe", arucoOverheadPhoneId: null, arucoOverheadLocalId: null, arucoMarkerSizeMm: 100 },
   (() => {
     const raw = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
     // Migration: pipGithubAuth → githubAuth (Identity + Pip share one OAuth
