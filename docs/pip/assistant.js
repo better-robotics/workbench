@@ -22,7 +22,12 @@ import { AUTH_URL } from "../endpoints.js";
 // assistant.js → app.js → DOMContentLoaded never fires → wireRecoveryMenu
 // never runs. Dynamic-import turns that into a runtime throw that the
 // initAssistant try/catch in app.js catches gracefully.
-const PIP_CDN_URL = "https://cdn.jsdelivr.net/npm/@nevescloud/pip@latest/pip-core.esm.js";
+// Pin the exact version (Stripe / AWS pattern). @latest is convenient but
+// jsdelivr's edge-caches it for ~12h, so a fresh pip publish doesn't
+// reach this dashboard until the edge revalidates. Pinning makes the
+// URL immutable bytes — bump this string per release. Single source of
+// truth for the dashboard's pip-core version.
+const PIP_CDN_URL = "https://cdn.jsdelivr.net/npm/@nevescloud/pip@3.9.2/pip-core.esm.js";
 let createPip = null;
 
 const HISTORY_LIMIT = 12;
