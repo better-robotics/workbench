@@ -22,7 +22,7 @@
 
 import { fetchIceServers } from "../pair/pairing.js";
 import { generateSessionCert } from "./webrtc-cert.js";
-import { SIGNAL_CHUNK_BYTES } from "../protocol-constants.js";
+import { SIGNAL_CHUNK_BYTES, OP_BEGIN, OP_CHUNK, OP_COMMIT } from "../protocol-constants.js";
 
 // 90s. ESP32 + libpeer's ICE pairing is sequential — each candidate pair
 // tested with STUN connectivity checks + retries, no parallelism. With
@@ -111,15 +111,15 @@ async function openChannelViaBLE(robotId, label, signalChar, opts) {
     const data = new Uint8Array(e.target.value.buffer);
     if (data.length === 0) return;
     const op = data[0];
-    if (op === 0x01) {
+    if (op === OP_BEGIN) {
       if (data.length < 3) return;
       total = (data[1] << 8) | data[2];
       received = 0;
       chunks.length = 0;
-    } else if (op === 0x02) {
+    } else if (op === OP_CHUNK) {
       chunks.push(data.subarray(1));
       received += data.length - 1;
-    } else if (op === 0x03) {
+    } else if (op === OP_COMMIT) {
       signalChar.removeEventListener("characteristicvaluechanged", onSignal);
       if (received !== total) {
         answerReject(new Error(`answer size mismatch ${received}/${total}`));
@@ -235,7 +235,7 @@ function answerSetupActive(sdp) {
 }
 
 async function sendChunked(char, bytes) {
-  return sendChunkedOp(char, bytes, 0x01, 0x02, 0x03);
+  return sendChunkedOp(char, bytes, OP_BEGIN, OP_CHUNK, OP_COMMIT);
 }
 
 // Cert+key has a custom begin (5 bytes: opcode + two u16 BE lengths)
@@ -393,50 +393,52 @@ export function closePeer(robotId) {
 // won (look for type=candidate-pair, state=succeeded) so you can
 // answer "host vs srflx vs relay" without chrome://webrtc-internals.
 // Returns a Promise — DevTools auto-awaits.
+export async function getRobotWebRTCDiagnostic() {
+  const out = [];
+  for (const [robotId, entry] of _peers.entries()) {
+    const row = {
+      robotId,
+      state: {
+        iceConnection: entry.pc?.iceConnectionState,
+        connection: entry.pc?.connectionState,
+        signaling: entry.pc?.signalingState,
+        iceGathering: entry.pc?.iceGatheringState,
+      },
+      channels: [...entry.channels.keys()],
+    };
+    try {
+      const report = await entry.pc.getStats();
+      const stats = [];
+      report.forEach((s) => stats.push(s));
+      row.stats = stats;
+    } catch (err) {
+      row.statsError = err.message || String(err);
+    }
+    out.push(row);
+  }
+  for (const { robotId, label, pc } of _externalPeers.values()) {
+    const row = {
+      robotId, label,
+      state: {
+        iceConnection: pc?.iceConnectionState,
+        connection: pc?.connectionState,
+        signaling: pc?.signalingState,
+        iceGathering: pc?.iceGatheringState,
+      },
+    };
+    try {
+      const report = await pc.getStats();
+      const stats = [];
+      report.forEach((s) => stats.push(s));
+      row.stats = stats;
+    } catch (err) {
+      row.statsError = err.message || String(err);
+    }
+    out.push(row);
+  }
+  return out;
+}
+
 if (typeof window !== "undefined") {
-  window.lastRobotWebRTCDiagnostic = async () => {
-    const out = [];
-    for (const [robotId, entry] of _peers.entries()) {
-      const row = {
-        robotId,
-        state: {
-          iceConnection: entry.pc?.iceConnectionState,
-          connection: entry.pc?.connectionState,
-          signaling: entry.pc?.signalingState,
-          iceGathering: entry.pc?.iceGatheringState,
-        },
-        channels: [...entry.channels.keys()],
-      };
-      try {
-        const report = await entry.pc.getStats();
-        const stats = [];
-        report.forEach((s) => stats.push(s));
-        row.stats = stats;
-      } catch (err) {
-        row.statsError = err.message || String(err);
-      }
-      out.push(row);
-    }
-    for (const { robotId, label, pc } of _externalPeers.values()) {
-      const row = {
-        robotId, label,
-        state: {
-          iceConnection: pc?.iceConnectionState,
-          connection: pc?.connectionState,
-          signaling: pc?.signalingState,
-          iceGathering: pc?.iceGatheringState,
-        },
-      };
-      try {
-        const report = await pc.getStats();
-        const stats = [];
-        report.forEach((s) => stats.push(s));
-        row.stats = stats;
-      } catch (err) {
-        row.statsError = err.message || String(err);
-      }
-      out.push(row);
-    }
-    return out;
-  };
+  window.lastRobotWebRTCDiagnostic = getRobotWebRTCDiagnostic;
 }

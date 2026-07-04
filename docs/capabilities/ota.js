@@ -5,6 +5,7 @@ import {
   OTA_DATA_CHAR_UUID, OTA_STATUS_CHAR_UUID,
   decodeJson, encodeJson,
 } from "../ble/ble.js";
+import { OTA_OP_ABORT, OP_BEGIN, OP_CHUNK, OP_COMMIT } from "../protocol-constants.js";
 import { freshUrl, escapeHtml, fetchWithTimeout } from "../dom.js";
 import { logFor, log } from "../log.js";
 import { state } from "../state.js";
@@ -212,22 +213,22 @@ async function streamOtaBytes(entry, bytes) {
   // = 256 → max payload 253; frame is chunk + 1-byte opcode).
   entry.otaSent = 0;
   patchOtaSection(entry);
-  try { await ch.writeValueWithResponse(new Uint8Array([0x00])); } catch {}
+  try { await ch.writeValueWithResponse(new Uint8Array([OTA_OP_ABORT])); } catch {}
   const begin = new Uint8Array(5);
-  begin[0] = 0x01;
+  begin[0] = OP_BEGIN;
   new DataView(begin.buffer).setUint32(1, bytes.length, false);
   await ch.writeValueWithResponse(begin);
   const CHUNK = 244;
   for (let i = 0; i < bytes.length; i += CHUNK) {
     const slice = bytes.subarray(i, Math.min(i + CHUNK, bytes.length));
     const frame = new Uint8Array(slice.length + 1);
-    frame[0] = 0x02;
+    frame[0] = OP_CHUNK;
     frame.set(slice, 1);
     await ch.writeValueWithResponse(frame);
     entry.otaSent = i + slice.length;
     patchOtaSectionThrottled(entry);
   }
-  await ch.writeValueWithResponse(new Uint8Array([0x03]));
+  await ch.writeValueWithResponse(new Uint8Array([OP_COMMIT]));
   entry.otaSent = bytes.length;
   patchOtaSection(entry);
 }
@@ -405,13 +406,13 @@ export const ota = {
       // Orphaned-state cleanup: if the firmware reports an in-progress upload
       // (receiving / committing) but this dashboard session didn't initiate
       // one, that's a tombstone from a previous session that got interrupted
-      // (refresh during OTA, BLE drop mid-stream, etc.). Send the 0x00 reset
+      // (refresh during OTA, BLE drop mid-stream, etc.). Send the abort
       // opcode so the firmware drops its half-buffer and the next intentional
       // OTA starts clean — and the user doesn't see a misleading "receiving
       // 1%" frozen on the card forever.
       if (initial.st === "receiving" || initial.st === "committing") {
         try {
-          await entry.otaDataChar.writeValueWithResponse(new Uint8Array([0x00]));
+          await entry.otaDataChar.writeValueWithResponse(new Uint8Array([OTA_OP_ABORT]));
           entry.otaStatus = { st: "idle" };
           logFor(entry, `cleared orphaned OTA state (was ${initial.st} ${initial.n || 0}/${initial.total || 0} B)`);
         } catch { /* if write fails, fall back to displaying the orphaned state — still better than freezing */ }

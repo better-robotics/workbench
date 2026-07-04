@@ -48,7 +48,7 @@ def flatten(spec, target):
         if target not in kvs.get("_targets", []):
             continue
         for name, value in kvs.items():
-            if name == "_targets":
+            if name.startswith("_"):
                 continue
             yield group, name, value
 

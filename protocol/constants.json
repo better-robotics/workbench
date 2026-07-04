@@ -9,5 +9,13 @@
     "_targets": ["c", "py", "js"],
     "CHUNK_BYTES": 180,
     "SIGNAL_CHUNK_BYTES": 100
+  },
+  "chunked_transfer": {
+    "_targets": ["c", "py", "js"],
+    "_comment": "Shared begin/chunk/commit opcode framing used identically by OTA, camera-install, and the SIGNAL char's SDP-offer sub-protocol. OTA_OP_ABORT is OTA-specific (camera has its own OP_STOP=4, signal/ops-response have no abort concept) but genuinely 3-way shared, so it lives here too.",
+    "OTA_OP_ABORT": 0,
+    "OP_BEGIN": 1,
+    "OP_CHUNK": 2,
+    "OP_COMMIT": 3
   }
 }

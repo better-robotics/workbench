@@ -4,3 +4,9 @@
 // ble_chunking
 export const CHUNK_BYTES = 180;
 export const SIGNAL_CHUNK_BYTES = 100;
+
+// chunked_transfer
+export const OTA_OP_ABORT = 0;
+export const OP_BEGIN = 1;
+export const OP_CHUNK = 2;
+export const OP_COMMIT = 3;

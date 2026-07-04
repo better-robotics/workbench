@@ -124,11 +124,11 @@ static void send_answer_via_ble(const char *sdp) {
         send_ble_signal_error("answer size out of range");
         return;
     }
-    uint8_t begin[3] = { 0x01, (uint8_t)(total >> 8), (uint8_t)(total & 0xff) };
+    uint8_t begin[3] = { OP_BEGIN, (uint8_t)(total >> 8), (uint8_t)(total & 0xff) };
     gatt_svr_signal_send(s_active_offer_conn, begin, 3);
 
     uint8_t chunk[1 + SIGNAL_CHUNK_BYTES];
-    chunk[0] = 0x02;
+    chunk[0] = OP_CHUNK;
     size_t offset = 0;
     while (offset < total) {
         size_t take = total - offset > SIGNAL_CHUNK_BYTES ? SIGNAL_CHUNK_BYTES : total - offset;
@@ -137,7 +137,7 @@ static void send_answer_via_ble(const char *sdp) {
         offset += take;
         vTaskDelay(pdMS_TO_TICKS(5));
     }
-    uint8_t commit[1] = { 0x03 };
+    uint8_t commit[1] = { OP_COMMIT };
     gatt_svr_signal_send(s_active_offer_conn, commit, 1);
     ESP_LOGI(TAG, "send_answer_via_ble: done (%u chunks)",
              (unsigned)((total + SIGNAL_CHUNK_BYTES - 1) / SIGNAL_CHUNK_BYTES));
@@ -146,7 +146,7 @@ static void send_answer_via_ble(const char *sdp) {
 void webrtc_peer_handle_ble_signal_write(uint16_t from_conn, const uint8_t *buf, size_t len) {
     if (len == 0) return;
     uint8_t op = buf[0];
-    if (op == 0x01) {
+    if (op == OP_BEGIN) {
         if (len < 3) { send_ble_signal_error("bad begin"); return; }
         s_active_offer_conn = from_conn;
         size_t total = ((size_t)buf[1] << 8) | buf[2];
@@ -161,7 +161,7 @@ void webrtc_peer_handle_ble_signal_write(uint16_t from_conn, const uint8_t *buf,
         if (!s_ble_offer_buf) { send_ble_signal_error("oom"); s_ble_offer_total = 0; return; }
         s_ble_offer_total = total;
         s_ble_offer_received = 0;
-    } else if (op == 0x02) {
+    } else if (op == OP_CHUNK) {
         if (!s_ble_offer_buf) return;
         size_t add = len - 1;
         if (s_ble_offer_received + add > s_ble_offer_total) {
@@ -171,7 +171,7 @@ void webrtc_peer_handle_ble_signal_write(uint16_t from_conn, const uint8_t *buf,
         }
         memcpy(s_ble_offer_buf + s_ble_offer_received, buf + 1, add);
         s_ble_offer_received += add;
-    } else if (op == 0x03) {
+    } else if (op == OP_COMMIT) {
         if (!s_ble_offer_buf || s_ble_offer_received != s_ble_offer_total) {
             free(s_ble_offer_buf); s_ble_offer_buf = NULL;
             send_ble_signal_error("offer incomplete");

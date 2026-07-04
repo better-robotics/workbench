@@ -4,6 +4,7 @@
 // Chunked opcode protocol both ways (browser→robot via signal,
 // robot→browser via status notify). Install via the `command` cap.
 import { UUIDS_BY_CAP, CHUNK_BYTES, encodeJson, decodeJson } from "../../ble/ble.js";
+import { OP_BEGIN, OP_CHUNK, OP_COMMIT } from "../../protocol-constants.js";
 import { escapeHtml } from "../../dom.js";
 import { logFor } from "../../log.js";
 import { persist } from "../../state.js";
@@ -15,10 +16,8 @@ import { notifyRobotStreamChange } from "../../pair/phones.js";
 import { startWatcher, stopWatcher } from "../../watcher.js";
 import { isDetectorFailed } from "../../perception/detectors.js";
 
-const OP_BEGIN   = 0x01;
-const OP_CHUNK   = 0x02;
-const OP_COMMIT  = 0x03;
-const OP_STOP    = 0x04;
+// OP_STOP is camera-specific — no OTA/signal/ops-response counterpart.
+const OP_STOP = 0x04;
 
 import { renderEntry } from "./render-bus.js";
 

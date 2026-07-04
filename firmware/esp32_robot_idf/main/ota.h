@@ -5,13 +5,12 @@
 
 #include "esp_err.h"
 
-// Wire protocol for the BLE ota-data char (must match
-// firmware/pi_robot/pi_robot.py):
-//   0x00                   abort
-//   0x01 [size:u32 BE]     begin-stream — reset, expect `size` bytes over BLE
-//   0x02 [payload]         chunk — append to flash
-//   0x03                   commit — finalize + restart
-//   0x04 [json]            fetch-url — replies "failed" in this build
+// Wire protocol for the BLE ota-data char (opcodes from protocol_constants.h,
+// shared with firmware/pi_robot/pi_robot.py):
+//   OTA_OP_ABORT                abort
+//   OP_BEGIN [size:u32 BE]      begin-stream — reset, expect `size` bytes over BLE
+//   OP_CHUNK [payload]          chunk — append to flash
+//   OP_COMMIT                   commit — finalize + restart
 //
 // ota-status (READ + NOTIFY) carries: {"st":...,"n":...,"total":...,"err":...}.
 

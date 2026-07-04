@@ -10,6 +10,7 @@
 #include "esp_timer.h"
 
 #include "gatt_svr.h"
+#include "protocol_constants.h"
 #include "restart_util.h"
 #include "wifi_sta.h"
 
@@ -107,13 +108,13 @@ static void do_abort(void) {
 void ota_handle_data_write(const uint8_t *buf, size_t len) {
     if (len == 0) return;
     uint8_t op = buf[0];
-    if (op == 0x00) {
+    if (op == OTA_OP_ABORT) {
         do_abort();
         // User cancelled or fresh-state reset — bring WiFi back if it
         // was paused for an in-progress OTA. Idempotent.
         wifi_sta_resume();
         publish_status("idle", 0, 0, NULL);
-    } else if (op == 0x01) {
+    } else if (op == OP_BEGIN) {
         if (len < 5) { publish_status("failed", 0, 0, "bad begin"); return; }
         size_t total = ((uint32_t)buf[1] << 24) | ((uint32_t)buf[2] << 16)
                      | ((uint32_t)buf[3] << 8)  |  (uint32_t)buf[4];
@@ -127,7 +128,7 @@ void ota_handle_data_write(const uint8_t *buf, size_t len) {
         // Resume on abort/failure; commit reboots so no resume needed.
         wifi_sta_pause();
         publish_status("receiving", 0, total, NULL);
-    } else if (op == 0x02) {
+    } else if (op == OP_CHUNK) {
         if (!s_in_progress) { publish_status("failed", 0, 0, "no active session"); return; }
         if (do_write(buf + 1, len - 1) != ESP_OK) {
             publish_status("failed", s_received, s_expected, "write short");
@@ -142,7 +143,7 @@ void ota_handle_data_write(const uint8_t *buf, size_t len) {
             s_chunk_last_progress_us = now;
             publish_status("receiving", s_received, s_expected, NULL);
         }
-    } else if (op == 0x03) {
+    } else if (op == OP_COMMIT) {
         if (!s_in_progress) { publish_status("failed", 0, 0, "no active session"); return; }
         publish_status("committing", s_received, s_expected, NULL);
         if (do_commit() != ESP_OK) {
@@ -156,10 +157,6 @@ void ota_handle_data_write(const uint8_t *buf, size_t len) {
         // pin_config's deferred restart. WiFi reinit happens fresh on
         // reboot; no resume needed.
         schedule_restart(500);
-    } else if (op == 0x04) {
-        // URL-trigger isn't implemented. Dashboard's grace-window logic
-        // sees "failed" and falls back to BLE-stream OTA.
-        publish_status("failed", 0, 0, "url-trigger unavailable");
     }
 }
 
