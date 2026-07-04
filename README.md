@@ -2,7 +2,7 @@
 
 **Open a tab, pair a robot, ship code.**
 
-[![Build firmware](https://github.com/better-robotics/better-robotics.github.io/actions/workflows/build-firmware.yml/badge.svg)](https://github.com/better-robotics/better-robotics.github.io/actions/workflows/build-firmware.yml)
+[![Build firmware](https://github.com/better-robotics/browser-workbench/actions/workflows/build-firmware.yml/badge.svg)](https://github.com/better-robotics/browser-workbench/actions/workflows/build-firmware.yml)
 
 ## What this is
 
@@ -31,7 +31,7 @@ Browser is the IDE. Coding panel + capability cards. localStorage is the file sy
 
 ### Use it
 
-1. Open [better-robotics.github.io](https://better-robotics.github.io/) in Chrome or Edge.
+1. Open the dashboard — the **About** link on this repo — in Chrome or Edge.
 2. Flash or prepare hardware:
    - **ESP32 on USB:** click **Flash firmware**
    - **Pi 4 with a flashed SD card:** click **Customize card** and point it at the mounted boot partition.

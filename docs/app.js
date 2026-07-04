@@ -36,6 +36,7 @@ import {
   setupServiceWorker, wireInstallMenuItem, wireCheckUpdatesMenuItem,
   wireHardRefresh, wireDiagnosticsMenuItem, setReportIssueLink, readSwVersion,
 } from "./app-menu.js";
+import { REPO_URL } from "./endpoints.js";
 import { initRobotPresence } from "./wifi-presence.js";
 import { wireLogDialog } from "./recovery/log-dialog.js";
 
@@ -798,6 +799,7 @@ function wireRecoveryMenu() {
   readSwVersion().then(version => {
     const v = $("app-menu-version"); if (v) v.textContent = version;
     const r = $("menu-report-issue"); if (r) setReportIssueLink(r, version);
+    const uc = $("link-user-code"); if (uc) uc.href = `${REPO_URL}/blob/main/USER-CODE.md`;
   }).catch(() => {});
   wireInstallMenuItem({
     btnId: "menu-install",

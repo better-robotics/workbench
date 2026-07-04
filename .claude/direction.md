@@ -18,7 +18,7 @@ What we're committing to close for the Fall 2026 course pilot. Open exploration 
 
 The plan's original NFC role (handing the phone the puck's SoftAP creds) is dead post-BLE-first. Tags can still earn their keep as a *tap-to-pair-this-specific-robot* shortcut — collapses "scan → find robot-7 in a list of 12 → confirm" to a single tap.
 
-- **Tag content:** NDEF URL → `https://better-robotics.github.io/?pair=<robot-id>`. Dashboard reads `pair` from `location.search`, filters BLE scan to that device.
+- **Tag content:** NDEF URL → `https://better-robotics.github.io/browser-workbench/?pair=<robot-id>`. Dashboard reads `pair` from `location.search`, filters BLE scan to that device.
 - **Android Chrome:** tap → URL → filtered scan → confirm.
 - **iPhone:** iOS opens the URL but Web Bluetooth is unavailable. Workaround uses the existing phone↔desktop pair layer (`signal.neevs.io`, signed pair-request, `phone.html`): encode `phone.html?pair=<robot-id>`. Phone forwards `{type:"pair-robot", robotId}` over WebRTC; desktop surfaces a "Phone wants to pair robot-7 — click to confirm" banner. Desktop click is required because `navigator.bluetooth.requestDevice` needs a user gesture. Cross-network works for free.
 - **Bootstrap caveat:** first-ever use still needs the existing phone↔desktop pair ceremony.

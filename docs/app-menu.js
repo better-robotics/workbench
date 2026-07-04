@@ -3,6 +3,8 @@
 // handlers. Per-page positioning + surface-specific items stay in each
 // page's own wiring.
 
+import { REPO_URL } from "./endpoints.js";
+
 // ── PWA install ────────────────────────────────────────────────────────
 
 let _deferredInstallPrompt = null;
@@ -291,7 +293,7 @@ export function setReportIssueLink(anchor, version) {
     ].join("\n");
   }
   function refresh() {
-    anchor.href = `https://github.com/better-robotics/better-robotics.github.io/issues/new?body=${encodeURIComponent(buildBody())}`;
+    anchor.href = `${REPO_URL}/issues/new?body=${encodeURIComponent(buildBody())}`;
   }
   refresh();
   // Refresh just-in-time so any errors that happened between page load
