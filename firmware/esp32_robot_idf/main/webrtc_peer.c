@@ -18,6 +18,8 @@
 #include "esp_peer.h"
 #include "esp_peer_default.h"
 #include "esp_peer_types.h"
+
+#include "protocol_constants.h"
 // Forward decl: dtls_srtp.h lives under esp_peer/src and isn't on the
 // public include path. We only need this one entry point (called once
 // per browser-supplied cert push), so a local extern is cleaner than
@@ -89,7 +91,8 @@ static void stop_video_streaming(void);
 #define BLE_SIG_MAX_OFFER  8192
 #define BLE_SIG_MAX_ICE    1024
 #define BLE_SIG_MAX_CERT   4096
-#define BLE_SIG_CHUNK      100
+// Chunk size is SIGNAL_CHUNK_BYTES from protocol_constants.h — shared with
+// firmware/pi_robot/pi_robot.py's SIGNAL_CHAR_UUID handling.
 
 static char *s_ble_offer_buf = NULL;
 static size_t s_ble_offer_total = 0;
@@ -124,11 +127,11 @@ static void send_answer_via_ble(const char *sdp) {
     uint8_t begin[3] = { 0x01, (uint8_t)(total >> 8), (uint8_t)(total & 0xff) };
     gatt_svr_signal_send(s_active_offer_conn, begin, 3);
 
-    uint8_t chunk[1 + BLE_SIG_CHUNK];
+    uint8_t chunk[1 + SIGNAL_CHUNK_BYTES];
     chunk[0] = 0x02;
     size_t offset = 0;
     while (offset < total) {
-        size_t take = total - offset > BLE_SIG_CHUNK ? BLE_SIG_CHUNK : total - offset;
+        size_t take = total - offset > SIGNAL_CHUNK_BYTES ? SIGNAL_CHUNK_BYTES : total - offset;
         memcpy(chunk + 1, sdp + offset, take);
         gatt_svr_signal_send(s_active_offer_conn, chunk, 1 + take);
         offset += take;
@@ -137,7 +140,7 @@ static void send_answer_via_ble(const char *sdp) {
     uint8_t commit[1] = { 0x03 };
     gatt_svr_signal_send(s_active_offer_conn, commit, 1);
     ESP_LOGI(TAG, "send_answer_via_ble: done (%u chunks)",
-             (unsigned)((total + BLE_SIG_CHUNK - 1) / BLE_SIG_CHUNK));
+             (unsigned)((total + SIGNAL_CHUNK_BYTES - 1) / SIGNAL_CHUNK_BYTES));
 }
 
 void webrtc_peer_handle_ble_signal_write(uint16_t from_conn, const uint8_t *buf, size_t len) {

@@ -10,8 +10,10 @@ on:
       - 'firmware/**'
       - 'Makefile'
       - 'tools/gen-uuids.py'
+      - 'tools/gen-constants.py'
       - 'tools/check-dram-budget.py'
       - 'protocol/uuids.json'
+      - 'protocol/constants.json'
       - '.github/workflows/build-firmware.yml'
   workflow_dispatch: {}
 
@@ -60,7 +62,7 @@ jobs:
           if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
             base=$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)
           fi
-          if git diff --name-only "$base" HEAD | grep -qE '^(firmware/esp32_robot_idf/|protocol/uuids\.json|tools/gen-uuids\.py|\.github/workflows/build-firmware\.yml)'; then
+          if git diff --name-only "$base" HEAD | grep -qE '^(firmware/esp32_robot_idf/|protocol/uuids\.json|protocol/constants\.json|tools/gen-uuids\.py|tools/gen-constants\.py|\.github/workflows/build-firmware\.yml)'; then
             echo "esp_changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "esp_changed=false" >> "$GITHUB_OUTPUT"
@@ -96,6 +98,9 @@ jobs:
 
       - name: Generate uuids.h
         run: python3 tools/gen-uuids.py
+
+      - name: Generate protocol_constants.h
+        run: python3 tools/gen-constants.py
 
       - name: Restore IDF build cache
         # Per-board cache key — different boards produce different artifacts,

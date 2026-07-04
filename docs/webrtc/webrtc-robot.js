@@ -22,6 +22,7 @@
 
 import { fetchIceServers } from "../pair/pairing.js";
 import { generateSessionCert } from "./webrtc-cert.js";
+import { SIGNAL_CHUNK_BYTES } from "../protocol-constants.js";
 
 // 90s. ESP32 + libpeer's ICE pairing is sequential — each candidate pair
 // tested with STUN connectivity checks + retries, no parallelism. With
@@ -31,7 +32,6 @@ import { generateSessionCert } from "./webrtc-cert.js";
 // timeout fired — barely too tight. Pi/aiortc completes ICE in ~2-3s,
 // so the headroom only matters for the ESP32 failure-message UX.
 const ICE_TIMEOUT_MS = 90000;
-const BLE_SIG_CHUNK  = 100;
 
 // Per-robot peer connections, lazy-built. Keyed by robot id.
 const _peers = new Map();  // robotId → { pc, channels: Map<label, ch> }
@@ -258,8 +258,8 @@ async function sendCertKey(char, certPem, keyPem) {
   const merged = new Uint8Array(certLen + keyLen);
   merged.set(certPem, 0);
   merged.set(keyPem, certLen);
-  for (let off = 0; off < merged.length; off += BLE_SIG_CHUNK) {
-    const take = Math.min(BLE_SIG_CHUNK, merged.length - off);
+  for (let off = 0; off < merged.length; off += SIGNAL_CHUNK_BYTES) {
+    const take = Math.min(SIGNAL_CHUNK_BYTES, merged.length - off);
     const buf = new Uint8Array(1 + take);
     buf[0] = 0x08;
     buf.set(merged.subarray(off, off + take), 1);
@@ -278,8 +278,8 @@ async function sendChunkedOp(char, bytes, beginOp, chunkOp, commitOp) {
   begin[1] = (total >> 8) & 0xff;
   begin[2] = total & 0xff;
   await char.writeValueWithResponse(begin);
-  for (let off = 0; off < total; off += BLE_SIG_CHUNK) {
-    const take = Math.min(BLE_SIG_CHUNK, total - off);
+  for (let off = 0; off < total; off += SIGNAL_CHUNK_BYTES) {
+    const take = Math.min(SIGNAL_CHUNK_BYTES, total - off);
     const buf = new Uint8Array(1 + take);
     buf[0] = chunkOp;
     buf.set(bytes.subarray(off, off + take), 1);

@@ -1,8 +1,12 @@
-// UUIDs generated from protocol/uuids.json (tools/gen-uuids.py).
-// Re-exported plus dashboard-only helpers (CHUNK_BYTES, UUIDS_BY_CAP,
-// decodeJson, encodeJson). Edit the JSON + `make gen-uuids` to add a
-// characteristic; both firmwares pull from the same source.
+// UUIDs generated from protocol/uuids.json (tools/gen-uuids.py); numeric
+// wire constants (CHUNK_BYTES) from protocol/constants.json
+// (tools/gen-constants.py) — both shared with the firmwares so a typo
+// can't silently desync the protocol. Re-exported plus dashboard-only
+// helpers (UUIDS_BY_CAP, decodeJson, encodeJson).
 export * from "./uuids.js";
+// Chunked-frame protocol shared by OTA + camera signaling: begin carries
+// u32 BE length; chunks append; commit parses + acts; stop tears down.
+export { CHUNK_BYTES } from "../protocol-constants.js";
 import {
   LED_CHAR_UUID, FLASH_CHAR_UUID, MOTOR_CHAR_UUID, SERVO_CHAR_UUID, RGB_CHAR_UUID,
   WIFI_SCAN_CHAR_UUID, WIFI_JOIN_CHAR_UUID, WIFI_STATUS_CHAR_UUID,
@@ -11,10 +15,6 @@ import {
   OPS_CHAR_UUID,
   SNAPSHOT_REQUEST_CHAR_UUID, SNAPSHOT_DATA_CHAR_UUID,
 } from "./uuids.js";
-
-// Chunked-frame protocol shared by OTA + camera signaling: begin carries
-// u32 BE length; chunks append; commit parses + acts; stop tears down.
-export const CHUNK_BYTES = 180;  // safe under ATT MTU on macOS/Chrome.
 
 // Cap name → char UUID(s). Keeps fw-info.caps tiny (one ~180 B ATT read);
 // dashboard looks up chars by cap name.

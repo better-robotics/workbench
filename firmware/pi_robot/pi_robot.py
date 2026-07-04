@@ -65,6 +65,16 @@ from uuids import (  # noqa: F401 — re-exported for clarity / import sites els
     SIGNAL_CHAR_UUID,
 )
 
+# Numeric protocol/safety constants generated from protocol/constants.json
+# (tools/gen-constants.py) — shared with the ESP32 firmware so the two
+# can't silently drift apart. See protocol_constants.py for the source.
+from protocol_constants import (  # noqa: F401 — re-exported for clarity
+    MOTOR_WATCHDOG_MS,
+    LLM_MAX_DURATION_MS,
+    CHUNK_BYTES,
+    SIGNAL_CHUNK_BYTES,
+)
+
 # Capability schema, built at startup from config. Types name a UI/data
 # shape (toggle, signed-pair, wifi-scan, bundle-ota, webrtc-installable,
 # command).
@@ -101,20 +111,18 @@ def _build_caps() -> list:
 # fw-info computed per-read via _fw_info_snapshot() — not a module constant
 # because `authorized` mutates when enroll-key adds a dashboard pubkey.
 
-# Every write resets the timer; silence reverts to (0, 0). Safe default on
-# disconnect; no redundant channel required.
-MOTOR_WATCHDOG_MS = 500
-
-# Control-loop invariants — see .claude/CLAUDE.md. LLM-issued motion comes
-# as a 4-byte payload [l, r, dur_hi, dur_lo] with a duration_ms that the
-# firmware honors by auto-stopping at the end of the pulse. Duration is
-# clamped here; magnitude shares the full signed-byte range with joypad
-# payloads. The duration cap + motor watchdog + ultrasonic dist_cm clip
-# are the firmware safety floor — they bound a single bad pulse in time
-# (and stop forward motion at walls) even when the planner is wrong
-# about direction. 4 s lets a pulse cross most of a room without
-# Claude needing to re-issue every two seconds.
-LLM_MAX_DURATION_MS = 4000
+# MOTOR_WATCHDOG_MS / LLM_MAX_DURATION_MS come from protocol_constants.py
+# (protocol/constants.json — shared with the ESP32 firmware's motors.c, so
+# the two firmwares can't silently drift apart). Every motor write resets
+# the watchdog timer; silence reverts to (0, 0), no redundant channel
+# required. LLM-issued motion comes as a 4-byte payload [l, r, dur_hi,
+# dur_lo] with a duration_ms that the firmware honors by auto-stopping at
+# the end of the pulse; duration is clamped here, magnitude shares the
+# full signed-byte range with joypad payloads. The duration cap + motor
+# watchdog + ultrasonic dist_cm clip are the firmware safety floor — they
+# bound a single bad pulse in time (and stop forward motion at walls)
+# even when the planner is wrong about direction. 4 s lets a pulse cross
+# most of a room without Claude needing to re-issue every two seconds.
 
 # BLE OTA protocol:
 #   ota-data  (write) — binary frames with 1-byte opcode:
@@ -535,7 +543,6 @@ def _publish(char_uuid: str, value: bytearray) -> None:
 #   0xFF [utf8 msg]       error (notify-only)
 
 _LOCAL_RTC_SOCK = "/run/pi-robot-rtc/sock"
-_SIG_BLE_CHUNK = 100
 _SIG_MAX_OFFER = 8192
 
 _signal_offer_buf: bytearray | None = None
@@ -623,8 +630,8 @@ def _signal_publish_answer(sdp: str) -> None:
         _signal_publish_error("answer size out of range")
         return
     _publish(SIGNAL_CHAR_UUID, bytearray([0x01, (total >> 8) & 0xff, total & 0xff]))
-    for off in range(0, total, _SIG_BLE_CHUNK):
-        chunk = bytearray([0x02]) + sdp_bytes[off:off + _SIG_BLE_CHUNK]
+    for off in range(0, total, SIGNAL_CHUNK_BYTES):
+        chunk = bytearray([0x02]) + sdp_bytes[off:off + SIGNAL_CHUNK_BYTES]
         _publish(SIGNAL_CHAR_UUID, chunk)
     _publish(SIGNAL_CHAR_UUID, bytearray([0x03]))
 
@@ -1022,9 +1029,8 @@ def _cam_send(obj: dict) -> None:
     begin[0] = CAM_OP_BEGIN
     begin[1:5] = len(data).to_bytes(4, "big")
     _publish(CAMERA_STATUS_CHAR_UUID, begin)
-    chunk = 180
-    for i in range(0, len(data), chunk):
-        frame = bytearray([CAM_OP_CHUNK]) + data[i:i + chunk]
+    for i in range(0, len(data), CHUNK_BYTES):
+        frame = bytearray([CAM_OP_CHUNK]) + data[i:i + CHUNK_BYTES]
         _publish(CAMERA_STATUS_CHAR_UUID, frame)
     _publish(CAMERA_STATUS_CHAR_UUID, bytearray([CAM_OP_COMMIT]))
 
@@ -1256,8 +1262,8 @@ def _ops_respond(payload: dict) -> None:
     begin[0] = 0x01
     begin[1:5] = len(data).to_bytes(4, "big")
     _publish(OPS_RESPONSE_CHAR_UUID, begin)
-    for i in range(0, len(data), 180):
-        _publish(OPS_RESPONSE_CHAR_UUID, bytearray([0x02]) + data[i:i + 180])
+    for i in range(0, len(data), CHUNK_BYTES):
+        _publish(OPS_RESPONSE_CHAR_UUID, bytearray([0x02]) + data[i:i + CHUNK_BYTES])
     _publish(OPS_RESPONSE_CHAR_UUID, bytearray([0x03]))
 
 

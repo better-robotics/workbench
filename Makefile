@@ -11,7 +11,7 @@ PUBLISH_DIR := docs/firmware/bins
 # auto-sourcing so `make flash` works in a vanilla terminal.
 IDF_EXPORT  := command -v idf.py >/dev/null 2>&1 || . ~/esp/esp-idf/export.sh >/dev/null
 
-.PHONY: help setup compile flash monitor monitor-noreset flash-monitor install-pi-os preview publish publish-firmware publish-pi-firmware smoke gen-uuids install-hooks push
+.PHONY: help setup compile flash monitor monitor-noreset flash-monitor install-pi-os preview publish publish-firmware publish-pi-firmware smoke gen-uuids gen-constants install-hooks push
 
 help:
 	@echo ""
@@ -30,7 +30,7 @@ help:
 	@echo ""
 	@echo "\033[2mTesting\033[0m"
 	@echo "  \033[36msmoke\033[0m              Run pure-function smoke tests (node --test). Hardware checks live in SMOKE.md."
-	@echo "  \033[36minstall-hooks\033[0m      Wire .githooks/ as core.hooksPath (pre-commit runs gen-uuids drift + smoke)."
+	@echo "  \033[36minstall-hooks\033[0m      Wire .githooks/ as core.hooksPath (pre-commit runs gen-uuids/gen-constants drift + smoke)."
 	@echo ""
 	@echo "\033[2mDashboard & publishing (what the browser serves + OTA fetches)\033[0m"
 	@echo "  \033[36mpreview\033[0m             Serve dashboard at http://localhost:8080 (local)"
@@ -62,7 +62,13 @@ gen-uuids:
 	@# rebuilds only what changed.
 	@python3 tools/gen-uuids.py
 
-compile: gen-uuids
+gen-constants:
+	@# Same pattern as gen-uuids, for numeric safety/framing constants
+	@# (protocol/constants.json) that must agree across firmwares — e.g.
+	@# the motor watchdog / LLM pulse-duration caps.
+	@python3 tools/gen-constants.py
+
+compile: gen-uuids gen-constants
 	$(IDF_EXPORT); cd $(IDF_DIR) && idf.py build
 
 flash: compile
@@ -109,7 +115,7 @@ publish-firmware: compile
 	@echo ""
 	@echo "Firmware bins copied to $(PUBLISH_DIR). Commit and push to deploy."
 
-publish-pi-firmware: gen-uuids
+publish-pi-firmware: gen-uuids gen-constants
 	@mkdir -p docs/firmware/pi_robot/wheels
 	# Copy every regular file from firmware/pi_robot/ — avoids the trap of
 	# adding a new helper (usb-gadget-setup.sh, ota-manifest.json, …) and
@@ -144,7 +150,7 @@ smoke:
 # don't survive a 5-minute round-trip.
 install-hooks:
 	@git config core.hooksPath .githooks
-	@echo "core.hooksPath = .githooks (pre-commit: gen-uuids drift + smoke)"
+	@echo "core.hooksPath = .githooks (pre-commit: gen-uuids/gen-constants drift + smoke)"
 
 # CI auto-commits firmware bins back to main on every firmware/** push, so
 # a local main almost always trails origin by one CI commit. Plain `git push`

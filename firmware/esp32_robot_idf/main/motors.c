@@ -8,6 +8,7 @@
 
 #include "encoders.h"
 #include "gatt_svr.h"
+#include "protocol_constants.h"
 #include "restart_util.h"
 
 static const char *TAG = "motors";
@@ -35,14 +36,13 @@ static const char *TAG = "motors";
 #define MOTOR_FREQ_HZ    1000
 #define MOTOR_RES        LEDC_TIMER_8_BIT
 
-#define MOTOR_WATCHDOG_MS    500
-// 4 s matches the Pi cap — see firmware/pi_robot/pi_robot.py for the
-// rationale. LLM-issued pulses get the full signed-byte magnitude
-// range (same as joypad). Duration + watchdog + the ultrasonic
-// dist_cm clip elsewhere are the firmware safety floor; a single bad
-// pulse is bounded in time even when the planner is wrong about
+// MOTOR_WATCHDOG_MS / LLM_MAX_DURATION_MS come from protocol_constants.h
+// (protocol/constants.json — shared with firmware/pi_robot/pi_robot.py, so
+// the two firmwares can't silently drift apart). LLM-issued pulses get the
+// full signed-byte magnitude range (same as joypad); duration + watchdog +
+// the ultrasonic dist_cm clip elsewhere are the firmware safety floor — a
+// single bad pulse is bounded in time even when the planner is wrong about
 // direction.
-#define LLM_MAX_DURATION_MS  4000
 
 // Stall rung: a commanded side that hasn't ticked for STALL_THRESHOLD_MS
 // is jammed (wall, gear bind, broken motor wire). Cut power before the

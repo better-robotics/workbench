@@ -346,8 +346,8 @@ static int fw_info_access(uint16_t conn, uint16_t attr,
 
 #ifdef CONFIG_BR_WEBRTC_ESP_PEER
 // SIGNAL: chunked SDP offer (write) and chunked SDP answer (notify via
-// gatt_svr_signal_send). Buffer holds one chunk; chunks bounded at ~100 +
-// 1 op byte by webrtc_peer.c's BLE_SIG_CHUNK.
+// gatt_svr_signal_send). Buffer holds one chunk; chunks bounded at
+// SIGNAL_CHUNK_BYTES + 1 op byte (protocol_constants.h).
 static int signal_access(uint16_t conn, uint16_t attr,
                          struct ble_gatt_access_ctxt *ctxt, void *arg) {
     if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {

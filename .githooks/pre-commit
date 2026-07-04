@@ -22,6 +22,18 @@ if git diff --cached --name-only | grep -q '^protocol/uuids\.json$'; then
     fi
 fi
 
+# 1b. Generated-constants drift. Same pattern, for protocol/constants.json
+# (safety timeouts, BLE chunk sizes shared across firmwares).
+if git diff --cached --name-only | grep -q '^protocol/constants\.json$'; then
+    python3 tools/gen-constants.py >/dev/null
+    GEN="firmware/esp32_robot_idf/main/protocol_constants.h firmware/pi_robot/protocol_constants.py docs/protocol-constants.js"
+    if ! git diff --quiet -- $GEN; then
+        echo "pre-commit: generated constant files are out of sync with protocol/constants.json"
+        echo "  fix: make gen-constants && git add $GEN"
+        exit 1
+    fi
+fi
+
 # 2. SW version stamp. Hashes the dashboard asset surface and rewrites
 # docs/sw.js's VERSION when the hash changes. Bumping VERSION is what
 # makes the browser see a new service worker and surface the "Reload to

@@ -1,0 +1,13 @@
+{
+  "_comment": "Single source of truth for numeric protocol/safety constants that must agree across ESP32 firmware (C), Pi firmware (Python), and/or the dashboard (JS). Each group's \"_targets\" selects which generated files get it — most are firmware-internal (c+py); wire-framing values the dashboard also encodes carry js too. Edit this file, then run `make gen-constants` (also runs automatically on `make compile` / `make publish-pi-firmware`). Do NOT edit the generated files directly — `tools/gen-constants.py` will overwrite them.",
+  "control_loop": {
+    "_targets": ["c", "py"],
+    "MOTOR_WATCHDOG_MS": 500,
+    "LLM_MAX_DURATION_MS": 4000
+  },
+  "ble_chunking": {
+    "_targets": ["c", "py", "js"],
+    "CHUNK_BYTES": 180,
+    "SIGNAL_CHUNK_BYTES": 100
+  }
+}
