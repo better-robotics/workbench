@@ -8,3 +8,9 @@ LLM_MAX_DURATION_MS = 4000
 # ble_chunking
 CHUNK_BYTES = 180
 SIGNAL_CHUNK_BYTES = 100
+
+# chunked_transfer
+OTA_OP_ABORT = 0
+OP_BEGIN = 1
+OP_CHUNK = 2
+OP_COMMIT = 3

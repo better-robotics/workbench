@@ -73,6 +73,10 @@ from protocol_constants import (  # noqa: F401 — re-exported for clarity
     LLM_MAX_DURATION_MS,
     CHUNK_BYTES,
     SIGNAL_CHUNK_BYTES,
+    OTA_OP_ABORT,
+    OP_BEGIN,
+    OP_CHUNK,
+    OP_COMMIT,
 )
 
 # Capability schema, built at startup from config. Types name a UI/data
@@ -287,16 +291,11 @@ def _fw_info_snapshot() -> dict:
         info["version"] = _VERSION_SHA
     return info
 
-OTA_OP_ABORT = 0x00
-OTA_OP_BEGIN = 0x01
-OTA_OP_CHUNK = 0x02
-OTA_OP_COMMIT = 0x03
-
-# Camera opcodes share the OTA pattern: begin-stream, chunk, commit, stop.
-CAM_OP_BEGIN   = 0x01
-CAM_OP_CHUNK   = 0x02
-CAM_OP_COMMIT  = 0x03
-CAM_OP_STOP    = 0x04
+# OTA_OP_ABORT/OP_BEGIN/OP_CHUNK/OP_COMMIT come from protocol_constants.py —
+# shared with the ESP32 firmware's ota.c. Camera reuses the same
+# begin/chunk/commit opcodes (JS+Python only, ESP32 doesn't implement this
+# capability); CAM_OP_STOP is camera-specific, no shared counterpart.
+CAM_OP_STOP = 0x04
 
 # Catch broadly: a broken av/aiortc install can raise OSError, AttributeError,
 # or partial-module-loaded errors that aren't ImportError. Silently degrading
@@ -555,7 +554,7 @@ def _signal_handle_write(data: bytes) -> None:
     if not data:
         return
     op = data[0]
-    if op == 0x01:
+    if op == OP_BEGIN:
         if len(data) < 3:
             _signal_publish_error("bad begin")
             return
@@ -565,7 +564,7 @@ def _signal_handle_write(data: bytes) -> None:
             return
         _signal_offer_buf = bytearray()
         _signal_offer_total = total
-    elif op == 0x02:
+    elif op == OP_CHUNK:
         if _signal_offer_buf is None:
             return
         if len(_signal_offer_buf) + (len(data) - 1) > _signal_offer_total:
@@ -573,7 +572,7 @@ def _signal_handle_write(data: bytes) -> None:
             _signal_publish_error("chunk overflow")
             return
         _signal_offer_buf.extend(data[1:])
-    elif op == 0x03:
+    elif op == OP_COMMIT:
         if _signal_offer_buf is None or len(_signal_offer_buf) != _signal_offer_total:
             _signal_offer_buf = None
             _signal_publish_error("offer incomplete")
@@ -629,11 +628,11 @@ def _signal_publish_answer(sdp: str) -> None:
     if total == 0 or total > 0xFFFF:
         _signal_publish_error("answer size out of range")
         return
-    _publish(SIGNAL_CHAR_UUID, bytearray([0x01, (total >> 8) & 0xff, total & 0xff]))
+    _publish(SIGNAL_CHAR_UUID, bytearray([OP_BEGIN, (total >> 8) & 0xff, total & 0xff]))
     for off in range(0, total, SIGNAL_CHUNK_BYTES):
-        chunk = bytearray([0x02]) + sdp_bytes[off:off + SIGNAL_CHUNK_BYTES]
+        chunk = bytearray([OP_CHUNK]) + sdp_bytes[off:off + SIGNAL_CHUNK_BYTES]
         _publish(SIGNAL_CHAR_UUID, chunk)
-    _publish(SIGNAL_CHAR_UUID, bytearray([0x03]))
+    _publish(SIGNAL_CHAR_UUID, bytearray([OP_COMMIT]))
 
 
 def _signal_publish_error(msg: str) -> None:
@@ -897,7 +896,7 @@ def _ota_handle_write(data: bytearray) -> None:
         _ota_size = 0
         _set_ota_status("idle")
         return
-    if op == OTA_OP_BEGIN:
+    if op == OP_BEGIN:
         if len(data) < 5:
             _set_ota_status("failed", err="bad begin frame")
             return
@@ -907,7 +906,7 @@ def _ota_handle_write(data: bytearray) -> None:
         _ota_last_reported_n = 0
         _ota_last_reported_at = 0.0
         _set_ota_status("receiving", n=0, total=_ota_size)
-    elif op == OTA_OP_CHUNK:
+    elif op == OP_CHUNK:
         _ota_buffer.extend(data[1:])
         # Rate-limit progress notifies: ~9000 chunks/bundle would saturate BLE.
         # Publish only every 32 KB or 250 ms, whichever comes first.
@@ -918,7 +917,7 @@ def _ota_handle_write(data: bytearray) -> None:
             _ota_last_reported_n = n
             _ota_last_reported_at = now
             _set_ota_status("receiving", n=n, total=_ota_size)
-    elif op == OTA_OP_COMMIT:
+    elif op == OP_COMMIT:
         _set_ota_status("committing", n=len(_ota_buffer), total=_ota_size)
         _schedule(_ota_commit())
     else:
@@ -1026,13 +1025,13 @@ def _cam_send(obj: dict) -> None:
         return
     data = json.dumps(obj, separators=(",", ":")).encode("utf-8")
     begin = bytearray(5)
-    begin[0] = CAM_OP_BEGIN
+    begin[0] = OP_BEGIN
     begin[1:5] = len(data).to_bytes(4, "big")
     _publish(CAMERA_STATUS_CHAR_UUID, begin)
     for i in range(0, len(data), CHUNK_BYTES):
-        frame = bytearray([CAM_OP_CHUNK]) + data[i:i + CHUNK_BYTES]
+        frame = bytearray([OP_CHUNK]) + data[i:i + CHUNK_BYTES]
         _publish(CAMERA_STATUS_CHAR_UUID, frame)
-    _publish(CAMERA_STATUS_CHAR_UUID, bytearray([CAM_OP_COMMIT]))
+    _publish(CAMERA_STATUS_CHAR_UUID, bytearray([OP_COMMIT]))
 
 
 def _set_cam_status(**fields) -> None:
@@ -1252,19 +1251,20 @@ async def _cam_install() -> None:
 
 
 def _ops_respond(payload: dict) -> None:
-    """Chunked notify on ops-response — same opcode protocol as OTA (0x01 begin
-    + u32 length, 0x02 chunk, 0x03 commit). Used for request/response ops like
-    get-log where a plain write-ack isn't enough."""
+    """Chunked notify on ops-response — same OP_BEGIN/OP_CHUNK/OP_COMMIT
+    framing as OTA/camera/signal (+ u32 length in the begin frame). Used
+    for request/response ops like get-log where a plain write-ack isn't
+    enough."""
     if _server is None:
         return
     data = json.dumps(payload, separators=(",", ":")).encode("utf-8")
     begin = bytearray(5)
-    begin[0] = 0x01
+    begin[0] = OP_BEGIN
     begin[1:5] = len(data).to_bytes(4, "big")
     _publish(OPS_RESPONSE_CHAR_UUID, begin)
     for i in range(0, len(data), CHUNK_BYTES):
-        _publish(OPS_RESPONSE_CHAR_UUID, bytearray([0x02]) + data[i:i + CHUNK_BYTES])
-    _publish(OPS_RESPONSE_CHAR_UUID, bytearray([0x03]))
+        _publish(OPS_RESPONSE_CHAR_UUID, bytearray([OP_CHUNK]) + data[i:i + CHUNK_BYTES])
+    _publish(OPS_RESPONSE_CHAR_UUID, bytearray([OP_COMMIT]))
 
 
 async def _get_config_task() -> None:
@@ -1663,14 +1663,14 @@ def _cam_handle_write(data: bytearray) -> None:
     if not data:
         return
     op = data[0]
-    if op == CAM_OP_BEGIN:
+    if op == OP_BEGIN:
         if len(data) < 5:
             return
         _cam_expected = int.from_bytes(bytes(data[1:5]), "big")
         _cam_buf = bytearray()
-    elif op == CAM_OP_CHUNK:
+    elif op == OP_CHUNK:
         _cam_buf.extend(data[1:])
-    elif op == CAM_OP_COMMIT:
+    elif op == OP_COMMIT:
         try:
             msg = json.loads(bytes(_cam_buf).decode("utf-8"))
         except Exception as e:
