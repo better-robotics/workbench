@@ -6,26 +6,16 @@
 // the same pubkey auto-accept silently. Same shape as Bluetooth's
 // bonded-devices list or iOS's "Always allow" per-app permissions.
 //
-// Storage: localStorage under a namespace the caller picks
-// (e.g. "myapp:trust:v1"). Cleared = lose all memory; future requests
+// Storage: localStorage. Cleared = lose all memory; future requests
 // prompt again. Safe failure mode.
 //
 // Methods are closure-bound (not `this`-bound) so consumers can
 // destructure without losing context:
-//   const { isAutoAccept, trust } = makeTrustStore('myapp:trust:v1');
-//   if (isAutoAccept(pubkey)) { ... }
-//
-// Usage:
-//   import { makeTrustStore } from './trust.js';
-//   const trust = makeTrustStore('myapp:trust:v1');
-//   if (trust.isAutoAccept(pubkey)) { ... }
-//   trust.trust(pubkey, 'iPhone');
+//   const { isAutoAccept, trust } = makeTrustStore();
 
-export function makeTrustStore(storageKey) {
-  if (!storageKey || typeof storageKey !== 'string') {
-    throw new Error('makeTrustStore: storageKey required');
-  }
+const storageKey = 'better-robotics:trust:v1';
 
+export function makeTrustStore() {
   const _load = () => {
     try {
       const raw = localStorage.getItem(storageKey);
@@ -36,17 +26,9 @@ export function makeTrustStore(storageKey) {
     try { localStorage.setItem(storageKey, JSON.stringify(store)); } catch {}
   };
 
-  const isTrusted = (pubkey) => {
+  const isAutoAccept = (pubkey) => {
     if (!pubkey) return false;
     return !!_load()[pubkey];
-  };
-
-  // Alias — semantic clarity at call sites.
-  const isAutoAccept = isTrusted;
-
-  const getTrust = (pubkey) => {
-    if (!pubkey) return null;
-    return _load()[pubkey] || null;
   };
 
   // Bind trust. Updates lastSeenAt on re-trust without resetting
@@ -64,20 +46,5 @@ export function makeTrustStore(storageKey) {
     _save(store);
   };
 
-  const touch = (pubkey) => {
-    if (!pubkey) return;
-    const store = _load();
-    if (!store[pubkey]) return;
-    store[pubkey].lastSeenAt = Date.now();
-    _save(store);
-  };
-
-  const untrust = (pubkey) => {
-    if (!pubkey) return;
-    const store = _load();
-    delete store[pubkey];
-    _save(store);
-  };
-
-  return { isTrusted, isAutoAccept, getTrust, trust, touch, untrust };
+  return { isAutoAccept, trust };
 }

@@ -17,7 +17,7 @@ import { discover } from "../signal-sdk/v1/discover.js";
 import { getMyPubkeyB64 } from "../signal-sdk/v1/peer-key.js";
 import { makeTrustStore } from "../trust.js";
 import { pairRequestClient } from "../signal-sdk/v1/pair-request.js";
-const _trust = makeTrustStore("better-robotics:trust:v1");
+const _trust = makeTrustStore();
 
 // Single shared lobby in signed mode: ads carry our device pubkey so the
 // peer side knows "this is the Mac I trusted before" without re-prompting.

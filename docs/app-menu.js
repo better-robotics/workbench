@@ -4,6 +4,7 @@
 // page's own wiring.
 
 import { REPO_URL } from "./endpoints.js";
+import { probeNetwork, probeIceReachability } from "./net-probe.js";
 
 // ── PWA install ────────────────────────────────────────────────────────
 
@@ -326,12 +327,8 @@ export function wireDiagnosticsMenuItem({ getTelemetrySources, onBeforeOpen } = 
     out.textContent = "Capturing…";
     const result = { capturedAt: new Date().toISOString(), userAgent: navigator.userAgent };
 
-    if (typeof window.probeNetwork === "function") {
-      try { result.netProbe = await window.probeNetwork({ timeoutMs: 4000 }); }
-      catch (err) { result.netProbe = { error: err.message || String(err) }; }
-    } else {
-      result.netProbe = { error: "probeNetwork() not loaded" };
-    }
+    try { result.netProbe = await probeNetwork({ timeoutMs: 4000 }); }
+    catch (err) { result.netProbe = { error: err.message || String(err) }; }
 
     // Web Bluetooth surface — answers "can this browser/profile do BLE at
     // all" before a Scan click. Safari has no Web BLE; Chromium-on-Linux
@@ -357,9 +354,7 @@ export function wireDiagnosticsMenuItem({ getTelemetrySources, onBeforeOpen } = 
     try {
       const { fetchIceServers } = await import("./pairing.js");
       const iceServers = await fetchIceServers();
-      result.iceReachability = typeof window.probeIceReachability === "function"
-        ? await window.probeIceReachability(iceServers, { timeoutMs: 2500 })
-        : { error: "probeIceReachability() not loaded" };
+      result.iceReachability = await probeIceReachability(iceServers, { timeoutMs: 2500 });
     } catch (err) {
       result.iceReachability = { error: err.message || String(err) };
     }

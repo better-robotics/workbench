@@ -39,6 +39,12 @@ export function parseCandidate(c) {
   return { type, address, port, protocol, sdp };
 }
 
+let _last = null;
+export function lastNetProbe() { return _last; }
+
+// Stashes every result into _last (not just console-invoked runs) so
+// window.lastNetProbe() reflects the UI diagnostics capture too — any
+// caller, not only the window.probeNetwork console handle.
 export async function probeNetwork({ timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
   const startedAt = performance.now();
   const pc = new RTCPeerConnection({ iceServers: STUN_SERVERS });
@@ -60,7 +66,7 @@ export async function probeNetwork({ timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
     await pc.setLocalDescription(offer);
   } catch (err) {
     try { pc.close(); } catch {}
-    return {
+    _last = {
       ok: false,
       error: String((err && err.message) || err),
       durationMs: performance.now() - startedAt,
@@ -70,6 +76,7 @@ export async function probeNetwork({ timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
       publicIp: null,
       mdnsObfuscated: false,
     };
+    return _last;
   }
   await Promise.race([done, new Promise((r) => setTimeout(r, timeoutMs))]);
   try { pc.close(); } catch {}
@@ -79,7 +86,7 @@ export async function probeNetwork({ timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
   // has explicit host-candidate permission; flag it so consumers know
   // local-IP is not visible.
   const mdnsObfuscated = candidates.some((c) => c.type === "host" && /\.local$/i.test(c.address || ""));
-  return {
+  _last = {
     ok: true,
     candidateTypes: types,
     stunReachable: types.includes("srflx"),
@@ -88,10 +95,8 @@ export async function probeNetwork({ timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
     durationMs: performance.now() - startedAt,
     candidates,
   };
+  return _last;
 }
-
-let _last = null;
-export function lastNetProbe() { return _last; }
 
 // Per-server reachability + latency. Runs one short probe per iceServers
 // entry so per-server outcome is attributable — answers "I can reach Google
@@ -135,10 +140,7 @@ export async function probeIceReachability(iceServers, { timeoutMs = 2500 } = {}
 }
 
 if (typeof window !== "undefined") {
-  window.probeNetwork = async (opts) => {
-    _last = await probeNetwork(opts);
-    return _last;
-  };
+  window.probeNetwork = probeNetwork;
   window.lastNetProbe = lastNetProbe;
   window.probeIceReachability = probeIceReachability;
 }

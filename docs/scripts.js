@@ -343,7 +343,7 @@ function makeRobotApi(entry) {
       const sent = await sendCommand(entry, "ops", { op: name, args });
       if (!sent) throw new Error(`${entry.name}: ops write failed (not connected?)`);
       if (opts.await === false) return { ok: true };
-      return waitOpsResponse(name, entry.id, opts.timeoutMs ?? 10000);
+      return waitOpsResponse(name, entry.id, opts.timeoutMs);
     },
 
     frame(maxDim = 320) { return captureFrameDataUrl(entry, maxDim); },

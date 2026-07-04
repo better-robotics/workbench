@@ -376,8 +376,6 @@ export function onSpeakingChange(fn) {
   return () => _speakingListeners.delete(fn);
 }
 
-export function isSpeaking() { return _speakingCount > 0; }
-
 // ─ Public surface ───────────────────────────────────────────────────
 
 export function speak(text) {
@@ -444,22 +442,3 @@ export async function prewarmCache(phrases) {
   console.info("[voice] cache prewarm:", result);
   return result;
 }
-
-export function currentVoice() {
-  const usingOpenAI = !!settings?.pipOpenaiKey;
-  if (usingOpenAI) {
-    return {
-      engine: "openai",
-      model: OPENAI_TTS_MODEL,
-      voice: OPENAI_TTS_VOICE,
-      instructions: OPENAI_TTS_MODEL.startsWith("gpt-4o") ? OPENAI_TTS_INSTRUCTIONS : null,
-      streaming: typeof AudioContext !== "undefined" || typeof webkitAudioContext !== "undefined",
-      format: OPENAI_TTS_FORMAT,
-      cache: "caches" in self ? CACHE_NAME : null,
-    };
-  }
-  return _voice
-    ? { engine: "web-speech", name: _voice.name, lang: _voice.lang }
-    : { engine: "web-speech", name: null };
-}
-if (typeof window !== "undefined") window.currentVoice = currentVoice;

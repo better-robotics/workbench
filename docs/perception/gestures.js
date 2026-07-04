@@ -122,13 +122,3 @@ export async function detectGestureOnce(entry, { source = null } = {}) {
     bboxArea: landmarksBboxArea(lm),
   };
 }
-
-// Built-in gesture classes (Google AI Edge Gesture Recognizer). Exposed
-// so callers (watcher UI hints, tool descriptions) can show the user
-// which gestures actually do anything. Skip Thumb_Down for command
-// mapping — measured 70.7% accuracy in real robot benchmarks vs >90%
-// for the others; it gets confused with similar poses.
-export const GESTURE_CLASSES = [
-  "Open_Palm", "Closed_Fist", "Pointing_Up", "Thumb_Up",
-  "Thumb_Down", "Victory", "ILoveYou", "None",
-];

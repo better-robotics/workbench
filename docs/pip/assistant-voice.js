@@ -72,7 +72,3 @@ export function wireTtsGating() {
     else          pip?.resumeMic?.();
   });
 }
-
-export function toggleDictation() {
-  _getPip()?.toggleMic?.();
-}

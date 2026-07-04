@@ -12,7 +12,7 @@ import {
   showReconnect, hideReconnect, wireReconnect, cameraUnavailableReason,
 } from "./pair/mobile-qr-scan.js";
 import { startNearbyDiscovery, deviceLabel } from "./pair/mobile-nearby-discovery.js";
-const _trust = makeTrustStore("better-robotics:trust:v1");
+const _trust = makeTrustStore();
 
 let _peer = null;
 let _pending = false;
@@ -25,11 +25,11 @@ function setStatus(state, text) {
 }
 
 // Wire (must match onPhoneMessage in phones.js):
-//   phone→desktop  { type:"robot-command",        id, capability, args }
+//   phone→desktop  { type:"robot-command",        id, capability }
 //   desktop→phone  { type:"robot-command-result", id, ok, data?|error? }
 // Correlation id round-trips so racing commands resolve the right promise.
 const _pendingCommands = new Map();  // id → { resolve, timeout }
-function sendRobotCommand(capability, args = {}, timeoutMs = 5000) {
+function sendRobotCommand(capability) {
   if (!_peer) return Promise.resolve({ ok: false, error: "not paired" });
   const id = (crypto.randomUUID && crypto.randomUUID())
     || `cmd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -38,9 +38,9 @@ function sendRobotCommand(capability, args = {}, timeoutMs = 5000) {
       if (!_pendingCommands.has(id)) return;
       _pendingCommands.delete(id);
       resolve({ ok: false, error: "timed out" });
-    }, timeoutMs);
+    }, 5000);
     _pendingCommands.set(id, { resolve, timeout });
-    _peer.send({ type: "robot-command", id, capability, args });
+    _peer.send({ type: "robot-command", id, capability });
   });
 }
 
