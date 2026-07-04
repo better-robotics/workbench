@@ -48,7 +48,7 @@ async function idbPut(id, value) {
   });
 }
 
-export async function loadOrGenerate() {
+async function loadOrGenerate() {
   if (_cached) return _cached;
   const existing = await idbGet(KEY_ID);
   if (existing) {
@@ -110,7 +110,7 @@ export async function sign(message) {
 //   https://github.com/openssh/openssh-portable/blob/master/PROTOCOL.key
 // Structure: magic || cipher(none) || kdf(none) || kdfopts() || nkeys(1) ||
 //            pubkey_blob || privkey_section_padded_to_block_size(8).
-export async function exportOpenSshPrivateKey() {
+async function exportOpenSshPrivateKey() {
   const r = await loadOrGenerate();
   const pubRaw = await pubkeyRaw();
   const pkcs8 = new Uint8Array(await crypto.subtle.exportKey("pkcs8", r.privateKey));

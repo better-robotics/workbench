@@ -19,7 +19,7 @@ export async function setToggleValue(entry, capName, value) {
   }
 }
 
-export async function toggleCapValue(entry, capName) {
+async function toggleCapValue(entry, capName) {
   return setToggleValue(entry, capName, !entry[`${capName}On`]);
 }
 

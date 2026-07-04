@@ -77,30 +77,32 @@ function diagLocal(c)  { const p = parseCandidate(c); if (p) _diag.local.push(p)
 function diagRemote(c) { const p = parseCandidate(c); if (p) _diag.remote.push(p); }
 function diagPc(pc)    { _diag._pc = pc; }
 
-if (typeof window !== "undefined") {
-  window.lastPairDiagnostic = async () => {
-    const { _pc, ...base } = _diag;
-    const out = { ...base };
-    if (_pc) {
-      try {
-        const report = await _pc.getStats();
-        const stats = [];
-        report.forEach((s) => stats.push(s));
-        out.stats = stats;
-        // Pull the current ICE/conn/signaling/dtls state up to top-level
-        // so the answer to "what happened?" is one glance, not a stats grep.
-        out.state = {
-          iceConnection: _pc.iceConnectionState,
-          connection: _pc.connectionState,
-          signaling: _pc.signalingState,
-          iceGathering: _pc.iceGatheringState,
-        };
-      } catch (err) {
-        out.statsError = err.message || String(err);
-      }
+export async function getPairDiagnostic() {
+  const { _pc, ...base } = _diag;
+  const out = { ...base };
+  if (_pc) {
+    try {
+      const report = await _pc.getStats();
+      const stats = [];
+      report.forEach((s) => stats.push(s));
+      out.stats = stats;
+      // Pull the current ICE/conn/signaling/dtls state up to top-level
+      // so the answer to "what happened?" is one glance, not a stats grep.
+      out.state = {
+        iceConnection: _pc.iceConnectionState,
+        connection: _pc.connectionState,
+        signaling: _pc.signalingState,
+        iceGathering: _pc.iceGatheringState,
+      };
+    } catch (err) {
+      out.statsError = err.message || String(err);
     }
-    return out;
-  };
+  }
+  return out;
+}
+
+if (typeof window !== "undefined") {
+  window.lastPairDiagnostic = getPairDiagnostic;
 }
 // no-op kept for in-module call sites; per-step state lives in Diagnostics
 // dialog (lastPairDiagnostic + getStats).

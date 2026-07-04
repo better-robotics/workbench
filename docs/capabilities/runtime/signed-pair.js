@@ -16,7 +16,7 @@ import { coalescedWrite } from "./coalesced-write.js";
 import { renderEntry } from "./render-bus.js";
 
 // Clamp-on-write — callers don't have to check declared range.
-export async function setPairValue(entry, capName, left, right) {
+async function setPairValue(entry, capName, left, right) {
   const range = entry.capSchema?.find(s => s.name === capName)?.range || [-100, 100];
   const [mn, mx] = range;
   const clamp = (v) => Math.max(mn, Math.min(mx, Math.round(Number(v) || 0)));
@@ -217,7 +217,7 @@ export function pickMotorsTarget() {
   return connected[0];
 }
 
-export function connectedMotorsRobots() {
+function connectedMotorsRobots() {
   const out = [];
   for (const e of state.devices.values()) {
     if (e.motorsChar && e.status === "connected") out.push(e);
@@ -228,7 +228,7 @@ export function connectedMotorsRobots() {
 // Switch the keyboard-driver target. Re-renders the affected motors
 // sections so the "Driving" indicator follows. No-op if the requested
 // robot isn't connected or already active.
-export function setActiveMotorsRobot(robotId) {
+function setActiveMotorsRobot(robotId) {
   if (state.activeMotorsRobotId === robotId) return;
   const candidate = state.devices.get(robotId);
   if (!candidate || candidate.status !== "connected" || !candidate.motorsChar) return;
@@ -248,7 +248,7 @@ export function setActiveMotorsRobot(robotId) {
 // "Motors" plain when there's nothing to disambiguate, "Motors · Driving"
 // when this is the active robot AND there's >1 robot to pick between.
 // Solo dev never sees the suffix.
-export function motorsLabel(entry) {
+function motorsLabel(entry) {
   const multi = connectedMotorsRobots().length > 1;
   const active = state.activeMotorsRobotId === entry.id;
   return multi && active ? "Motors · Driving" : "Motors";

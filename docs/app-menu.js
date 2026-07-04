@@ -5,16 +5,18 @@
 
 import { REPO_URL } from "./endpoints.js";
 import { probeNetwork, probeIceReachability } from "./net-probe.js";
+import { getPairDiagnostic } from "./pair/pairing.js";
+import { getRobotWebRTCDiagnostic } from "./webrtc/webrtc-robot.js";
 
 // ── PWA install ────────────────────────────────────────────────────────
 
 let _deferredInstallPrompt = null;
 
-export function isStandalone() {
+function isStandalone() {
   return window.matchMedia?.("(display-mode: standalone)").matches
       || window.navigator.standalone === true;
 }
-export function isIOS() {
+function isIOS() {
   return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
 }
 
@@ -383,25 +385,17 @@ export function wireDiagnosticsMenuItem({ getTelemetrySources, onBeforeOpen } = 
       }
     }
 
-    if (typeof window.lastPairDiagnostic === "function") {
-      try {
-        const snap = await window.lastPairDiagnostic();
-        result.phonePair = snap.role ? snap : { note: "no phone-pair attempt yet this session" };
-      } catch (err) { result.phonePair = { error: err.message || String(err) }; }
-    } else {
-      result.phonePair = { error: "lastPairDiagnostic() not loaded" };
-    }
+    try {
+      const snap = await getPairDiagnostic();
+      result.phonePair = snap.role ? snap : { note: "no phone-pair attempt yet this session" };
+    } catch (err) { result.phonePair = { error: err.message || String(err) }; }
 
-    if (typeof window.lastRobotWebRTCDiagnostic === "function") {
-      try {
-        const peers = await window.lastRobotWebRTCDiagnostic();
-        result.robotWebRTC = peers.length
-          ? peers
-          : { note: "no robot WebRTC peer open — start camera first" };
-      } catch (err) { result.robotWebRTC = { error: err.message || String(err) }; }
-    } else {
-      result.robotWebRTC = { error: "lastRobotWebRTCDiagnostic() not loaded" };
-    }
+    try {
+      const peers = await getRobotWebRTCDiagnostic();
+      result.robotWebRTC = peers.length
+        ? peers
+        : { note: "no robot WebRTC peer open — start camera first" };
+    } catch (err) { result.robotWebRTC = { error: err.message || String(err) }; }
 
     const sources = (typeof getTelemetrySources === "function" ? getTelemetrySources() : []) || [];
     const populated = sources.filter((s) => s && s.telemetry);
