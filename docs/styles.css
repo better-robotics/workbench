@@ -1,5 +1,5 @@
 :root {
-  color-scheme: light dark;  /* native form controls + scrollbars track the mode */
+  color-scheme: dark;  /* dark-only surface — native form controls + scrollbars render dark */
   /* Duke brand tokens — https://brand.duke.edu/colors */
   --duke-navy: #012169;
   --duke-royal-blue: #00539B;
@@ -7,24 +7,25 @@
   --duke-persimmon: #E89923;
   --duke-copper: #C84E00;
 
-  --bg: #f5f5f7;
-  --surface: #ffffff;
-  --ink: #1d1d1f;
-  --ink-muted: #6e6e73;
+  /* Neutral near-black, not catwatcher's saturated navy — this is a tool, not a product surface */
+  --bg: #1a1d20;
+  --surface: #212529;
+  --ink: #e9ecef;
+  --ink-muted: #adb5bd;
   /* translucent-on-ink borders — adapt to any bg without a mode override */
-  --border-subtle:  rgba(0,0,0,0.06);
-  --border-default: rgba(0,0,0,0.10);
-  --border-strong:  rgba(0,0,0,0.15);
+  --border-subtle:  rgba(255,255,255,0.06);
+  --border-default: rgba(255,255,255,0.10);
+  --border-strong:  rgba(255,255,255,0.15);
   --line: var(--border-default);  /* legacy alias */
-  --bg-elev: rgba(0,0,0,0.05);  /* recessed track inside a --surface element */
+  --bg-elev: rgba(255,255,255,0.05);  /* recessed track inside a --surface element */
   --accent: var(--duke-royal-blue);
   --accent-hover: var(--duke-navy);
   --accent-ink: #ffffff;
-  --brand-heading: var(--duke-navy);  /* mode-aware heading color */
+  --brand-heading: var(--duke-light-blue);  /* navy on near-black is unreadable; lift to light-blue */
   --danger: #d70015;
   --success: #30a46c;
   --radius: 8px;  /* tighter — reads as panel, not floating card */
-  --shadow: 0 1px 2px rgba(0,0,0,0.04);  /* kept minimal; floating surfaces set their own */
+  --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.5);
 
   /* Pip-core tokens — map the shared assistant module's vars onto our palette. */
   --pip-surface: var(--surface);
@@ -32,22 +33,6 @@
   --pip-ink-muted: var(--ink-muted);
   --pip-border: var(--border-default);
   --pip-accent: var(--duke-persimmon);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    /* Neutral near-black, not catwatcher's saturated navy — this is a tool, not a product surface */
-    --bg: #1a1d20;
-    --surface: #212529;
-    --ink: #e9ecef;
-    --ink-muted: #adb5bd;
-    --border-subtle:  rgba(255,255,255,0.06);
-    --border-default: rgba(255,255,255,0.10);
-    --border-strong:  rgba(255,255,255,0.15);
-    --bg-elev: rgba(255,255,255,0.05);
-    --brand-heading: var(--duke-light-blue);  /* navy on near-black is unreadable; lift to light-blue */
-    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.5);
-  }
 }
 
 * { box-sizing: border-box; }
@@ -600,12 +585,11 @@ a.menu-item { text-decoration: none; }
   padding: 1px 7px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--accent) 18%, transparent);
-  color: var(--accent);
+  /* Lifted blue, not --accent: royal-blue text on the 18%-tint-over-near-black
+     composite fails WCAG AA contrast. */
+  color: #5aa9d6;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-}
-@media (prefers-color-scheme: dark) {
-  .robot-ops .op-chip { color: #5aa9d6; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2702,7 +2686,9 @@ body.phone textarea {
   margin-right: 6px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--accent) 14%, transparent);
-  color: var(--accent);
+  /* Lifted blue, not --accent: duke-royal-blue on the 14%-over-#1a1d20
+     composite lands at ~2.0:1, below WCAG AA for small text. */
+  color: #5aa9d6;
   font-size: 11px;
   font-weight: 500;
 }
@@ -2719,7 +2705,7 @@ body.phone textarea {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--accent);
+  background: #5aa9d6;
   box-shadow: 0 0 0 0 currentColor;
   animation: presence-pulse 2s ease-out infinite;
 }
@@ -2733,17 +2719,6 @@ body.phone textarea {
    than slow it down. */
 @media (prefers-reduced-motion: reduce) {
   .presence-badge::before { animation: none; }
-}
-/* Dark-mode contrast: duke-royal-blue on the 14%-over-#1a1d20 composite
-   lands at ~2.0:1, below WCAG AA for small text. Lift the text to a
-   brighter blue that clears 4.5:1 while keeping the "blue badge" read. */
-@media (prefers-color-scheme: dark) {
-  .presence-badge {
-    color: #5aa9d6;
-  }
-  .presence-badge::before {
-    background: #5aa9d6;
-  }
 }
 
 /* Pair-request modal — AirDrop-shape. Buttons mirror native iOS alerts
