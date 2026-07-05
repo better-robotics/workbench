@@ -23,7 +23,11 @@
   --accent-ink: #ffffff;
   --brand-heading: var(--duke-light-blue);  /* navy on near-black is unreadable; lift to light-blue */
   --danger: #d70015;
+  --danger-text: #ff6158;  /* danger as text — #c0392b/#d70015 are ~2.8:1 on these surfaces; this clears 5:1 even on the alert-chip tint */
   --success: #30a46c;
+  --success-text: color-mix(in srgb, var(--success) 80%, white);  /* success as small chip text — --success dips to 4.1:1 on the chip bg */
+  --link: color-mix(in srgb, var(--duke-light-blue) 70%, white);  /* accent as small text — >=5.2:1 on this file's chip tints; royal is 1.7:1 */
+  --focus: var(--duke-light-blue);  /* focus indicators — 3.1-3.5:1 on bg/surface; royal is 2:1, below the 3:1 floor */
   --radius: 8px;  /* tighter — reads as panel, not floating card */
   --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.5);
 
@@ -264,7 +268,7 @@ button.icon.sm { min-height: 28px; min-width: 28px; padding: 0 6px; font-size: 1
 }
 .field input:focus, .field textarea:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--focus);
 }
 .field-overlay { position: relative; }
 .field-overlay textarea {
@@ -381,8 +385,8 @@ a.menu-item { text-decoration: none; }
   color: var(--ink-muted);
   flex-shrink: 0;
 }
-.type-badge.type-pi    { color: var(--success); }
-.type-badge.type-esp32 { color: var(--accent); }
+.type-badge.type-pi    { color: var(--success-text); }
+.type-badge.type-esp32 { color: var(--link); }
 /* Lightweight network-lane hint on the collapsed row. Signals "fast OTA path
    available" without the user having to expand. */
 .transport-chip {
@@ -531,8 +535,9 @@ a.menu-item { text-decoration: none; }
    by cursor:pointer on the row + focus-visible ring + the disclosure chevron. */
 .label-btn:focus-visible {
   outline: none;
-  /* Softer focus ring than outline — closer to Apple's native feel. */
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
+  /* Ring, not outline — closer to Apple's native feel; solid because the
+     35% tint sat far below the 3:1 focus-indicator floor. */
+  box-shadow: 0 0 0 2px var(--focus);
 }
 
 /* "BetterRobot-" prefix is the same for every robot so only the hex suffix
@@ -585,9 +590,7 @@ a.menu-item { text-decoration: none; }
   padding: 1px 7px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--accent) 18%, transparent);
-  /* Lifted blue, not --accent: royal-blue text on the 18%-tint-over-near-black
-     composite fails WCAG AA contrast. */
-  color: #5aa9d6;
+  color: var(--link);  /* not --accent — royal on the tint fails AA */
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -724,7 +727,7 @@ details.tray.has-alert > summary::after {
 }
 .cap-toggle:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
+  box-shadow: 0 0 0 2px var(--focus);
 }
 .cap-chevron {
   width: 12px;
@@ -948,7 +951,7 @@ details.tray.has-alert > summary::after {
   background-repeat: no-repeat;
   background-position: right 10px center;
 }
-.scripts-template-select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.scripts-template-select:focus { outline: 2px solid var(--focus); outline-offset: 1px; }
 /* Host for the CodeMirror 6 EditorView mount (see scripts.js). CM owns its
    own borders + scrollbars internally; the wrapper just establishes height
    and the rounded outer corner. The .cm-editor selectors below match CM6's
@@ -1213,7 +1216,7 @@ details.tray.has-alert > summary::after {
 
 .wifi-row-other { cursor: pointer; }
 .wifi-row-other:hover { background: var(--surface); margin: 0 -8px; padding-left: 8px; padding-right: 8px; border-radius: 6px; }
-.wifi-row-other:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 6px; }
+.wifi-row-other:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; border-radius: 6px; }
 .wifi-row-other .wifi-ssid { color: var(--ink-muted); font-weight: 400; }
 .wifi-row-other:hover .wifi-ssid { color: var(--ink); }
 .wifi-row-other-icon { width: 14px; height: 14px; color: var(--ink-muted); flex-shrink: 0; }
@@ -1270,8 +1273,8 @@ details.tray.has-alert > summary::after {
   border-radius: 4px;
   background: var(--border-subtle);
 }
-.platform-esp32 .platform-mark { color: var(--accent); }
-.platform-pi    .platform-mark { color: var(--success); }
+.platform-esp32 .platform-mark { color: var(--link); }
+.platform-pi    .platform-mark { color: var(--success-text); }
 .platform-title { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
 .platform-sub { font-size: 13px; color: var(--ink-muted); line-height: 1.45; }
 .platform-cta { display: flex; align-items: center; }
@@ -1385,7 +1388,7 @@ details.tray.has-alert > summary::after {
   box-shadow: 0 1px 2px rgba(0,0,0,0.08), 0 0 0 1px var(--border-default);
 }
 .segmented .mode-btn:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus);
   outline-offset: 1px;
 }
 /* Phone surface: segmented buttons get hit mid-action (Joypad/Tilt while
@@ -2324,7 +2327,7 @@ dialog[open]::backdrop { opacity: 1; }
   transition: background 0.15s, color 0.15s;
 }
 .label-url:hover { background: var(--surface); color: var(--ink); }
-.label-url:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.label-url:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .label-url.copied { color: var(--success); }
 .modal-title-stack { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .modal-subtitle { font-size: 12px; color: var(--ink-muted); font-family: "SF Mono", ui-monospace, Menlo, monospace; }
@@ -2367,7 +2370,7 @@ dialog[open]::backdrop { opacity: 1; }
   text-align: center;
 }
 .pair-meta .mono:hover { opacity: 0.75; }
-.pair-meta .mono:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+.pair-meta .mono:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 3px; }
 .pair-meta .hint { text-align: center; }
 .pair-meta .hint.is-waiting::before {
   content: "";
@@ -2515,8 +2518,8 @@ dialog[open]::backdrop { opacity: 1; }
 .phone-mount select:hover { border-color: var(--ink-muted); }
 .phone-mount select:focus-visible {
   outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 25%, transparent);
 }
 /* "No role assigned" state — the select shows "Choose role…" and reads
    visually de-emphasized so a glance sees "this helper isn't doing
@@ -2659,7 +2662,7 @@ body.phone textarea {
   line-height: 1.4;
 }
 .phone-nearby-status.alert {
-  color: #c0392b;
+  color: var(--danger-text);
 }
 .phone-nearby-empty-hint {
   margin: 12px 2px;
@@ -2686,9 +2689,7 @@ body.phone textarea {
   margin-right: 6px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--accent) 14%, transparent);
-  /* Lifted blue, not --accent: duke-royal-blue on the 14%-over-#1a1d20
-     composite lands at ~2.0:1, below WCAG AA for small text. */
-  color: #5aa9d6;
+  color: var(--link);  /* not --accent — royal on the tint is ~2:1 */
   font-size: 11px;
   font-weight: 500;
 }
@@ -2697,7 +2698,7 @@ body.phone textarea {
    changed"), so colour-blind users still get the signal. */
 .presence-badge.alert {
   background: color-mix(in srgb, #c0392b 16%, transparent);
-  color: #c0392b;
+  color: var(--danger-text);
 }
 .presence-badge.alert::before { background: #c0392b; }
 .presence-badge::before {
@@ -2705,7 +2706,7 @@ body.phone textarea {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #5aa9d6;
+  background: var(--link);
   box-shadow: 0 0 0 0 currentColor;
   animation: presence-pulse 2s ease-out infinite;
 }
@@ -2864,7 +2865,7 @@ body.phone textarea {
   border-color: var(--accent);
 }
 .share-action-btn:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 .phone-share-preview {
