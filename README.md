@@ -2,7 +2,7 @@
 
 **Open a tab, pair a robot, ship code.**
 
-[![Build firmware](https://github.com/better-robotics/browser-workbench/actions/workflows/build-firmware.yml/badge.svg)](https://github.com/better-robotics/browser-workbench/actions/workflows/build-firmware.yml)
+[![Build firmware](https://github.com/better-robotics/workbench/actions/workflows/build-firmware.yml/badge.svg)](https://github.com/better-robotics/workbench/actions/workflows/build-firmware.yml)
 
 ## What this is
 

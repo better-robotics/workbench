@@ -12,5 +12,5 @@ export const REPO_URL = (() => {
   const owner = location.hostname.match(/^([\w-]+)\.github\.io$/)?.[1];
   const repo  = location.pathname.split("/").filter(Boolean)[0];
   return owner && repo ? `https://github.com/${owner}/${repo}`
-                       : "https://github.com/better-robotics/browser-workbench";
+                       : "https://github.com/better-robotics/workbench";
 })();
