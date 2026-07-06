@@ -22,10 +22,6 @@ export function persist() {
       id: e.id, name: e.name, fwType: e.fwType || null,
       // Phones.js's "most recently active dashboard" tiebreaker reads this.
       lastConnectedAt: e.lastConnectedAt || 0,
-      // ArUco marker ID bound to this robot. Null = unbound; detection falls
-      // back to positional `entries[m.id]` so zero-config still works for
-      // single-robot use. Manual binding via window.bindArucoMarker — see DEV.md.
-      arucoMarkerId: typeof e.arucoMarkerId === "number" ? e.arucoMarkerId : null,
       // Camera mounted physically upside-down? Applied as a CSS transform on
       // the local <video>/<canvas> only — captureStream'd phone mirroring
       // sees the un-flipped pixels (would need firmware-side libcamera
@@ -42,21 +38,15 @@ export function loadKnown() {
   catch { return []; }
 }
 
-export function makeEntry(id, name, fwType = null, { lastConnectedAt = 0, arucoMarkerId = null, cameraFlip = false } = {}) {
+export function makeEntry(id, name, fwType = null, { lastConnectedAt = 0, cameraFlip = false } = {}) {
   return {
     id, name,
     // Platform label shown as a badge on the card. Cached from fw-info.type
     // on first connect so the badge survives disconnects / page reloads.
     fwType,
     lastConnectedAt,
-    // ArUco marker assignment — see persist() comment. null = positional fallback.
-    arucoMarkerId,
     // Camera-mounted-upside-down preference. See persist() comment.
     cameraFlip,
-    // Latest overhead-camera pose. { x, y, headingDeg, markerSizeMm, updatedAt }
-    // or null when no detection yet. Consumers MUST check updatedAt for
-    // staleness before steering — producer never clears stale entries.
-    arucoPosition: null,
     device: null,
     status: "idle",
     ledChar: null, ledOn: false,

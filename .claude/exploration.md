@@ -75,29 +75,6 @@ Dashboard tries fastest available, falls back automatically. User never picks a 
 
 **Worth it when.** Project has contributors who want to add capabilities without learning the ESP32 toolchain. Today the audience is small enough that `make flash` is fine.
 
-## 5. Closed-loop visual control: draw-a-path (next, after overhead ArUco validates)
-
-**Claim.** Once an overhead camera + marker is established (the `aruco.js` work — overhead localization writing `entry.arucoPosition` per scan), the natural next layer is closed-loop control driven from that pose. Operator props the phone (or local webcam) overhead, finger-draws a path on the phone screen, the robot follows it. New sensor isn't needed; the pose primitive is already shipping.
-
-**The hard sub-problem isn't drawing or motor control — it's pose reliability.** Without knowing where the robot is each frame, the closed loop doesn't close and the robot drifts within seconds. The overhead ArUco surface gates this — until metric accuracy is validated against tape-measure ground truth (see "Wired but unproven" below), don't build the follower on top.
-
-**Right primitives, in order of load-bearing-ness:**
-- **Pose**: ArUco overhead, already shipped. Producer writes `entry.arucoPosition`; consumer (this work) must gate on `Date.now() - updatedAt` for staleness.
-- **Where compute lives**: dashboard runs detector + controller + emits pulse-bounded BLE motor writes. Phone is I/O. Robot unchanged. Same control-plane / data-plane split as everything else.
-- **Tech**: `js-aruco2` already in. Pure-pursuit controller in plain JS (~50 lines).
-- **Control loop budget**: detect (~15 ms) + plan (~1 ms) + BLE pulse (~50 ms) ≈ 70 ms / iter → ~14 Hz. Each iteration emits a short pulse (`duration_ms ≈ 100 ms`); firmware watchdog auto-stops if the next iter doesn't arrive. The existing pulse-bounded-motion + watchdog invariants are the safety floor — same discipline as Pip / user scripts.
-
-**Phases:**
-1. **Path source.** `<canvas>` overlay on `phone.html` viewfinder; touch listeners build a stroke-point array; send over the existing WebRTC data channel as a typed message (`{type: "path", points: [[x, y], ...]}`). Dashboard receives and renders on the helper's SVG overlay alongside marker outlines. No motors yet.
-2. **Closed-loop follower.** Pure-pursuit drives the most-recent path; pulse-bounded each iter; safety stops on marker-loss ≥ 1 s, end-of-path, or tap-to-cancel from the phone.
-3. **Pip tool surface.** `get_robot_pose(robot_id)` returns `{x, y, theta, confidence}` from `entry.arucoPosition`. Optional; not on the MVP critical path.
-
-**Validation criterion.** Tape marker on a rover, prop a phone or webcam overhead, draw a curved path on the phone screen, watch the robot trace within ~5 cm of the line over 1-2 m. If shipping leaves the rover drifting off-line within seconds, or the loop falls below 5 Hz on target hardware, the primitive isn't load-bearing — redesign before extending.
-
-**Scope honesty.** This flips part of CLAUDE.md's "Not spatially aware" stance: when an overhead camera + marker is present, the robot has a known 2D pose. Not SLAM, not depth — just fiducial-bounded planar pose. CLAUDE.md updates only after phase 2 lands and the validation criterion passes; claiming a capability before it works is the worst kind of scope drift.
-
-**Failure modes to watch.** Marker lost > 1 s → safety stop (this IS the safety story for this loop). Phone-held-at-angle breaks the co-planar assumption: small angles tolerable, larger paths earn a homography. Open-vocab "drive toward the yellow cup" routes through Claude vision (~1–2 s) — too slow for a 5 Hz loop; ArUco-pose stays self-contained until reactive open-vocab earns its way.
-
 ## Rejected / deferred
 
 - **Running without Linux on the Pi (bare-metal).** Loses Python, gpiozero, systemd, apt. Not a simplification; a regression. The Pi being a real computer is the feature.
@@ -166,24 +143,6 @@ State-aware layer first, let it saturate, then add the corpus.
 
 Loads at runtime but not confirmed end-to-end against hardware. Kept out of `README.md`, `DEV.md`, and the GitHub repo About until a real run confirms the path.
 
-## Overhead ArUco localization (`docs/perception/aruco.js`)
-
-**What's wired.**
-- Headless detection service — no UI panel. Helper-card "Camera role" select on each paired phone offers `Operator / Overhead localization / Mount on <robot>`. Choosing Overhead sets `settings.arucoOverheadPhoneId` (persisted) and points the detection loop at that phone's existing preview tile in the helpers card. No second video element, no second decoder.
-- SVG overlay paints detected markers directly on the helper's preview (`patchArucoOverlay`-style — same shape as the deleted phone-on-robot tracker, retargeted at the helpers tile).
-- Detection via `js-aruco2` from jsDelivr (`cv.js` + `aruco.js` + `posit1.js`), dictionary `ARUCO_4X4_50`. Printable marker sheets in `docs/assets/aruco_markers_0.pdf` and `_1.pdf`. Pose via `POS.Posit` using `settings.arucoMarkerSizeMm` + focal-length heuristic (`max(w,h) * 0.85`) — no calibration file.
-- Marker → robot binding: prefers explicit `entry.arucoMarkerId` (persisted in localStorage; set via `window.bindArucoMarker(robotId, markerId)`). Falls back to positional `entries[m.id]` only when NO entry has claimed that id. Hits write `entry.arucoPosition = { x, y, headingDeg, markerSizeMm, updatedAt }`.
-
-**What hasn't been confirmed.**
-- Focal-length heuristic accuracy against a real ruler ("perfect" to "off by 30%" both plausible without ground truth).
-- ARUCO_4X4_50 detection reliability on a phone-camera feed via WebRTC (compression, autofocus hunting, rolling-shutter under motion).
-- Multi-robot orchestration end-to-end: two robots, two markers, two bindings, both `arucoPosition`s update on the same scan, motion planner consumes both without drift. Wedge demo for the primitive.
-- Ultra-wide-by-default for "Back" sharing (`docs/mobile.js` `openCameraStream`) means a phone designated for overhead localization will feed an ultra-wide stream — barrel distortion + a much shorter focal length than the `max(w,h)*0.85` heuristic assumes. The aruco detector itself will likely still find markers; pose estimation will be biased. If overhead aruco gets promoted out of unproven, the right fix is to force a non-widening lens on phones designated as overhead, or take a per-deviceId intrinsic from a one-time calibration.
-
-**To validate.** Print sheet 0 + sheet 1, tape marker 0 on Pi-01 and marker 1 on Pi-02. Pair a phone, share its camera, set role to "Overhead localization." Bind explicitly: `window.bindArucoMarker("<pi-01-id>", 0)` and `window.bindArucoMarker("<pi-02-id>", 1)`. Confirm both robots' `arucoPosition` update simultaneously on each detection, metric XY within ~20 mm of tape-measured ground truth at ~50 cm camera height. If it holds, promote: line in `README.md` perception section, bullet in `DEV.md` "When to reach for what."
-
-**Why bother.** Sub-pixel deterministic pose for a tagged object is the only roadmap primitive that closes the visual-servo loop without a depth sensor — and the substrate for multi-robot orchestration. Drives `entry.arucoPosition` which the motion controller consumes as ground truth (subject to its staleness gate — `aruco.js` does not clear stale entries when a robot leaves frame; consumer's job).
-
 ## Grounding DINO open-vocab detector — deleted (May 2026)
 
 Lived in `docs/grounding.js` as the open-vocab fallback when MediaPipe COCO's 80 classes couldn't cover a target. Disabled after real-world false positives (medium-confidence "stop sign.[SEP]" matches against a robot-vacuum dock — BERT separator token leaking through the post-processor). Deleted entirely once Claude vision via `view_robot_frame` was confirmed to fill the same role with scene reasoning the bbox-only detector couldn't do.
@@ -198,9 +157,9 @@ Faster sibling for reactive-tier use cases (visual servo, gamepad-overlay tracki
 
 **What hasn't been confirmed.** End-to-end accuracy vs MediaPipe EfficientDet-Lite0 on the same scenes, WebGPU EP stability across the Chrome/Edge versions students will run, first-fetch UX on classroom WiFi (10 MB ONNX + onnxruntime-web bytes). Promote to default — or remove from the registry — only after a side-by-side run. Out of `README.md` and `DEV.md` until then.
 
-## Laptop camera → phone feed (helper card role "Send to phone")
+## Laptop camera → phone feed (helper card "Send to phone" toggle)
 
-Local-cam helper card gains a third role alongside Overhead. Selecting "Send to phone" opens the camera via getUserMedia and `peer.addTrack`s the video track on every paired phone; the phone displays it in the existing `phone-cam-section` since it's "incoming forwarded video from desktop" — the same sink robot cameras already use. Runtime-only state (`_phoneFeedLocalId` in phone-helpers.js), not persisted across reloads.
+Local-cam helper card's only job: a "Send to phone" toggle button. Turning it on opens the camera via getUserMedia and `peer.addTrack`s the video track on every paired phone; the phone displays it in the existing `phone-cam-section` since it's "incoming forwarded video from desktop" — the same sink robot cameras already use. Runtime-only state (`_phoneFeedLocalId` in phone-helpers.js), not persisted across reloads.
 
 **Latent.** `phone-cam-section` displays one stream at a time (`v.srcObject = e.streams[0]`, last-wins). When both a robot camera and the laptop-cam are routed to the same phone simultaneously, whichever fires `peer.onTrack` last wins; there is no UI on the phone to switch back. The existing `available-sources` / `subscribe-source` picker handles this per-robot but is not yet generalized across owner types. Acceptable for the single-source case the prototype is built around; if multi-source coexistence becomes the steady-state demo, generalize the picker (own-id namespace = `"robot:<id>" | "local:<deviceId>"`, single global active per phone) before adding more source kinds.
 
@@ -219,3 +178,13 @@ Adjacent technical paths declined, with the specific change in project direction
 **What's unaffected.** The Pi's WebRTC peer (shell, logs, OTA via `pi_robot_rtc.py`/aiortc) and the Pi's separate WebRTC camera capability (`webrtc-installable.js`) are untouched — different implementation (aiortc, spec-compliant, no chip-quirk patches needed), different payoff (an actual remote shell / fast Pi OTA, not a marginal video-transport upgrade).
 
 **Revisit trigger.** If a validated cross-NAT camera-viewing use case shows up (not just theoretical), evaluate Espressif's first-party KVS WebRTC SDK ([awslabs/amazon-kinesis-video-streams-webrtc-sdk-c@beta-reference-esp-port](https://github.com/awslabs/amazon-kinesis-video-streams-webrtc-sdk-c/tree/beta-reference-esp-port)) rather than reviving libpeer — it eliminates 3 of the 4 chip-quirk patches at the cost of hardwiring signaling to AWS KVS/`webrtc.espressif.com`, which would need a custom `signaling_client_if` to keep BLE-only signaling. Also carries KVS WebRTC Split Mode (ESP32-C6 signaling + ESP32-P4 streaming, wake-on-signal) — the only battery-powered WebRTC camera architecture in the ecosystem, relevant only if low-power ever becomes a constraint.
+
+## Overhead ArUco localization (`docs/perception/aruco.js`) — removed 2026-07
+
+**What it was.** Headless marker detection (`js-aruco2` from jsDelivr) reading frames from a designated phone or laptop camera, writing `entry.arucoPosition = {x, y, headingDeg, updatedAt}` on the matching robot once a second. Surfaced as an "Overhead localization" role on the Helpers section's phone and local-camera cards, with an SVG marker overlay painted on the live preview and a printable marker sheet (`docs/assets/aruco_markers_*.pdf`).
+
+**Why removed.** Never load-bearing — grep-confirmed nothing ever read `entry.arucoPosition` (the planned consumer, item 5's closed-loop draw-a-path follower, was never built). It was pure-cost UI surface: a second "Camera role" designation to explain, an SVG-overlay rendering path, a CDN script load, a persisted-settings pair (`arucoOverheadPhoneId`/`arucoOverheadLocalId`/`arucoMarkerSizeMm`), and marker-printing instructions — none of it doing anything a user could point to.
+
+**What's unaffected.** The Helpers section's other two jobs — mounting a phone's camera onto a robot as a second eye (`attachPhoneCameraTo`, robot-card driven) and forwarding a laptop camera to paired phones (now a plain "Send to phone" toggle, no role picker) — are untouched; neither ever depended on ArUco.
+
+**Revisit trigger.** A real want for closed-loop visual servo (draw a path on the phone, robot follows it) without a depth sensor. If that materializes, re-add pose *and* the follower together rather than pose alone — validate metric accuracy against tape-measured ground truth before building the controller on top, per the original scope-honesty note: claiming spatial awareness before it works is worse than not having the feature.

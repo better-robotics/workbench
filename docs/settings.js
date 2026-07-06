@@ -19,17 +19,12 @@ export const settings = Object.assign(
   //   Off via /vision off if cost/privacy becomes a real concern.
   // Keys + tokens in localStorage — browser-only, never leaves origin,
   // but treat like passwords (don't share your browser).
-  // arucoOverheadPhoneId / arucoOverheadLocalId: roomId of the phone, or
-  //   deviceId of the local videoinput, designated as the overhead
-  //   localizer. Mutually exclusive — only one is non-null at a time.
-  // arucoMarkerSizeMm: printed marker side length, used by POS.Posit for
-  //   metric pose. Defaults to the printable sheets' size (100 mm).
   // pipDetector: active closed-vocab object detection backend, read by
   //   detectors.js on import. "mediapipe" (default, ~4MB EfficientDet-
   //   Lite0 via @mediapipe/tasks-vision) or "yolo26" (~10MB ONNX via
   //   onnxruntime-web + WebGPU). Switch via /detector <name>; persists
   //   here so the next session picks up the same backend.
-  { pipBackend: "bridge", pipApiKey: "", pipOpenaiKey: "", pipClaudeModel: "claude-sonnet-5", pipVisionEnabled: true, pipDetector: "mediapipe", arucoOverheadPhoneId: null, arucoOverheadLocalId: null, arucoMarkerSizeMm: 100 },
+  { pipBackend: "bridge", pipApiKey: "", pipOpenaiKey: "", pipClaudeModel: "claude-sonnet-5", pipVisionEnabled: true, pipDetector: "mediapipe" },
   JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}"),
 );
 

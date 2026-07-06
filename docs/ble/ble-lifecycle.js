@@ -11,7 +11,6 @@ import { ALL as CAPABILITIES } from "../capabilities/index.js";
 import { RUNTIMES } from "../capabilities/runtime/index.js";
 import { dispatchOpsResponse } from "../ops-response.js";
 import { broadcastTargetInfo } from "../pair/phones.js";
-import { renderHelpers } from "../pair/phone-helpers.js";
 import { stopWatcher } from "../watcher.js";
 
 let renderers = {
@@ -74,9 +73,9 @@ export async function loadPaired() {
   // wedge (gatt.connect on a stale handle, no way to recover without a
   // fresh requestDevice). Every click goes through the chooser now —
   // predictable, one shape, no timing races against the robot's boot.
-  for (const { id, name, fwType, lastConnectedAt, arucoMarkerId, cameraFlip } of loadKnown()) {
+  for (const { id, name, fwType, lastConnectedAt, cameraFlip } of loadKnown()) {
     if (!state.devices.has(id)) {
-      state.devices.set(id, makeEntry(id, name, fwType, { lastConnectedAt, arucoMarkerId, cameraFlip }));
+      state.devices.set(id, makeEntry(id, name, fwType, { lastConnectedAt, cameraFlip }));
     }
   }
   renderers.render();
@@ -196,7 +195,6 @@ export async function connect(id) {
     entry.lastConnectedAt = Date.now();
     entry.lastConnectError = null;
     persist();
-    renderHelpers();  // phone "Mount camera" picker now has a new destination.
 
     // Read fw-info before cap probes — it carries the capability schema.
     // Also subscribe to notifications: ESP32 re-publishes fw-info after
@@ -433,8 +431,6 @@ export function onDisconnected(id) {
   const entry = state.devices.get(id);
   if (!entry) return;
   entry.status = "idle";
-  // Picker on phone helper cards drops this robot now.
-  renderHelpers();
   // Phones see target=null and tuck the joypad / panic-stop away.
   try { broadcastTargetInfo(); } catch {}
   // Remember the last-known status for 30s so 'rebooting' → disconnect reads

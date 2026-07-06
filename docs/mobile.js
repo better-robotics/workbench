@@ -399,9 +399,9 @@ function wireBackgroundStop() {
 // ── Phone-camera-as-helper ────────────────────────────────────────
 //
 // Toggle the phone's camera into the paired WebRTC connection as an
-// outgoing media stream. Desktop picks it up via peer.onTrack and
-// registers it in its helpers list (phone-helpers.js). Pairing layer handles
-// renegotiation on addTrack — `negotiationneeded` fires, Peer
+// outgoing media stream. Desktop picks it up via peer.onTrack and hands it
+// to phone-helpers.js (mount routing + Pip's snapshot tools). Pairing layer
+// handles renegotiation on addTrack — `negotiationneeded` fires, Peer
 // re-offers, desktop answers, track lands on the other side.
 //
 // Front is default — it's the quick-share / "show me what I'm pointing at"

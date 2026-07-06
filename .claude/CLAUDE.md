@@ -25,7 +25,7 @@ Different model shapes are good at different jobs — distinct primitives, not i
 
 - **Closed-vocab reflex detector** (`mediapipe.js`, EfficientDet-Lite0 via MediaPipe Tasks API): 80 COCO classes, ~10–30 ms on GPU. Powers the per-robot Reflex card (`watcher.js`) and user-code `robot.watchFor` / `robot.detections`. Fire-once-and-disable shape — same terminal-rung pattern as `ask_human`. For backend-vision-capable Pip turns, `view_robot_frame` passes the raw frame straight to the planner — no caption step.
 - **Tool-using LLM via API** (`claude.js`): seconds-latency, multi-turn, tool-calling. Strong at goal decomposition, weak at closed-loop visual servo (2–5 s round-trip). Currently Claude; any tool-using LLM with the same tool surface fits here.
-- **Unproven / experimental**: Overhead ArUco localization (`aruco.js`), YOLO26n closed-vocab detector (`yolo26.js`, opt-in via `/detector yolo26`). See `.claude/exploration.md` → "Wired but unproven." Keep out of user docs until validated. Grounding DINO was deleted once Claude vision via `view_robot_frame` absorbed the open-vocab role with scene reasoning the bbox-only detector couldn't do.
+- **Unproven / experimental**: YOLO26n closed-vocab detector (`yolo26.js`, opt-in via `/detector yolo26`). See `.claude/exploration.md` → "Wired but unproven." Keep out of user docs until validated. Grounding DINO was deleted once Claude vision via `view_robot_frame` absorbed the open-vocab role with scene reasoning the bbox-only detector couldn't do. Overhead ArUco localization (`aruco.js`) was removed 2026-07 — nothing ever consumed the pose it produced; see `.claude/exploration.md` → "Forks in the road."
 
 # Transport channels
 

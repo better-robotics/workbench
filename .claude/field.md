@@ -95,7 +95,7 @@ Adjacent work that defines what positioning BetterRobotics can claim. Frame: "wh
 
 **Positioning, ranked by durability (slowest to erode first):**
 - **Browser-native dev surface.** Every "robotics platform" worth naming requires *some* install — `viam-server`, ESP-IDF, gpiozero on Pi, Arduino IDE. Static-site, no-backend distribution is structurally hard to copy without restructuring a whole company's product surface.
-- **Browser-resident model serving.** Open-vocab detector, ArUco fiducial pose — all client-side. Viam, Freedom Robotics, LeRobot all assume server-side or per-device GPU.
+- **Browser-resident model serving.** Open-vocab detector, closed-vocab reflex detector — all client-side. Viam, Freedom Robotics, LeRobot all assume server-side or per-device GPU.
 - **Layered safety.** Firmware-bounded motors the IDE-level planner can't bypass. Ask-human as terminal cascade rung. Standard in driving (openpilot-panda), rare in hobby/classroom.
 - **No backend, no accounts.** Static-site deployable, MIT-licensed. Sphero, Viam, Particle, RainMaker, Freedom — all account-anchor.
 

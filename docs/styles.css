@@ -1935,11 +1935,8 @@ body.phone .segmented .mode-btn { min-height: 44px; }
   object-fit: contain;
 }
 
-/* Attached-camera frame — wraps the <video> and the ArUco SVG overlay so
-   the overlay can absolute-position over the video without touching the
-   broader card layout. The video's object-fit:contain letterboxes inside
-   the 4:3 frame; preserveAspectRatio="xMidYMid meet" on the SVG matches
-   that letterboxing so detected corners line up. */
+/* Attached-camera frame — wraps the mounted phone's <video> so it can be
+   positioned without touching the broader card layout. */
 .attached-camera-frame {
   position: relative;
   margin-top: 12px;
@@ -2394,41 +2391,6 @@ dialog[open]::backdrop { opacity: 1; }
 }
 @keyframes pair-spin { to { transform: rotate(360deg); } }
 
-/* ── Helpers list (paired phones + this laptop's webcam) ──────────────── */
-/* Helpers borrow the .robot card layout but read as supplementary, not
-   peer to robots — they're operator-side accessories (extra eyes, extra
-   hands), not controllable agents. Distinction is carried by a softer
-   type-badge (no accent color) + tighter card padding + a gentler card
-   surface so the eye finds robots first when both are present. */
-/* Helpers are operator-side leftovers (laptop cam, paired phones not yet
-   mounted on a robot) — the eye should land on the empty-state / robot
-   cards first, then notice helpers as a quiet list. Card chrome would
-   make them compete; rows separated by a divider read subordinate.
-
-   The section header is iOS-Settings-quiet (small uppercase muted), not
-   the bold "Your robots" register — that parallelism implied equal
-   weight, but helpers are supporting cast. The "Pair phone" action lives
-   below the list as an inline `+ Pair phone` so the action attaches to
-   the section it adds to instead of competing with the section title. */
-/* Helpers section reads as a contained card (border + tinted background)
-   rather than orphan text floating on the page background. The dashboard's
-   "everything is in a card" rhythm — robot cards, empty-state, settings
-   modal — was breaking here: pre-style the section was a label + raw
-   links sitting on the dark void, which Gestalt-proximity-wise read as
-   detritus, not affordances. Same containment treatment matches the
-   empty-state's framing so the eye reads "this is a section." */
-.helpers-section { max-width: 440px; }
-.helpers-section:has(#helpers-list:empty) { display: none; }
-.helpers-heading {
-  padding: 0 4px;
-  margin: 24px 0 12px;
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-}
-.helpers-heading .label { font-size: 13px; color: var(--ink-muted); font-weight: 500; }
-.helpers-heading .meta-prose { font-size: 12px; color: var(--ink-muted); opacity: 0.75; }
-#helpers-list { display: flex; flex-direction: column; gap: 16px; }
 /* Topbar pair-phone button — small accent dot when nearby phones are
    broadcasting on wifi (presence-aware affordance). The hint moves to
    the title attr; the dot is the glance-level signal. */
@@ -2446,111 +2408,6 @@ dialog[open]::backdrop { opacity: 1; }
   background: #34c759;
   box-shadow: 0 0 0 2px var(--bg);
 }
-.link-btn {
-  background: transparent;
-  border: none;
-  padding: 4px 6px;
-  color: var(--ink-muted);
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-  border-radius: 4px;
-}
-.link-btn:not(:disabled):hover { color: var(--ink); background: var(--border-subtle); }
-#helpers-list > .card {
-  margin-bottom: 0;
-  max-width: none;
-}
-/* Helpers reuse the .robot card scaffold but NOT its identity signals.
-   Robot cards carry a green left-stripe to mean "BLE-connected" — that
-   semantic belongs to robots only. Neutralize the stripe on helpers so
-   it can't be confused with robot-connected state. Active overhead is
-   communicated via the role picker + the dot/pill status line, not at
-   the card edge. */
-.card.helper {
-  padding: 16px 18px;
-  border-left: 1px solid var(--border-default);
-}
-.helper .label-btn { font-size: 14px; }
-.helper-preview {
-  margin-top: 12px;
-  position: relative;
-  display: block;
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  border-radius: 8px;
-  overflow: hidden;
-  background: #000;
-}
-.helper-preview .helper-video {
-  /* Live preview as a flush media tile — covers the container, no
-     letterboxing. Aspect is set on the wrapper so a 4:3 phone or 4:3
-     webcam crops cleanly to the 16:9 tile instead of bracketing black. */
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.helpers-empty { padding: 4px 0 0; }
-/* Role picker — quiet inline control under the secondary row. Label uses
-   .meta-prose (not .meta) so it reads as UI text, not data. */
-.phone-mount {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 10px;
-  font-size: 13px;
-}
-.phone-mount > .meta-prose { font-size: inherit; }
-/* Strip native chrome and lay out our own chevron — native selects render
-   the arrow crowded against the right edge across browsers, which the
-   robot-card buttons + other modern UI in this dashboard don't. SVG is
-   inline as a data URL so it ships without a separate asset. */
-.phone-mount select {
-  font: inherit;
-  font-size: 13px;
-  padding: 5px 30px 5px 10px;
-  background-color: var(--bg);
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%238a8a92' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3 4.5l3 3 3-3'/></svg>");
-  background-repeat: no-repeat;
-  background-position: right 10px center;
-  background-size: 12px;
-  border: 1px solid var(--border-default);
-  border-radius: 6px;
-  color: var(--ink);
-  cursor: pointer;
-  appearance: none;
-  -webkit-appearance: none;
-  -moz-appearance: none;
-}
-.phone-mount select:hover { border-color: var(--ink-muted); }
-.phone-mount select:focus-visible {
-  outline: none;
-  border-color: var(--focus);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 25%, transparent);
-}
-/* "No role assigned" state — the select shows "Choose role…" and reads
-   visually de-emphasized so a glance sees "this helper isn't doing
-   anything" without "Idle" being a meaningless real option. */
-.phone-mount.is-placeholder select { color: var(--ink-muted); }
-
-/* Permanent print-markers hint, visible whenever a helper is designated
-   overhead. Sits between the role row and the preview tile so it reads
-   as "to use this, you need these." Subtle text register; links inherit
-   the muted color and underline on hover for affordance without shouting. */
-.helper-markers-hint {
-  margin-top: 8px;
-  font-size: 12px;
-  color: var(--ink-muted);
-  opacity: 0.85;
-}
-.helper-markers-hint a {
-  color: inherit;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
-}
-.helper-markers-hint a:hover { text-decoration-color: currentColor; }
 
 /* ── Phone-side page (phone.html) ─────────────────────────────────────── */
 body.phone {
@@ -3086,62 +2943,3 @@ body.phone-attached #phone-cam-waiting:not([hidden]) {
   .label-modal::backdrop { display: none; }
   .modal-header button, .modal-footer { display: none; }
 }
-
-/* Helpers preview tile + ArUco overlay. The <svg> overlay sits on top of
-   the <video> via absolute positioning; its viewBox matches the video's
-   frame dimensions so detected-marker corner coords paint without per-
-   render rescaling. preserveAspectRatio default ("xMidYMid meet") tracks
-   the letterboxing of `object-fit: contain`. */
-.helper-preview { position: relative; display: block; }
-.helper-preview .helper-video { display: block; width: 100%; border-radius: 4px; }
-.helper-preview .aruco-overlay {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  border-radius: 4px;
-}
-.aruco-overlay polygon {
-  fill: color-mix(in srgb, var(--success) 22%, transparent);
-  stroke: var(--success);
-  stroke-width: 2;
-  vector-effect: non-scaling-stroke;
-}
-.aruco-overlay line.heading {
-  stroke: var(--success);
-  stroke-width: 3;
-  stroke-linecap: round;
-  vector-effect: non-scaling-stroke;
-}
-.aruco-overlay text {
-  fill: var(--success);
-  font-size: 14px;
-  font-weight: 600;
-  text-anchor: middle;
-  paint-order: stroke;
-  stroke: rgba(0, 0, 0, 0.6);
-  stroke-width: 3;
-}
-.aruco-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 10px;
-  font-size: 12px;
-  color: var(--ink-muted);
-}
-.aruco-status::before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--ink-muted);
-  flex-shrink: 0;
-}
-.aruco-status.aruco-locked { color: var(--success); }
-.aruco-status.aruco-locked::before {
-  background: var(--success);
-  box-shadow: 0 0 6px color-mix(in srgb, var(--success) 55%, transparent);
-}
-.aruco-status a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }

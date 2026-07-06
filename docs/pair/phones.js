@@ -224,32 +224,6 @@ export function notifyRobotStreamChange(entry) {
   for (const p of _phones.values()) syncRobotMedia(p, entry);
 }
 
-// Operator's laptop camera → all paired phones bridge. One global feed
-// at a time (you don't push two laptop cams). phone-helpers' role-setter
-// owns the MediaStream and pushes the resolved stream here; this module
-// fans it out and tears it down. Phones see it via peer.onTrack and the
-// existing `phone-cam-section` displays it.
-let _phoneFeedStream = null;
-
-function syncPhoneFeedToPhone(phone) {
-  if (!phone || phone.status === "failed") return;
-  if (!phone.phoneFeedSenders) phone.phoneFeedSenders = [];
-  for (const s of phone.phoneFeedSenders) {
-    try { phone.peer.removeTrack(s); } catch {}
-  }
-  phone.phoneFeedSenders = [];
-  if (!_phoneFeedStream) return;
-  for (const t of _phoneFeedStream.getVideoTracks()) {
-    const s = phone.peer.addTrack(t, _phoneFeedStream);
-    if (s) phone.phoneFeedSenders.push(s);
-  }
-}
-
-export function setPhoneFeedStream(stream) {
-  _phoneFeedStream = stream || null;
-  for (const p of _phones.values()) syncPhoneFeedToPhone(p);
-}
-
 // On-screen presentations the desktop can flip a phone into when it's
 // mounted on a robot. Wire-protocol strings shared between desktop
 // (this file) and phone (mobile.js applyScreenMode); phone-side keeps
@@ -284,9 +258,9 @@ function closePairing() {
 
 function dismissPairingDialog() {
   // Close the UI but leave the session alive. If a phone connects
-  // before the natural 30s timeout, it registers normally and shows
-  // up in the helpers list. Wired to × and Esc — gestures that
-  // should mean "I'm done with this dialog," not "abort the operation."
+  // before the natural 30s timeout, it registers normally as a paired
+  // phone. Wired to × and Esc — gestures that should mean "I'm done
+  // with this dialog," not "abort the operation."
   $("pair-dialog").classList.remove("has-ready-phones");
   $("pair-dialog").close();
 }
@@ -295,8 +269,8 @@ function dismissPairingDialog() {
 // nearby-phones state on open without waiting for the next discovery tick.
 let _lastPhoneAds = [];
 
-// Passive presence: count badge in the helpers heading. Pair flow
-// is driven by phones sending requests, not by us deciding ahead.
+// Passive presence: accent dot on the "Pair a phone" button (has-nearby).
+// Pair flow is driven by phones sending requests, not by us deciding ahead.
 function renderPhonePresence(ads) {
   _lastPhoneAds = (ads || []).filter(a => a.data && a.data.app === "better-robotics-phone");
   const btn = $("pair-phone-btn");
@@ -489,13 +463,13 @@ function _registerPairedPhone(id, peer, defaultLabel) {
       p.resolve({ ok: false, error: "phone disconnected before user responded" });
     }
     _phones.delete(id);
-    setPhoneStream(id, null);  // clear any helper-list entry for this phone's camera
+    setPhoneStream(id, null);  // clear this phone's camera state in phone-helpers.js
     log("phone disconnected", "phone");
     renderPhones();
   });
   // Phone camera comes in through peer.onTrack — user taps "Share camera"
   // on phone.html, pairing.js renegotiates, track lands here. Stream
-  // flows to phone-helpers.js and renders as a helper card with inline video.
+  // flows to phone-helpers.js (mount routing + Pip's snapshot tools).
   peer.onTrack((e) => {
     const stream = e.streams?.[0] || new MediaStream([e.track]);
     setPhoneStream(id, stream);
@@ -512,8 +486,6 @@ function _registerPairedPhone(id, peer, defaultLabel) {
   for (const entry of state.devices.values()) {
     if (entry.cameraStream) syncRobotMedia(phone, entry);
   }
-  // And the laptop-cam feed, if the operator has it running.
-  syncPhoneFeedToPhone(phone);
   // Restore attached-mode if this phone was mounted before the drop —
   // without re-applying, a fleeting WebRTC hiccup leaves the on-robot
   // phone showing operator chrome again.
@@ -596,8 +568,8 @@ async function beginPairing() {
       statusEl.textContent = "Connected";
       setTimeout(() => { if (dialog.open) dialog.close(); }, 800);
     }
-    // Dialog already dismissed: phone shows up in the helpers list — no
-    // popup; the operator chose to dismiss the UI, surfacing it now would
+    // Dialog already dismissed: phone registers as paired with no popup —
+    // the operator chose to dismiss the UI, surfacing it now would
     // surprise them.
   } catch (err) {
     if (_pendingSession === session) {

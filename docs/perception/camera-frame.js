@@ -38,7 +38,7 @@ export function captureFrameDataUrl(entry, maxDim = 320, quality = 0.75) {
 }
 
 // Module-scope canvas reused by the detector hot-path (mediapipe /
-// yolo26 / aruco call drawFrameToCanvas at 10–30 Hz). Without reuse,
+// yolo26 call drawFrameToCanvas at 10–30 Hz). Without reuse,
 // a fresh HTMLCanvasElement allocation per tick burns through GC.
 // view_robot_frame still gets a fresh canvas — it converts to JPEG
 // and may be called concurrently with detector ticks at low rates.
