@@ -49,8 +49,6 @@ export function makeMjpegStreamCap(schema) {
       let body = "";
       if (!wifi) {
         body = `<div class="meta">Waiting for the robot to join WiFi — video needs a LAN IP.</div>`;
-      } else if (inlineBlocked) {
-        body = `<div class="meta">This dashboard is HTTPS; the camera only serves plain HTTP, so the live view opens in its own tab instead of playing inline.</div>`;
       } else if (running) {
         // crossOrigin lets camera-frame.js read pixels; the browser's
         // native multipart MJPEG parser is the cheapest decode path.
