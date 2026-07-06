@@ -107,7 +107,11 @@ async function preparePortForInstall(port) {
 function isPortLockedError(err) {
   if (!err) return false;
   const msg = (err.message || "").toLowerCase();
-  return err.name === "InvalidStateError" || msg.includes("already open");
+  // "already open" catches SerialPort.open() on a still-open port; "locked
+  // to a reader" catches the Streams-API TypeError when a prior attempt's
+  // reader/writer was never released (e.g. resetChip() skipped after an
+  // earlier throw) — same wedged-port condition, different error shape.
+  return err.name === "InvalidStateError" || msg.includes("already open") || msg.includes("locked to a reader");
 }
 
 async function connect({ unfiltered = false } = {}) {
