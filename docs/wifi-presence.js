@@ -1,7 +1,7 @@
 import { $, fetchWithTimeout } from "./dom.js";
 import { state, loadKnown } from "./state.js";
 
-// Probe each paired robot's :81/health endpoint to show "BR-XXXX on wifi"
+// Probe each paired robot's :81/health endpoint to show "PI-XXXX on wifi"
 // when the dashboard isn't BLE-connected to it. Pi-only; ESP32 firmware
 // doesn't run an HTTP server (everything flows over BLE + WebRTC). ESP32
 // still appears via BLE wifi-status notify when paired. Pi exposes

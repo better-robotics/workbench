@@ -54,8 +54,8 @@ void app_main(void) {
     ESP_ERROR_CHECK(esp_read_mac(mac, ESP_MAC_WIFI_STA));
     char ble_name[16];
     char hostname[32];
-    snprintf(ble_name, sizeof(ble_name), "BR-%02X%02X", mac[4], mac[5]);
-    snprintf(hostname, sizeof(hostname), "br-%02x%02x", mac[4], mac[5]);
+    snprintf(ble_name, sizeof(ble_name), "ESP-%02X%02X", mac[4], mac[5]);
+    snprintf(hostname, sizeof(hostname), "esp-%02x%02x", mac[4], mac[5]);
     ESP_LOGI(TAG, "robot id: ble=%s host=%s", ble_name, hostname);
 
     camera_probe();

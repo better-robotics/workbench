@@ -46,7 +46,7 @@ pip install -r requirements.txt
 python3 pi_robot.py
 ```
 
-Needs `bluetoothd` running and (usually) the user in the `bluetooth` group. Robot advertises as `BR-XXXX` (suffix from Pi chip serial). Scan from the dashboard.
+Needs `bluetoothd` running and (usually) the user in the `bluetooth` group. Robot advertises as `PI-XXXX` (suffix from Pi chip serial). Scan from the dashboard.
 
 ## LED wiring
 

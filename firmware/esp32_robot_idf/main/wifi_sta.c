@@ -29,6 +29,13 @@ static const char *TAG = "wifi_sta";
 
 static bool s_has_ip = false;
 static bool s_attempting_join = false;
+// True once a real SSID has been configured (saved creds loaded, or a
+// join was requested). Gates STA_START's auto-connect and the
+// disconnect-handler's auto-retry — without it, esp_wifi_start() fires
+// STA_START against a blank config, connect fails immediately
+// (reason=201, no AP for an empty SSID), and the disconnect handler
+// retries forever: an idle board chases a connection it was never given.
+static bool s_have_config = false;
 static esp_netif_t *s_sta_netif = NULL;
 // Set right before we call esp_wifi_disconnect() ourselves (network
 // switch). The next STA_DISCONNECTED event is ours, not a real failure
@@ -179,7 +186,7 @@ static void on_join_timeout(void *arg) {
 
 static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *data) {
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
-        esp_wifi_connect();
+        if (s_have_config) esp_wifi_connect();
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_CONNECTED) {
         // Association succeeded (auth + 4-way handshake done). DHCP /
         // GOT_IP may still be pending. Used by the join-timeout handler
@@ -215,6 +222,7 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
             // bad creds and keep pumping "reconnecting" notifications.
             return;
         }
+        if (!s_have_config) return;   // no SSID was ever configured — stay idle
         ESP_LOGW(TAG, "disconnected reason=%d, retrying", ev->reason);
         publish_status("reconnecting", s_pending_ssid, NULL, NULL);
         esp_wifi_connect();
@@ -333,6 +341,7 @@ void wifi_sta_handle_join_write(const uint8_t *json, size_t len) {
     strlcpy(s_pending_pass, pass, sizeof(s_pending_pass));
     s_attempting_join = true;
     s_associated = false;
+    s_have_config = true;
 
     wifi_config_t wc = {0};
     strlcpy((char *)wc.sta.ssid, ssid, sizeof(wc.sta.ssid));
@@ -390,6 +399,7 @@ void wifi_sta_init(const char *hostname) {
         strlcpy(s_pending_ssid, ssid, sizeof(s_pending_ssid));
         strlcpy(s_pending_pass, pass, sizeof(s_pending_pass));
         s_attempting_join = true;
+        s_have_config = true;
         esp_timer_start_once(s_join_timeout_timer, (uint64_t)JOIN_TIMEOUT_MS * 1000);
         snprintf(s_status_json, STATUS_BUF_SIZE, "{\"st\":\"joining\",\"ssid\":\"%s\"}", ssid);
         ESP_LOGI(TAG, "joining saved network ssid=%s", ssid);

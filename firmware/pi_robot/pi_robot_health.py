@@ -29,7 +29,7 @@ def _device_name() -> str:
         pass
     if not suffix:
         suffix = socket.gethostname()[-4:].upper().ljust(4, "0")
-    return f"BR-{suffix}"
+    return f"PI-{suffix}"
 
 
 def _ip() -> str | None:
