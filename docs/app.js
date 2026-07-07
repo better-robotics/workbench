@@ -929,8 +929,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const mod = await import("./recovery/shell.js");
     mod.openShellDialog(id);
   });
-  $("menu-console").addEventListener("click", () => {
-    $("avatar-menu").hidePopover();
+  $("serial-console-btn").addEventListener("click", () => {
     openConsole();
   });
   for (const id of ["console-mode-pi", "console-mode-esp"]) {
