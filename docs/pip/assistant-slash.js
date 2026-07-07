@@ -146,17 +146,36 @@ export function registerSlashCommands({ pip }) {
     name: "demo",
     description: `run a scripted demo (${DEMO_NAMES.join(", ")})`,
     complete: (partial) => DEMO_NAMES.filter(n => n.startsWith(partial.toLowerCase())),
-    handler: (argsString) => {
+    handler: async (argsString) => {
+      // Synthesizing input+submit (rather than calling some runDemo(name)
+      // directly) is required either way: demos need turn-scoped pill
+      // rendering that only the real onSubmit pipeline provides, and slash
+      // handlers don't get a turnEl of their own to render pills into.
+      const runDemo = (name) => {
+        const input = document.querySelector(".pip-input");
+        const form  = input?.form || document.querySelector(".pip-form");
+        if (!input || !form) return false;
+        input.value = `demo ${name}`;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        requestAnimationFrame(() => form.requestSubmit?.());
+        return true;
+      };
       const arg = argsString.trim();
       if (!arg) {
-        return { reply: `Demos: ${DEMO_NAMES.map(n => `\`${n}\``).join(", ")}. Try \`/demo figure8\`.` };
+        // No-arg = pick from a button card instead of printing a list and
+        // making the user retype `/demo <name>` themselves — same pattern
+        // /model uses for its API-key confirmation gate.
+        const turnEl = pip.startTurn({ echo: "/demo" });
+        const choice = await pip.askInChat({ question: "Which demo?", options: [...DEMO_NAMES, "Cancel"] }, turnEl);
+        if (!choice || choice === "Cancel") {
+          pip.setReplyText(turnEl, "No demo run.", true);
+          return { clearedUI: true };
+        }
+        pip.setReplyText(turnEl, `Running \`${choice}\`…`, true);
+        runDemo(choice);
+        return { clearedUI: true };
       }
-      const input = document.querySelector(".pip-input");
-      const form  = input?.form || document.querySelector(".pip-form");
-      if (!input || !form) return { reply: "Demo input not available." };
-      input.value = `demo ${arg}`;
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-      requestAnimationFrame(() => form.requestSubmit?.());
+      if (!runDemo(arg)) return { reply: "Demo input not available." };
       return { clearedUI: true };
     },
   });
@@ -183,10 +202,27 @@ export function registerSlashCommands({ pip }) {
     name: "vision",
     description: "toggle whether Pip's planner receives raw camera frames (on|off)",
     complete: (partial) => PIP_VISION_VALUES.filter(v => v.startsWith(partial.trim().toLowerCase())),
-    handler: (argsString) => {
+    handler: async (argsString) => {
       const trimmed = argsString.trim().toLowerCase();
       if (!trimmed) {
-        return { reply: `Pip vision is currently \`${settings.pipVisionEnabled ? "on" : "off"}\`. Use \`/vision on\` or \`/vision off\`.` };
+        // No-arg = a one-tap toggle button instead of printing the current
+        // state and making the user type the opposite value themselves.
+        const current = settings.pipVisionEnabled;
+        const turnEl = pip.startTurn({ echo: "/vision" });
+        const choice = await pip.askInChat({
+          question: `Pip vision is currently \`${current ? "on" : "off"}\`.`,
+          options: [current ? "Turn off" : "Turn on", "Cancel"],
+        }, turnEl);
+        let text;
+        if (!choice || choice === "Cancel") {
+          text = `Vision unchanged — still \`${current ? "on" : "off"}\`.`;
+        } else {
+          settings.pipVisionEnabled = !current;
+          saveSettings();
+          text = `Pip vision ${settings.pipVisionEnabled ? "on" : "off"}.`;
+        }
+        pip.setReplyText(turnEl, text, true);
+        return { clearedUI: true };
       }
       if (trimmed !== "on" && trimmed !== "off") {
         return { reply: "Usage: `/vision on` or `/vision off`." };
@@ -203,27 +239,40 @@ export function registerSlashCommands({ pip }) {
     complete: (partial) => getAvailableDetectors()
       .map(d => d.name)
       .filter(n => n.startsWith(partial.trim().toLowerCase())),
-    handler: (argsString) => {
-      const subArg = argsString.trim().toLowerCase();
+    handler: async (argsString) => {
       const available = getAvailableDetectors();
+      const applySwitch = (name) => {
+        try {
+          setActiveDetector(name);
+        } catch (err) {
+          return `Failed to switch: ${err.message || err}`;
+        }
+        const label = available.find(d => d.name === name)?.label || name;
+        return `Detector set to \`${name}\` — ${label}. First detection call will lazy-load the model.`;
+      };
+
+      const subArg = argsString.trim().toLowerCase();
       if (!subArg) {
-        const lines = available.map(d => {
-          const marker = d.name === getActiveDetectorName() ? "•" : " ";
-          return `${marker} \`${d.name}\` — ${d.label}`;
-        }).join("\n");
-        return { reply: `Active detector: \`${getActiveDetectorName()}\`.\n\n${lines}\n\nSwitch with \`/detector <name>\`.` };
+        // No-arg = pick from a button card instead of printing the list and
+        // making the user retype `/detector <name>` themselves — same
+        // pattern /model uses for its API-key confirmation gate.
+        const current = getActiveDetectorName();
+        const turnEl = pip.startTurn({ echo: "/detector" });
+        const choice = await pip.askInChat({
+          question: `Reflex-layer detector — currently \`${current}\`.`,
+          options: [...available.map(d => d.name), "Cancel"],
+        }, turnEl);
+        const text = (!choice || choice === "Cancel") ? `Detector unchanged — still \`${current}\`.`
+                   : choice === current ? `Already on \`${current}\`.`
+                   : applySwitch(choice);
+        pip.setReplyText(turnEl, text, true);
+        return { clearedUI: true };
       }
       if (!available.some(d => d.name === subArg)) {
         const names = available.map(d => `\`${d.name}\``).join(", ");
         return { reply: `Unknown detector \`${subArg}\`. Available: ${names}.` };
       }
-      try {
-        setActiveDetector(subArg);
-      } catch (err) {
-        return { reply: `Failed to switch: ${err.message || err}` };
-      }
-      const label = available.find(d => d.name === subArg)?.label || subArg;
-      return { reply: `Detector set to \`${subArg}\` — ${label}. First detection call will lazy-load the model.` };
+      return { reply: applySwitch(subArg) };
     },
   });
 }
