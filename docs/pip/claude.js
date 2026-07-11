@@ -33,7 +33,8 @@ function currentClaudeModel() {
 // vision" or "supports tool_result images" — those happen to coincide
 // today but are separate facts (see pip-tools.js's VISION_BACKENDS).
 export const CLAUDE_BACKENDS = new Set(["bridge", "anthropic"]);
-export const OPENAI_SHAPED_BACKENDS = new Set(["openai"]);
+const OPENAI_SHAPED_BACKENDS = new Set(["openai"]);
+const OPENAI_MODEL = "gpt-4o-mini";        // cheap default for direct OpenAI
 
 // User-facing model identifier per backend. Single source of truth for
 // what name shows up in the Pip placeholder ("Ask Pip… · gpt-4o-mini")
@@ -41,7 +42,7 @@ export const OPENAI_SHAPED_BACKENDS = new Set(["openai"]);
 // — model knowledge lives next to the actual API calls.
 export function activeModelForBackend(backend) {
   if (CLAUDE_BACKENDS.has(backend)) return currentClaudeModel();
-  if (OPENAI_SHAPED_BACKENDS.has(backend)) return "gpt-4o-mini";
+  if (OPENAI_SHAPED_BACKENDS.has(backend)) return OPENAI_MODEL;
   return backend;
 }
 // Per-Claude-call ceiling. Tool-using conversations make several requests in
@@ -200,18 +201,16 @@ async function callAnthropic(body) {
 }
 
 // OpenAI-compatible chat-completions request: api.openai.com (user's key).
-const OPENAI_MODEL = "gpt-4o-mini";        // cheap default for direct OpenAI
 async function callOpenai(body) {
   const key = settings.pipOpenaiKey;
   if (!key) return { status: 401, body: '{"error":"no OpenAI API key configured in Settings"}' };
   const url = "https://api.openai.com/v1/chat/completions";
-  const token = key;
   try {
     const resp = await fetch(url, {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "authorization": `Bearer ${token}`,
+        "authorization": `Bearer ${key}`,
       },
       body: JSON.stringify(body),
     });

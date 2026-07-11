@@ -20,13 +20,24 @@ import { RUNTIMES } from "../capabilities/runtime/index.js";
 import { renderEntry } from "../capabilities/runtime/render-bus.js";
 import { log } from "../log.js";
 import { connectMqtt } from "./mqtt.js";
+import { WS_PORT } from "../protocol-constants.js";
 
-const WS_PORT = 9001;          // fixed convention — hub pi/mosquitto.example.conf
 const JOY_HOLD_MS = 400;       // contract default; joypad re-writes refresh it
 const OFFLINE_AFTER_MS = 15000; // sys cadence is 2 s; 15 s silent = offline
 
 const pctToDuty = (pct) => Math.round(pct * 255 / 100);
 const int8 = (b) => (b >= 128 ? b - 256 : b);
+
+// Same renderer-injection shape as ble-lifecycle's setBleRenderers: app.js
+// plumbs its surgical patchSecondaryRow through so the 2 s sys tick doesn't
+// pay a full-card innerHTML rebuild (wireActions, focus save/restore,
+// camera transplant) per rover.
+let renderers = {
+  patchSecondaryRow: () => {},
+};
+export function setHubRenderers(r) {
+  renderers = { ...renderers, ...r };
+}
 
 let client = null;
 let sweepTimer = null;
@@ -141,14 +152,19 @@ async function upsert(team, sys) {
     log(`${board} online (team ${team})`, "hub");
   }
   entry.hubTeam = team;       // reassignment moves the board's topic
-  if (entry.status !== "connected") entry.status = "connected";
+  const cameOnline = entry.status !== "connected";
+  if (cameOnline) entry.status = "connected";
   entry.telemetry = {
     uptime_ms: sys.uptime_ms, free_heap: sys.free_heap,
     ...(sys.ip ? { ip: sys.ip } : {}),
   };
   entry.telemetryUpdatedAt = Date.now();
   entry.lastSysAt = Date.now();
-  renderEntry(entry);
+  // Full render only on creation and offline→online; the steady-state 2 s
+  // sys tick is telemetry-only, same surgical path as the BLE telemetry
+  // notify (ble-lifecycle.js).
+  if (cameOnline) renderEntry(entry);
+  else renderers.patchSecondaryRow(entry);
 }
 
 function sweep() {

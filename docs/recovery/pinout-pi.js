@@ -475,7 +475,6 @@ function renderBoardWithDriver(claims, opts = {}) {
 
 // State for edit mode. Scoped per-open-dialog; cleared on close via resetPi().
 let currentId = null;
-let editMode = false;
 let editConfig = null;   // parsed pi-robot.conf contents
 let awaitingConfig = false;
 let awaitingTimer = null;
@@ -567,20 +566,22 @@ function renderEdit(entry) {
   //          trap (re-enable and it breaks). Users hit this when the LED
   //          default (17) matches a motor IN they later claimed.
   // Hard blocks Save; soft just warns.
-  const usage = {};
-  if (c.led_pin != null) (usage[c.led_pin] ||= []).push({ role: "led", enabled: !!c.led_enabled });
-  for (const [role, g] of flattenPins(motors)) {
-    (usage[g] ||= []).push({ role: `motors.${role}`, enabled: !!c.motors_enabled });
-  }
   const encodersEnabledEff = c.encoders_enabled !== false;
+  // One walk over every pin claim; the usage-conflict and reserved-pin
+  // checks below both consume it.
+  const claimants = [];
+  if (c.led_pin != null) claimants.push({ pin: c.led_pin, role: "led", enabled: !!c.led_enabled });
+  for (const [role, g] of flattenPins(motors)) {
+    claimants.push({ pin: g, role: `motors.${role}`, enabled: !!c.motors_enabled });
+  }
   for (const [role, g] of Object.entries(encoders)) {
-    if (typeof g !== "number") continue;
-    (usage[g] ||= []).push({ role: `encoders.${role}`, enabled: encodersEnabledEff });
+    if (typeof g === "number") claimants.push({ pin: g, role: `encoders.${role}`, enabled: encodersEnabledEff });
   }
   for (const [role, g] of Object.entries(ultrasonic)) {
-    if (typeof g !== "number") continue;
-    (usage[g] ||= []).push({ role: `ultrasonic.${role}`, enabled: !!c.ultrasonic_enabled });
+    if (typeof g === "number") claimants.push({ pin: g, role: `ultrasonic.${role}`, enabled: !!c.ultrasonic_enabled });
   }
+  const usage = {};
+  for (const { pin, role, enabled } of claimants) (usage[pin] ||= []).push({ role, enabled });
   const dup = Object.entries(usage).filter(([, v]) => v.length > 1);
   const hard = dup.filter(([, v]) => v.every(x => x.enabled));
   const soft = dup.filter(([, v]) => !v.every(x => x.enabled));
@@ -594,18 +595,9 @@ function renderEdit(entry) {
     7:  "SPI0 CE1",  8:  "SPI0 CE0",  9:  "SPI0 MISO",  10: "SPI0 MOSI",  11: "SPI0 SCLK",
     14: "UART TXD", 15: "UART RXD",
   };
-  const reservedHits = [];
-  const checkReserved = (pin, role, enabled) => {
-    if (enabled && RESERVED[pin]) reservedHits.push({ pin, role, fn: RESERVED[pin] });
-  };
-  if (c.led_pin != null) checkReserved(c.led_pin, "LED", !!c.led_enabled);
-  for (const [role, g] of flattenPins(motors)) checkReserved(g, `motors.${role}`, !!c.motors_enabled);
-  for (const [role, g] of Object.entries(encoders)) {
-    if (typeof g === "number") checkReserved(g, `encoders.${role}`, encodersEnabledEff);
-  }
-  for (const [role, g] of Object.entries(ultrasonic)) {
-    if (typeof g === "number") checkReserved(g, `ultrasonic.${role}`, !!c.ultrasonic_enabled);
-  }
+  const reservedHits = claimants
+    .filter(x => x.enabled && RESERVED[x.pin])
+    .map(x => ({ pin: x.pin, fn: RESERVED[x.pin] }));
   const flagged = new Set();
   for (const [g] of hard) flagged.add(parseInt(g, 10));
   for (const r of reservedHits) flagged.add(r.pin);
@@ -699,7 +691,6 @@ function renderEdit(entry) {
     el.addEventListener("blur",  () => clearPinHighlight());
   });
   $("pinout-cancel-btn")?.addEventListener("click", () => {
-    editMode = false;
     editConfig = null;
     renderView(entry);
   });
@@ -722,7 +713,6 @@ function renderEdit(entry) {
       onCancel: () => renderEdit(entry),
       onDone: (ok) => {
         if (ok) {
-          editMode = false;
           editConfig = null;
           $("pinout-modal").close();
         } else {
@@ -755,7 +745,6 @@ function highlightPinFromInput(el) {
 
 function beginEdit(id) {
   currentId = id;
-  editMode = true;
   awaitingConfig = true;
   $("pinout-body").innerHTML = `<div class="meta">Loading current config…</div>`;
   getConfig(id);
@@ -798,7 +787,6 @@ async function saveEdit(entry) {
     new TextEncoder().encode(json),
     { restart: "pi-robot" },
   );
-  editMode = false;
   editConfig = null;
   if (ok) {
     $("pinout-modal").close();
@@ -829,13 +817,11 @@ function initOnce() {
 export function openPi(entry) {
   initOnce();
   currentId = entry.id;
-  editMode = false;
   editConfig = null;
   renderView(entry);
 }
 
 export function resetPi() {
-  editMode = false;
   editConfig = null;
   awaitingConfig = false;
   clearTimeout(awaitingTimer);

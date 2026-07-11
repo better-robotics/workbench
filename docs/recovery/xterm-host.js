@@ -3,7 +3,7 @@
 // + ResizeObserver, so the shape lives here once.
 let _module = null;
 
-export async function ensureXtermLoaded() {
+async function ensureXtermLoaded() {
   if (_module) return _module;
   if (!document.querySelector('link[data-xterm-css]')) {
     const link = document.createElement("link");

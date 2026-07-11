@@ -19,8 +19,7 @@
 // internet rendezvous — the pair ceremony (ECDSA P-256, peer-key.js)
 // authenticates peers end-to-end, transport carries no trust.
 import { connectMqtt } from "../hub/mqtt.js";
-
-const WS_PORT = 9001;   // fixed convention — hub pi/mosquitto.example.conf
+import { WS_PORT } from "../protocol-constants.js";
 
 let _host = null;
 export function setSignalBrokerHost(host) { _host = host || null; }
@@ -42,10 +41,6 @@ export function openSignalChannel(roomId) {
   const facade = {
     readyState: WebSocket.CONNECTING,
     addEventListener(type, fn) { listeners[type]?.push(fn); },
-    removeEventListener(type, fn) {
-      const a = listeners[type]; const i = a?.indexOf(fn);
-      if (i >= 0) a.splice(i, 1);
-    },
     send(str) {
       if (!client || facade.readyState !== WebSocket.OPEN) return;
       let msg;

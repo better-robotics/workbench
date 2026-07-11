@@ -1,6 +1,5 @@
 // Dashboard identity: one ed25519 keypair per browser-origin, persisted in
-// IndexedDB. Used to (a) auto-authorize SSH on prepared Pis and (b) sign
-// BLE auth challenges (when gated ops land). Private key is extractable
+// IndexedDB. Used to auto-authorize SSH on prepared Pis. Private key is extractable
 // so the user can download an OpenSSH-format backup and SSH from a shell.
 import { $ } from "./dom.js";
 
@@ -99,11 +98,6 @@ export async function pubkeySsh() {
 export async function fingerprint() {
   const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", await pubkeyWire()));
   return `SHA256:${b64(hash).replace(/=+$/, "")}`;
-}
-
-export async function sign(message) {
-  const r = await loadOrGenerate();
-  return new Uint8Array(await crypto.subtle.sign({ name: "Ed25519" }, r.privateKey, message));
 }
 
 // OpenSSH private key format (unencrypted). Format ref:

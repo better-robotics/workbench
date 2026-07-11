@@ -187,6 +187,26 @@ function awaitPlaybackEnd(lastNode) {
 
 // ─ OpenAI TTS path ──────────────────────────────────────────────────
 
+// One request shape for both the streaming speak() path and prewarmCache().
+// OPENAI_TTS_MODEL is a gpt-4o-family model, which accepts `instructions`.
+function ttsFetch(text, key, signal) {
+  return fetch(`${OPENAI_API}/v1/audio/speech`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${key}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: OPENAI_TTS_MODEL,
+      voice: OPENAI_TTS_VOICE,
+      input: text,
+      response_format: OPENAI_TTS_FORMAT,
+      instructions: OPENAI_TTS_INSTRUCTIONS,
+    }),
+    signal,
+  });
+}
+
 // Returns a Promise that resolves when audio FINISHES playing (or
 // errors / is preempted). Non-awaiting callers get fire-and-forget.
 async function speakOpenAI(text, key) {
@@ -216,25 +236,7 @@ async function speakOpenAI(text, key) {
   const controller = new AbortController();
   _currentAbort = controller;
 
-  const body = {
-    model: OPENAI_TTS_MODEL,
-    voice: OPENAI_TTS_VOICE,
-    input: text,
-    response_format: OPENAI_TTS_FORMAT,
-  };
-  if (OPENAI_TTS_MODEL.startsWith("gpt-4o")) {
-    body.instructions = OPENAI_TTS_INSTRUCTIONS;
-  }
-
-  const res = await fetch(`${OPENAI_API}/v1/audio/speech`, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${key}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-    signal: controller.signal,
-  });
+  const res = await ttsFetch(text, key, controller.signal);
   if (controller.signal.aborted) return;
   if (!res.ok) {
     const errText = await res.text().catch(() => "");
@@ -418,18 +420,7 @@ export async function prewarmCache(phrases) {
     if (!t) continue;
     if (await cacheGet(t)) { cached++; continue; }
     try {
-      const body = {
-        model: OPENAI_TTS_MODEL,
-        voice: OPENAI_TTS_VOICE,
-        input: t,
-        response_format: OPENAI_TTS_FORMAT,
-      };
-      if (OPENAI_TTS_MODEL.startsWith("gpt-4o")) body.instructions = OPENAI_TTS_INSTRUCTIONS;
-      const res = await fetch(`${OPENAI_API}/v1/audio/speech`, {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+      const res = await ttsFetch(t, key);
       if (!res.ok) { failed++; continue; }
       const bytes = new Uint8Array(await res.arrayBuffer());
       await cachePut(t, bytes);

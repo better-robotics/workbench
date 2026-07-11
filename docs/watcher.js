@@ -284,14 +284,18 @@ function runHaltLoop(entry, cfg) {
     releaseGate(entry.id);
   };
   _running.set(entry.id, { stop: stopFn });
+  // Loop exit: tear down the poll and reflect the disabled state on the card.
+  const exit = () => {
+    stopFn();
+    _running.delete(entry.id);
+    cfg.enabled = false;
+    renderEntry(entry);
+  };
 
   const tick = async () => {
     if (stopped) return;
     if (!cfg.enabled || entry.status !== "connected") {
-      stopFn();
-      _running.delete(entry.id);
-      cfg.enabled = false;
-      renderEntry(entry);
+      exit();
       return;
     }
     let dets = null;
@@ -304,10 +308,7 @@ function runHaltLoop(entry, cfg) {
     // Hard failure (detector permanently down) → exit. Transient null
     // (camera blip, frame not ready) → just keep polling.
     if (dets === null && isDetectorFailed()) {
-      stopFn();
-      _running.delete(entry.id);
-      cfg.enabled = false;
-      renderEntry(entry);
+      exit();
       return;
     }
     const hit = (dets && dets.length > 0) ? dets[0] : null;
@@ -372,14 +373,18 @@ function runFollowLoop(entry, cfg) {
     if (timer) { clearTimeout(timer); timer = null; }
   };
   _running.set(entry.id, { stop: stopFn });
+  // Loop exit: tear down the poll and reflect the disabled state on the card.
+  const exit = () => {
+    stopFn();
+    _running.delete(entry.id);
+    cfg.enabled = false;
+    renderEntry(entry);
+  };
 
   const tick = async () => {
     if (stopped) return;
     if (!cfg.enabled || entry.status !== "connected") {
-      stopFn();
-      _running.delete(entry.id);
-      cfg.enabled = false;
-      renderEntry(entry);
+      exit();
       return;
     }
     let det = null;
@@ -387,10 +392,7 @@ function runFollowLoop(entry, cfg) {
     catch { det = null; }
     if (stopped) return;
     if (det === null && isGesturesFailed()) {
-      stopFn();
-      _running.delete(entry.id);
-      cfg.enabled = false;
-      renderEntry(entry);
+      exit();
       return;
     }
 

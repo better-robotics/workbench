@@ -15,8 +15,8 @@
 import { connectMqtt } from "../hub/mqtt.js";
 import { getMyPubkeyB64, signBytes, verifyBytes, canonical } from "./peer-key.js";
 import { getSignalBrokerHost } from "./broker-signal.js";
+import { WS_PORT } from "../protocol-constants.js";
 
-const WS_PORT = 9001;
 const REPUBLISH_MS = 25_000;
 const SWEEP_MS = 5_000;
 const DEFAULT_AD_TTL_MS = 60_000;
@@ -46,7 +46,7 @@ class BrokerLobby {
     this._client = null;
     this._closed = false;
     this._ads = new Map();            // id -> { id, data, expiresAt }
-    this._verified = [];              // current ads() snapshot
+    this._verified = [];              // current verified-ads snapshot
     this._listeners = new Set();
     this._myAds = new Map();          // id -> { data, ttl }
     this._republishTimer = setInterval(() => this._republishMine(), REPUBLISH_MS);
@@ -134,7 +134,6 @@ class BrokerLobby {
     try { cb(this._verified); } catch {}
     return () => this._listeners.delete(cb);
   }
-  ads() { return this._verified.slice(); }
   close() {
     this._closed = true;
     clearInterval(this._republishTimer);

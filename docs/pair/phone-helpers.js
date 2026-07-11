@@ -1,4 +1,4 @@
-import { listPhones, setPhonesChangeHandler, notifyRobotStreamChange, requestPhoneCameraShare } from "./phones.js";
+import { listPhones, notifyRobotStreamChange, requestPhoneCameraShare } from "./phones.js";
 import { emit as busEmit, TOPICS } from "../event-bus.js";
 import { state } from "../state.js";
 
@@ -58,10 +58,6 @@ function dropDecodeEl(phoneId) {
   v.srcObject = null;
   v.remove();
   _decodeEls.delete(phoneId);
-}
-
-export function initHelpers() {
-  setPhonesChangeHandler(() => {});
 }
 
 export function listHelpers() {

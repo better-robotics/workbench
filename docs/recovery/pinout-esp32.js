@@ -69,14 +69,12 @@ function gpioToPosMap(layout) {
     if (p.gpio != null) m.set(p.gpio, {
       cx: ESP_FIRST_PIN_X + i * spacing,
       cy: ESP_TOP_ROW_Y,
-      row: "top",
     });
   });
   layout.bot.forEach((p, i) => {
     if (p.gpio != null) m.set(p.gpio, {
       cx: ESP_FIRST_PIN_X + i * spacing,
       cy: ESP_BOT_ROW_Y,
-      row: "bot",
     });
   });
   return m;
@@ -335,8 +333,10 @@ function renderEsp32BoardWithDriver(entry, opts = {}) {
 }
 
 // State for edit mode. Scoped per-open-dialog; cleared on close via resetEsp32().
-let editMode = false;
 let editConfig = null;
+
+// The full editable pin vocabulary — must match pin_config.c's key set.
+const PIN_KEYS = ["led", "flash", "m_l_fwd", "m_l_bwd", "m_r_fwd", "m_r_bwd", "m_ena", "m_enb", "enc_l", "enc_r", "servo", "rgb_r", "rgb_g", "rgb_b"];
 
 // ESP32 path — read current pin assignments straight from fw-info (no
 // get-config round-trip needed; the firmware already advertises them on
@@ -457,7 +457,6 @@ function renderEsp32View(entry) {
 }
 
 function beginEsp32Edit(entry) {
-  editMode = true;
   editConfig = esp32PinsFromFwInfo(entry);
   renderEsp32Edit(entry);
 }
@@ -474,7 +473,7 @@ function renderEsp32Edit(entry) {
   // Excluding it from ALL_KEYS on no-flash boards keeps the conflict guard
   // from flagging a phantom claim against the real motor/LED assignments.
   const hasFlash = (entry?.capSchema || []).some(c => c.name === "flash");
-  const ALL_KEYS = ["led", ...(hasFlash ? ["flash"] : []), "m_l_fwd", "m_l_bwd", "m_r_fwd", "m_r_bwd", "m_ena", "m_enb", "enc_l", "enc_r", "servo", "rgb_r", "rgb_g", "rgb_b"];
+  const ALL_KEYS = hasFlash ? PIN_KEYS : PIN_KEYS.filter(k => k !== "flash");
   const usedBy = {};
   for (const k of ALL_KEYS) {
     if (c[k] < 0) continue;
@@ -484,25 +483,17 @@ function renderEsp32Edit(entry) {
   const cameraReserved = cameraReservedFor(entry);
   const forbidden = forbiddenFor(entry);
   const maxGpio = maxGpioFor(entry);
-  const cameraHits = ALL_KEYS.flatMap(k => {
-    const p = c[k];
-    return (p >= 0 && cameraReserved.has(p)) ? [[k, p]] : [];
-  });
+  const hits = (pred) => ALL_KEYS.flatMap(k => (pred(c[k]) ? [[k, c[k]]] : []));
+  const cameraHits = hits(p => p >= 0 && cameraReserved.has(p));
   // Hardware-forbidden minus camera (PSRAM CS/CLK + SPI flash on AI-Thinker,
   // SPI flash on DevKit/C3). Surfaced as a distinct warning because the
   // "why" differs from the camera case — the firmware would otherwise
   // accept and crash on first use of the pin.
-  const hardwareHits = ALL_KEYS.flatMap(k => {
-    const p = c[k];
-    return (p >= 0 && forbidden.has(p) && !cameraReserved.has(p)) ? [[k, p]] : [];
-  });
+  const hardwareHits = hits(p => p >= 0 && forbidden.has(p) && !cameraReserved.has(p));
   // Out-of-range pins (above the chip's PIN_MAX — 21 on C3, 39 elsewhere).
   // The firmware drops the entire pin_config write on the first out-of-
   // range candidate, so flag and block save here to avoid a silent no-op.
-  const rangeHits = ALL_KEYS.flatMap(k => {
-    const p = c[k];
-    return (p > maxGpio) ? [[k, p]] : [];
-  });
+  const rangeHits = hits(p => p > maxGpio);
 
   const flagged = new Set();
   for (const [, v] of dup) for (const k of v) if (c[k] >= 0) flagged.add(c[k]);
@@ -576,44 +567,32 @@ function renderEsp32Edit(entry) {
   // Toolbar carries LED + Flash because they don't belong to any chip
   // below the ESP32 (LED is direct-attach, Flash is the white LED on
   // GPIO4). Motors + encoders edit inline on the SVG below.
-  const ledV   = c.led < 0   ? "" : String(c.led);
-  const flashV = c.flash < 0 ? "" : String(c.flash);
-  const servoV = c.servo < 0 ? "" : String(c.servo);
-  const rgbRV  = c.rgb_r < 0 ? "" : String(c.rgb_r);
-  const rgbGV  = c.rgb_g < 0 ? "" : String(c.rgb_g);
-  const rgbBV  = c.rgb_b < 0 ? "" : String(c.rgb_b);
-  const ledCls   = c.led   >= 0 && flagged.has(c.led)   ? " conflict" : "";
-  const flashCls = c.flash >= 0 && flagged.has(c.flash) ? " conflict" : "";
-  const servoCls = c.servo >= 0 && flagged.has(c.servo) ? " conflict" : "";
-  const rgbRCls  = c.rgb_r >= 0 && flagged.has(c.rgb_r) ? " conflict" : "";
-  const rgbGCls  = c.rgb_g >= 0 && flagged.has(c.rgb_g) ? " conflict" : "";
-  const rgbBCls  = c.rgb_b >= 0 && flagged.has(c.rgb_b) ? " conflict" : "";
+  const editInput = (key, placeholder = "—") => {
+    const v = c[key] < 0 ? "" : String(c[key]);
+    const cls = c[key] >= 0 && flagged.has(c[key]) ? " conflict" : "";
+    return `<input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input${cls}"
+               data-key="${key}" value="${v}" placeholder="${placeholder}">`;
+  };
 
   $("pinout-body").innerHTML = `
     <div class="pinout-toolbar">
       <label class="toolbar-toggle">
         <span>LED</span>
-        <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input${ledCls}"
-               data-key="led" value="${ledV}" placeholder="—">
+        ${editInput("led")}
       </label>
       ${hasFlash ? `<label class="toolbar-toggle">
         <span>Flash</span>
-        <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input${flashCls}"
-               data-key="flash" value="${flashV}" placeholder="—">
+        ${editInput("flash")}
       </label>` : ""}
       <label class="toolbar-toggle">
         <span>Servo</span>
-        <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input${servoCls}"
-               data-key="servo" value="${servoV}" placeholder="—">
+        ${editInput("servo")}
       </label>
       <label class="toolbar-toggle toolbar-toggle-rgb">
         <span>RGB</span>
-        <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input${rgbRCls}"
-               data-key="rgb_r" value="${rgbRV}" placeholder="R">
-        <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input${rgbGCls}"
-               data-key="rgb_g" value="${rgbGV}" placeholder="G">
-        <input type="text" inputmode="numeric" maxlength="2" class="pinout-edit-input${rgbBCls}"
-               data-key="rgb_b" value="${rgbBV}" placeholder="B">
+        ${editInput("rgb_r", "R")}
+        ${editInput("rgb_g", "G")}
+        ${editInput("rgb_b", "B")}
       </label>
     </div>
     ${renderEsp32BoardWithDriver(previewEntry, { editable: true, editConfig: c, flagged })}
@@ -644,7 +623,7 @@ function renderEsp32Edit(entry) {
     el.addEventListener("blur",  () => clearPinHighlight());
   });
   $("pinout-cancel-btn").addEventListener("click", () => {
-    editMode = false; editConfig = null; renderEsp32View(entry);
+    editConfig = null; renderEsp32View(entry);
   });
   // Restore the board's firmware defaults — useful after the user drifts
   // off canonical pins (e.g., typed an AI-Thinker LED on a C3 and the
@@ -664,7 +643,6 @@ function renderEsp32Edit(entry) {
           // schedules a 500ms restart on the chip. BLE drops briefly;
           // dashboard's auto-reconnect picks it back up. Close the dialog
           // so the user sees the reconnect on the card.
-          editMode = false;
           editConfig = null;
           $("pinout-modal").close();
         } else {
@@ -700,7 +678,7 @@ async function saveEsp32Edit(entry) {
   // this, the dashboard happily writes e.g. GPIO 25 to a C3, the firmware
   // drops the whole pin_config call, and the chip never restarts.
   const maxGpio = maxGpioFor(entry);
-  for (const key of ["led", "flash", "m_l_fwd", "m_l_bwd", "m_r_fwd", "m_r_bwd", "m_ena", "m_enb", "enc_l", "enc_r", "servo", "rgb_r", "rgb_g", "rgb_b"]) {
+  for (const key of PIN_KEYS) {
     const v = editConfig[key];
     if (!Number.isInteger(v) || v === -1) continue;
     if (v < 0 || v > maxGpio) {
@@ -714,7 +692,6 @@ async function saveEsp32Edit(entry) {
     const svc = await entry.device.gatt.getPrimaryService(SERVICE_UUID);
     const ch  = await svc.getCharacteristic(PIN_CONFIG_CHAR_UUID);
     await ch.writeValueWithResponse(encodeJson(editConfig));
-    editMode = false;
     editConfig = null;
     $("pinout-modal").close();
   } catch (err) {
@@ -729,12 +706,10 @@ async function saveEsp32Edit(entry) {
 }
 
 export function openEsp32(entry) {
-  editMode = false;
   editConfig = null;
   renderEsp32View(entry);
 }
 
 export function resetEsp32() {
-  editMode = false;
   editConfig = null;
 }

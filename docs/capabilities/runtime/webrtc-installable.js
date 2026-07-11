@@ -193,10 +193,10 @@ export function makeWebrtcInstallableCap(schema) {
         entry[streamField] = setupForwardPump(entry, () =>
           entry.node?.querySelector(`video[data-${name}-id="${entry.id}"]`)
         );
+        notifyRobotStreamChange(entry);
       } else {
         entry[streamField] = rawTrack;
       }
-      if (streamField === "cameraStream") notifyRobotStreamChange(entry);
     };
     pc.onicecandidate = async (e) => {
       if (!e.candidate) return;

@@ -132,7 +132,6 @@ export function makeWifiScanCap(schema) {
   const networksField = `${name}Networks`;
   const scanningField = `${name}Scanning`;
   const scanTimerField = `${name}ScanTimer`;
-  const scanStartedField = `${name}ScanStartedAt`;
   const retriesField = `${name}ScanRetries`;
   const actionScan = `${name}-scan`;
   const actionJoin = `${name}-join`;
@@ -154,7 +153,6 @@ export function makeWifiScanCap(schema) {
     if (!entry[scanField]) return;
     clearScanTimer(entry);
     entry[scanningField] = true;
-    entry[scanStartedField] = Date.now();
     if (!isRetry) entry[retriesField] = 0;
     renderEntry(entry);
     // Trigger the scan via read; results land via notify (set up in probe()).
@@ -185,6 +183,14 @@ export function makeWifiScanCap(schema) {
     }, SCAN_TIMEOUT_MS);
   }
 
+  async function writeJoin(entry, ssid, password, label) {
+    try {
+      await entry[joinField].writeValueWithResponse(encodeJson({ s: ssid, p: password }));
+    } catch (err) {
+      logFor(entry, `${name} ${label} failed: ${err.message}`);
+    }
+  }
+
   async function join(entry, ssid, secured) {
     if (!entry[joinField]) return;
     // Open the dialog even for known-secured networks so the browser's
@@ -197,11 +203,7 @@ export function makeWifiScanCap(schema) {
       if (!result) return;
       password = result.password;
     }
-    try {
-      await entry[joinField].writeValueWithResponse(encodeJson({ s: ssid, p: password }));
-    } catch (err) {
-      logFor(entry, `${name} join failed: ${err.message}`);
-    }
+    await writeJoin(entry, ssid, password, "join");
   }
 
   // When scan fails (classic ESP32 + BLE coexistence commonly returns zero
@@ -211,11 +213,7 @@ export function makeWifiScanCap(schema) {
     if (!entry[joinField]) return;
     const result = await joinViaDialog("");
     if (!result?.ssid) return;
-    try {
-      await entry[joinField].writeValueWithResponse(encodeJson({ s: result.ssid, p: result.password }));
-    } catch (err) {
-      logFor(entry, `${name} manual join failed: ${err.message}`);
-    }
+    await writeJoin(entry, result.ssid, result.password, "manual join");
   }
 
   return {
@@ -227,7 +225,6 @@ export function makeWifiScanCap(schema) {
       [networksField]: null,
       [scanningField]: false,
       [scanTimerField]: null,
-      [scanStartedField]: 0,
       [retriesField]: 0,
     }),
 

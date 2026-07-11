@@ -23,7 +23,7 @@ import { initAssistant } from "./pip/assistant.js";
 import { initPhones, listPhones } from "./pair/phones.js";
 import { initPhoneScreenModePlugin } from "./pair/phone-screen-mode-plugin.js";
 import {
-  initHelpers, setHelpersRobotRenderer,
+  setHelpersRobotRenderer,
   attachPhoneCameraTo, getPhoneAttachment,
 } from "./pair/phone-helpers.js";
 import { watcherCap } from "./watcher.js";
@@ -147,14 +147,24 @@ function patchSecondaryRow(entry) {
 
 // Same idea for robot-status notify (rebooting / installing / ready). Lower
 // frequency than telemetry but same flash-on-full-render cost.
+// Robot-state line (rebooting / installing / …) composition, shared by
+// renderEntry's full render and patchRobotStateLine's in-place patch.
+// Returns null when nothing should show (no status, or ready).
+function robotStateText(entry) {
+  const liveStatus = entry.robotStatus;
+  const sticky = !liveStatus ? entry.stickyStatus : null;
+  const st = liveStatus || sticky;
+  if (!st || st.st === "ready") return null;
+  const prefix = sticky ? "was " : "";
+  return { text: st.msg ? `${prefix}${st.st} — ${st.msg}` : `${prefix}${st.st}`, sticky: !!sticky };
+}
+
 function patchRobotStateLine(entry) {
   const node = entry.node;
   if (!node) return;
-  const liveStatus = entry.robotStatus;
-  const sticky = !liveStatus ? entry.stickyStatus : null;
-  const s = liveStatus || sticky;
+  const st = robotStateText(entry);
   let line = node.querySelector(".robot-state");
-  if (!s || s.st === "ready") {
+  if (!st) {
     if (line) line.remove();
     return;
   }
@@ -166,9 +176,8 @@ function patchRobotStateLine(entry) {
     if (identityRow) identityRow.after(line);
     else node.appendChild(line);
   }
-  line.classList.toggle("sticky", !!sticky);
-  const prefix = sticky ? "was " : "";
-  line.textContent = s.msg ? `${prefix}${s.st} — ${s.msg}` : `${prefix}${s.st}`;
+  line.classList.toggle("sticky", st.sticky);
+  line.textContent = st.text;
 }
 
 // Per-robot expand/collapse preference. Persisted so a user's choice sticks
@@ -342,14 +351,9 @@ function renderEntry(entry) {
       return cap.renderSection(entry, { childHtml });
     })
     .join("");
-  const liveStatus = entry.robotStatus;
-  const sticky = !liveStatus ? entry.stickyStatus : null;
   const stateHtml = (() => {
-    const s = liveStatus || sticky;
-    if (!s || s.st === "ready") return "";
-    const prefix = sticky ? "was " : "";
-    const text = s.msg ? `${prefix}${s.st} — ${s.msg}` : `${prefix}${s.st}`;
-    return `<div class="robot-state${sticky ? " sticky" : ""}">${escapeHtml(text)}</div>`;
+    const st = robotStateText(entry);
+    return st ? `<div class="robot-state${st.sticky ? " sticky" : ""}">${escapeHtml(st.text)}</div>` : "";
   })();
   // Enroll prompt flattened to match the capability row rhythm (label + state
   // + action) so it doesn't visually break the card's structure.
@@ -432,16 +436,12 @@ function renderEntry(entry) {
   const nameHtml = `<span class="robot-name" title="${escapeHtml(name)}">${nameInner}</span>`;
   const expanded = computeExpanded(entry);
   entry.node.classList.toggle("expanded", expanded);
-  // Capture the live MJPEG <img> or WebRTC-decode <canvas> before innerHTML
-  // wipes it. Tearing down the <img> aborts the multipart/x-mixed-replace
-  // HTTP response and forces the ESP32 streamTask to detect a client
-  // disconnect + accept a fresh connection — costly. Replacing the <canvas>
-  // detaches the drawing context mid-decode and forfeits any pixels until
-  // the cap's post-render rebind re-acquires it. Transplanting either keeps
-  // the stream visually continuous.
+  // Capture the live MJPEG <img> before innerHTML wipes it. Tearing down
+  // the <img> aborts the multipart/x-mixed-replace HTTP response and forces
+  // the ESP32 streamTask to detect a client disconnect + accept a fresh
+  // connection — costly. Transplanting keeps the stream visually continuous.
   const liveCameraImg = entry.node.querySelector("img.robot-camera[data-cam-id]");
   const liveCameraReady = liveCameraImg?.complete && liveCameraImg.naturalWidth > 0;
-  const liveCameraCanvas = entry.node.querySelector("canvas.robot-camera[data-cam-id]");
   entry.node.innerHTML = `
     <div class="row">
       <div class="robot-identity">
@@ -495,18 +495,6 @@ function renderEntry(entry) {
     );
     if (placeholder && placeholder.src === liveCameraImg.src) {
       placeholder.parentNode.replaceChild(liveCameraImg, placeholder);
-    }
-  }
-  // Same transplant for the WebRTC-decode canvas. The cap's post-render
-  // rebind re-points the decode loop at whichever canvas survives — by
-  // transplanting we preserve the already-painted pixels (no black flash)
-  // and the captureStream wired into entry.cameraStream.
-  if (liveCameraCanvas) {
-    const placeholder = entry.node.querySelector(
-      `canvas.robot-camera[data-cam-id="${entry.id}"]`,
-    );
-    if (placeholder) {
-      placeholder.parentNode.replaceChild(liveCameraCanvas, placeholder);
     }
   }
   // Bind the attached-camera MediaStream after innerHTML rebuild — srcObject
@@ -764,27 +752,47 @@ document.addEventListener("keydown", (e) => {
 // single missing element doesn't abort the rest of the wiring. Same panda
 // principle the firmware applies: the recovery layer enforced *below* the
 // failure-prone intelligent layer.
-function wireRecoveryMenu() {
-  const appMenuBtn = $("app-menu-btn");
-  const appMenu = $("app-menu");
-  if (!appMenuBtn || !appMenu) return;
-  appMenuBtn.addEventListener("click", (e) => {
-    if (appMenu.matches(":popover-open")) { appMenu.hidePopover(); return; }
-    const rect = e.currentTarget.getBoundingClientRect();
-    appMenu.style.top = `${rect.bottom + 6}px`;
-    appMenu.style.left = `${Math.max(8, rect.left)}px`;
-    appMenu.style.right = "auto";
-    if (appMenu.showPopover) appMenu.showPopover();
-  });
+// popover="manual" menus get no native outside-click/Escape dismiss — wire
+// both at document level, plus (when btnId is given) the anchored open/
+// toggle on the trigger button. `triggerSelector` names the element whose
+// clicks must NOT count as outside (it handles its own toggle); `onClose`
+// overrides the default hidePopover (robot-menu needs its closeMenu()).
+function wirePopover(btnId, menuId, { anchor = "left", triggerSelector, onClose } = {}) {
+  const menu = $(menuId);
+  const btn = btnId ? $(btnId) : null;
+  if (!menu || (btnId && !btn)) return;
+  const close = onClose || (() => menu.hidePopover());
+  if (btn) {
+    btn.addEventListener("click", (e) => {
+      if (menu.matches(":popover-open")) { close(); return; }
+      const rect = e.currentTarget.getBoundingClientRect();
+      menu.style.top = `${rect.bottom + 6}px`;
+      if (anchor === "right") {
+        menu.style.right = `${Math.max(8, window.innerWidth - rect.right)}px`;
+        menu.style.left = "auto";
+      } else {
+        menu.style.left = `${Math.max(8, rect.left)}px`;
+        menu.style.right = "auto";
+      }
+      if (menu.showPopover) menu.showPopover();
+    });
+  }
+  const trigger = triggerSelector || `#${btnId}`;
   document.addEventListener("click", (e) => {
-    if (!appMenu.matches(":popover-open")) return;
-    if (e.target.closest("#app-menu")) return;
-    if (e.target.closest("#app-menu-btn")) return;
-    appMenu.hidePopover();
+    if (!menu.matches(":popover-open")) return;
+    if (e.target.closest(`#${menuId}`)) return;
+    if (e.target.closest(trigger)) return;
+    close();
   });
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && appMenu.matches(":popover-open")) appMenu.hidePopover();
+    if (e.key === "Escape" && menu.matches(":popover-open")) close();
   });
+}
+
+function wireRecoveryMenu() {
+  const appMenu = $("app-menu");
+  if (!$("app-menu-btn") || !appMenu) return;
+  wirePopover("app-menu-btn", "app-menu");
   $("menu-phone-view")?.addEventListener("click", () => appMenu.hidePopover());
   $("menu-report-issue")?.addEventListener("click", () => appMenu.hidePopover());
   // Version + report-issue link. Read VERSION from sw.js (CI stamps it
@@ -849,18 +857,9 @@ document.addEventListener("DOMContentLoaded", () => {
   $("qr-hint-pair").addEventListener("click", scanForNew);
 
 
-  // robot-menu is popover="manual" so neither Escape nor outside-click are
-  // native — both need explicit listeners at document level.
-  document.addEventListener("click", (e) => {
-    const menu = $("robot-menu");
-    if (!menu.matches(":popover-open")) return;
-    if (e.target.closest("#robot-menu")) return;           // click inside the menu
-    if (e.target.closest("[data-action='menu']")) return;  // trigger handles its own toggle
-    closeMenu();
-  });
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && $("robot-menu").matches(":popover-open")) closeMenu();
-  });
+  // robot-menu opens from per-card buttons (data-action='menu'), so only
+  // the dismiss wiring lives here.
+  wirePopover(null, "robot-menu", { triggerSelector: "[data-action='menu']", onClose: closeMenu });
 
   $("menu-label").addEventListener("click", () => {
     const id = menuTargetId;
@@ -1040,35 +1039,12 @@ document.addEventListener("DOMContentLoaded", () => {
     renderAvatar(displayName());
   });
 
-  // Avatar menu — popover="manual" matches robot-menu's pattern (no native outside-click/Escape).
-  // Right-anchored: menu's right edge pins to avatar's right edge, grows leftward.
-  // Keeps it inside the viewport regardless of content width.
-  $("avatar-btn").addEventListener("click", (e) => {
-    const menu = $("avatar-menu");
-    if (menu.matches(":popover-open")) {
-      menu.hidePopover();
-      return;
-    }
-    const rect = e.currentTarget.getBoundingClientRect();
-    menu.style.top = `${rect.bottom + 6}px`;
-    menu.style.right = `${Math.max(8, window.innerWidth - rect.right)}px`;
-    menu.style.left = "auto";
-    if (menu.showPopover) menu.showPopover();
-  });
+  // Avatar menu — right-anchored: menu's right edge pins to avatar's right
+  // edge, grows leftward. Keeps it inside the viewport regardless of width.
+  wirePopover("avatar-btn", "avatar-menu", { anchor: "right" });
   $("menu-settings").addEventListener("click", () => {
     $("avatar-menu").hidePopover();
     $("settings-modal").showModal();
-  });
-  document.addEventListener("click", (e) => {
-    const menu = $("avatar-menu");
-    if (!menu.matches(":popover-open")) return;
-    if (e.target.closest("#avatar-menu")) return;
-    if (e.target.closest("#avatar-btn")) return;
-    menu.hidePopover();
-  });
-  document.addEventListener("keydown", (e) => {
-    const menu = $("avatar-menu");
-    if (e.key === "Escape" && menu.matches(":popover-open")) menu.hidePopover();
   });
 
   $("settings-close").addEventListener("click", () => $("settings-modal").close());
@@ -1113,7 +1089,6 @@ document.addEventListener("DOMContentLoaded", () => {
   // let the rest of init continue synchronously.
   initAssistant().catch(err => console.error("[pip] init failed:", err));
   initPhones();
-  initHelpers();
   initRobotPresence();
   // Phone-on-robot rendering: phone.attached/phone.detached resolve
   // into a screen mode and the desktop sends it over WebRTC. Off-
@@ -1139,10 +1114,13 @@ document.addEventListener("DOMContentLoaded", () => {
     const hubHost = q.get("hub");
     if (hubHost) {
       import("./hub/hub-transport.js")
-        .then(m => m.connectHub(hubHost, {
-          username: q.get("hubuser") || undefined,
-          password: q.get("hubpass") || undefined,
-        }))
+        .then(m => {
+          m.setHubRenderers({ patchSecondaryRow });
+          return m.connectHub(hubHost, {
+            username: q.get("hubuser") || undefined,
+            password: q.get("hubpass") || undefined,
+          });
+        })
         .catch(err => {
           console.error("[hub]", err);
           log(`hub connect failed: ${err.message}`, "hub");

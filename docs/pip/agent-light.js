@@ -79,7 +79,6 @@ export function setAgentState(next) {
 function cancelTimer() {
   if (activeTimer != null) {
     clearInterval(activeTimer);
-    clearTimeout(activeTimer);
     activeTimer = null;
   }
 }

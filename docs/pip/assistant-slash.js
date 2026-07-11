@@ -13,6 +13,21 @@ import { getActiveDetectorName, getAvailableDetectors, setActiveDetector } from 
 // they're not providers.
 const PIP_PROVIDERS = ["bridge", "anthropic", "openai"];
 
+// Prompt for + store an API key for anthropic/openai. Shared by the
+// /model gate here and assistant.js's failure-recovery / onboarding
+// flows. Returns the key, or null on cancel. Caller owns saveSettings()
+// timing — the /model flow batches it with the backend switch.
+export async function collectAndSaveKey(pip, isAnthropic) {
+  const key = await pip.collectSecret({
+    label: `${isAnthropic ? "Anthropic" : "OpenAI"} API key`,
+    format: isAnthropic ? "sk-ant-…" : "sk-…",
+  });
+  if (!key) return null;
+  if (isAnthropic) settings.pipApiKey = key;
+  else settings.pipOpenaiKey = key;
+  return key;
+}
+
 export function registerSlashCommands({ pip }) {
   // /model — pick a provider, optionally with a sub-arg.
   //   /model anthropic | bridge            switch provider (current variant)
@@ -102,21 +117,18 @@ export function registerSlashCommands({ pip }) {
       const needsOpenaiKey    = provider === "openai"    && (!settings.pipOpenaiKey || isReSetup);
       if (needsAnthropicKey || needsOpenaiKey) {
         const label  = needsAnthropicKey ? "Anthropic" : "OpenAI";
-        const format = needsAnthropicKey ? "sk-ant-…" : "sk-…";
         ownTurnEl = pip.startTurn({ echo: `/model ${trimmed}` });
         const choice = await pip.askInChat({
           question: `${label} needs ${isReSetup ? "a new" : "an"} API key.`,
           options: [isReSetup ? "Re-enter key" : "Enter key", "Cancel"],
         }, ownTurnEl);
         const key = (choice === "Enter key" || choice === "Re-enter key")
-          ? await pip.collectSecret({ label: `${label} API key`, format })
+          ? await collectAndSaveKey(pip, needsAnthropicKey)
           : null;
         if (!key) {
           pip.setReplyText(ownTurnEl, `Cancelled — ${label} needs an API key. Run \`/model ${provider}\` to try again.`, true);
           return { clearedUI: true };
         }
-        if (needsAnthropicKey) settings.pipApiKey = key;
-        else settings.pipOpenaiKey = key;
       }
 
       // All gates passed (no cancellation, no auth failure). Commit the

@@ -1,8 +1,11 @@
 // Service worker — offline-first dashboard.
 //
-// Strategy: stale-while-revalidate for everything same-origin. After the
-// first visit, the dashboard runs offline; cached assets refresh on next
-// fetch when network is back. The user pays the network cost once.
+// Strategy: cache-first for everything same-origin. After the first
+// visit, the dashboard runs offline. The user pays the network cost once;
+// assets refresh only via the VERSION bump + user-gated reload below —
+// no background revalidation (it re-downloaded every module plus the
+// 4-15 MB CDN model files on each open, and updates never arrived
+// through it anyway).
 //
 // What's NOT cached:
 // - /firmware/* — OTA bundles, big and per-device. Always fetched fresh.
@@ -23,7 +26,7 @@
 //   commit. For an intentional bump unrelated to assets (e.g. server-side
 //   change in an API contract), edit any cached asset (a comment will do)
 //   and the hook will pick up a new hash.
-const VERSION = "e8653dc9";
+const VERSION = "5bece598";
 const CACHE = `dashboard-${VERSION}`;
 
 // Cached at install time so the dashboard can cold-boot offline AND
@@ -120,15 +123,11 @@ self.addEventListener("fetch", (e) => {
   e.respondWith((async () => {
     const cache = await caches.open(CACHE);
     const cached = await cache.match(req);
-    if (cached) {
-      // Stale-while-revalidate: serve the cached copy immediately, fetch
-      // fresh in the background to update the cache for next time. The
-      // user never waits on the network when the cache has an answer.
-      fetch(req).then((resp) => {
-        if (resp.ok) cache.put(req, resp.clone()).catch(() => {});
-      }).catch(() => { /* offline — that's fine, cached copy already served */ });
-      return cached;
-    }
+    // Cache-first, no background revalidation — updates arrive exclusively
+    // through the VERSION-stamped cache name + user-gated reload (header
+    // comment), so a background re-fetch bought nothing and cost a full
+    // re-download of every asset per open.
+    if (cached) return cached;
     // Not cached yet — fetch + cache (lazy install).
     try {
       const resp = await fetch(req);

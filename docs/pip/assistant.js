@@ -9,10 +9,9 @@ import { tryMatchCommand, SAFETY_INTENTS } from "./voice-commands.js";
 import { tryMatchDemo, STATIC_DEMO_PHRASES } from "./demos.js";
 import { prewarmCache as prewarmTtsCache } from "../voice.js";
 import { setDeps as setVoiceDeps, makeMicConfig, wireTtsGating } from "./assistant-voice.js";
-import { registerSlashCommands } from "./assistant-slash.js";
+import { registerSlashCommands, collectAndSaveKey } from "./assistant-slash.js";
 import { wireWatcherFireBridge } from "./assistant-watcher-bridge.js";
 import { releaseAllGates } from "../watcher.js";
-import { emit as busEmit, TOPICS } from "../event-bus.js";
 
 // pip-core is dynamic-imported inside initAssistant() (not statically at
 // module-load) so that a CDN failure on the jsdelivr URL cannot brick
@@ -84,7 +83,7 @@ function buildSystem() {
   return `${PIP_SYSTEM}\n\nCurrent time: ${now}\n${vision}\n\n${currentRobotsLine()}`;
 }
 
-export const PIP_INTRO = "Try: \"why isn't this robot connecting\" or \"what's in the camera\". /help for commands.";
+const PIP_INTRO = "Try: \"why isn't this robot connecting\" or \"what's in the camera\". /help for commands.";
 
 let _pip = null;
 
@@ -115,16 +114,10 @@ const turn = {
 // and the labelTool / summarizeTool name formatting.
 function appendStepPill(turnEl, name, input = null) {
   setAgentState(name === "ask_human" ? "asking" : "working");
-  busEmit(TOPICS.TOOL_CALL, { tool: name, input });
   return _pip.appendToolPill(turnEl, name, { label: `${labelTool(name)} …` });
 }
 function finishStepPill(pill, name, input, result, error, durationMs) {
   setAgentState("thinking");
-  busEmit(TOPICS.TOOL_RESULT, {
-    tool: name,
-    ok: !error && !(result?.error),
-    error: error || result?.error || null,
-  });
   // pip-core's pill renders elapsed time in its own span; we pass
   // null durationMs to summarizeTool so the label stays semantic
   // (name + arg summary) and pip handles right-edge timing.
@@ -230,7 +223,6 @@ async function actOnFailure(backend, turnEl) {
   if (backend === "anthropic" || backend === "openai") {
     const isAnthropic = backend === "anthropic";
     const label = isAnthropic ? "Anthropic" : "OpenAI";
-    const format = isAnthropic ? "sk-ant-…" : "sk-…";
     const has = isAnthropic ? !!settings.pipApiKey : !!settings.pipOpenaiKey;
     const question = has
       ? `${label} call failed — key may be invalid or out of quota.`
@@ -240,10 +232,7 @@ async function actOnFailure(backend, turnEl) {
       options: [has ? "Re-enter key" : "Enter key", "Switch backend"],
     }, turnEl);
     if (choice === "Enter key" || choice === "Re-enter key") {
-      const key = await _pip.collectSecret({ label: `${label} API key`, format });
-      if (!key) return "Cancelled.";
-      if (isAnthropic) settings.pipApiKey = key;
-      else settings.pipOpenaiKey = key;
+      if (!await collectAndSaveKey(_pip, isAnthropic)) return "Cancelled.";
       saveSettings();
       return "Key saved. Try sending again.";
     }
@@ -284,12 +273,7 @@ async function offerBackendChoice(turnEl) {
 
   if (choice === labels.anthropic || choice === labels.openai) {
     const isAnthropic = choice === labels.anthropic;
-    const label = isAnthropic ? "Anthropic" : "OpenAI";
-    const format = isAnthropic ? "sk-ant-…" : "sk-…";
-    const key = await _pip.collectSecret({ label: `${label} API key`, format });
-    if (!key) return false;
-    if (isAnthropic) settings.pipApiKey = key;
-    else settings.pipOpenaiKey = key;
+    if (!await collectAndSaveKey(_pip, isAnthropic)) return false;
     settings.pipBackend = isAnthropic ? "anthropic" : "openai";
     saveSettings();
     _pip.setModelLabel?.(activeModelForBackend(settings.pipBackend));

@@ -54,9 +54,6 @@ const _pendingAsks = new Map();
 // camera-share request/response shape — see requestPhoneCameraShare.
 const _pendingCameraShares = new Map();
 let _pendingSession = null;
-let _changeHandler = null;
-
-export function setPhonesChangeHandler(fn) { _changeHandler = fn; }
 
 export function listPhones() {
   return [..._phones.values()].map(p => ({
@@ -435,7 +432,7 @@ function _registerPairedPhone(id, peer, defaultLabel) {
       // bound here, and refreshes the label.
       _trust.trust(msg.pubkey, msg.label || "Phone");
       const phone = _phones.get(id);
-      if (phone && msg.label) { phone.label = msg.label; renderPhones(); }
+      if (phone && msg.label) phone.label = msg.label;
       return;
     }
     onPhoneMessage(id, peer, msg);
@@ -445,7 +442,6 @@ function _registerPairedPhone(id, peer, defaultLabel) {
     if (!phone) return;
     phone.status = status;
     phone.statusDetail = detail || "";
-    renderPhones();
     if (status === "connected") sendTargetInfo(peer);
   });
   peer.onClose(() => {
@@ -466,7 +462,6 @@ function _registerPairedPhone(id, peer, defaultLabel) {
     _phones.delete(id);
     setPhoneStream(id, null);  // clear this phone's camera state in phone-helpers.js
     log("phone disconnected", "phone");
-    renderPhones();
   });
   // Phone camera comes in through peer.onTrack — user taps "Share camera"
   // on phone.html, pairing.js renegotiates, track lands here. Stream
@@ -710,6 +705,3 @@ export function broadcastTargetInfo() {
   }
 }
 
-function renderPhones() {
-  _changeHandler?.();
-}

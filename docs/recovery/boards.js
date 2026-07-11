@@ -261,8 +261,7 @@ export function portLabel(vid) {
 // Camera-reserved set as a Set (membership test is the only usage).
 // Empty on no-camera boards by design.
 export function cameraReservedSet(boardId) {
-  const b = boardById(boardId);
-  return new Set(b ? b.cameraReservedGpios : []);
+  return new Set(boardById(boardId).cameraReservedGpios);
 }
 
 // Full hardware-forbidden set — mirrors firmware-side PINS_FORBIDDEN in
@@ -270,8 +269,7 @@ export function cameraReservedSet(boardId) {
 // firmware also rejects (and reverts to default on NVS read) so a stale
 // dashboard can't poison the board. Keep in lock-step with the firmware.
 export function boardForbiddenSet(boardId) {
-  const b = boardById(boardId);
-  return new Set(b ? b.forbiddenGpios : []);
+  return new Set(boardById(boardId).forbiddenGpios);
 }
 
 // Per-board upper bound on GPIO IDs — mirrors PIN_MAX in pin_config.c.
@@ -280,7 +278,7 @@ export function boardForbiddenSet(boardId) {
 // candidate is > PIN_MAX (no NVS commit, no restart) — without the
 // dashboard catching it, "save & restart" looks like a no-op.
 export function boardMaxGpio(boardId) {
-  return boardById(boardId)?.maxGpio ?? 39;
+  return boardById(boardId).maxGpio;
 }
 
 // Per-board firmware defaults — mirrors pin_config_load() in pin_config.c.

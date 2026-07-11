@@ -2,8 +2,6 @@
 // different" topic is a smell — investigate before adding one.
 
 export const TOPICS = Object.freeze({
-  TOOL_CALL:      "tool.call",       // { tool, input }
-  TOOL_RESULT:    "tool.result",     // { tool, ok, error }
   WATCHER_FIRE:   "watcher.fire",    // { entry, detection, kind }
   PHONE_ATTACHED: "phone.attached",  // { phoneId, robotId, robotLabel }
   PHONE_DETACHED: "phone.detached",  // { phoneId }

@@ -37,7 +37,6 @@
 //   //       | { accepted: false, reason: 'denied',  data: { ... } }
 //   //       | { accepted: false, reason: 'timeout' }
 //   //       | { accepted: false, reason: 'error',   error: <Error> }
-//   // (back-compat: `timedOut: true` aliases reason === 'timeout' for one revision)
 //
 // Responder usage:
 //   const pr = pairRequestClient({ app: 'pip-pair' });
@@ -94,18 +93,18 @@ export function pairRequestClient({ app, sign = true, lobby = null } = {}) {
   const _pendingInitiations = new Map();
 
   // Nonces we've already handed to our onRequest handler — the same
-  // lobby broadcast may replay on every change, so dedup by nonce. We
-  // track order separately so we can drop the oldest half when we hit
-  // MAX_HANDLED_NONCES.
+  // lobby broadcast may replay on every change, so dedup by nonce. Set
+  // iteration order is insertion order, so evicting from the front
+  // drops the oldest half when we hit MAX_HANDLED_NONCES.
   const _handledInboundNonces = new Set();
-  const _handledInboundOrder = [];
   function _markHandled(nonce) {
     if (_handledInboundNonces.has(nonce)) return;
     _handledInboundNonces.add(nonce);
-    _handledInboundOrder.push(nonce);
-    if (_handledInboundOrder.length > MAX_HANDLED_NONCES) {
-      const drop = _handledInboundOrder.splice(0, MAX_HANDLED_NONCES / 2);
-      for (const n of drop) _handledInboundNonces.delete(n);
+    if (_handledInboundNonces.size > MAX_HANDLED_NONCES) {
+      const it = _handledInboundNonces.values();
+      for (let i = 0; i < MAX_HANDLED_NONCES / 2; i++) {
+        _handledInboundNonces.delete(it.next().value);
+      }
     }
   }
 
@@ -201,7 +200,7 @@ export function pairRequestClient({ app, sign = true, lobby = null } = {}) {
         if (!_pendingInitiations.has(nonce)) return;
         _pendingInitiations.delete(nonce);
         try { _getLobby().remove(REQUEST_APP + ':' + nonce); } catch {}
-        resolve({ accepted: false, reason: 'timeout', timedOut: true });
+        resolve({ accepted: false, reason: 'timeout' });
       }, timeoutMs);
       _pendingInitiations.set(nonce, { resolve, timer });
     });

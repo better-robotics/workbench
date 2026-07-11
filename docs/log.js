@@ -85,6 +85,9 @@ export const log = (msg, name = "") => {
   msgSpan.textContent = msg;
   line.append(timeSpan, nameSpan, msgSpan);
   el.prepend(line);
+  // Cap the DOM — dedupe only collapses consecutive repeats, so a long
+  // session would otherwise grow the log unbounded.
+  while (el.childElementCount > 200) el.lastChild.remove();
   // Burst continuation: anchor name on newest line, older siblings go anonymous.
   if (name && name === _lastLogName && _lastLogNameNode) {
     _lastLogNameNode.classList.add("dup");

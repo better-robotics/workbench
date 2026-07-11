@@ -21,20 +21,7 @@ export function startMjpegForward(entry, srcEl) {
   stopMjpegForward(entry);
   if (!srcEl) return;
 
-  // Source is already a <canvas> (WebCodecs decode path): no drawImage
-  // polling needed — captureStream fires on every canvas update. One
-  // fewer per-frame copy than the legacy <img> path.
-  if (srcEl instanceof HTMLCanvasElement) {
-    try {
-      const stream = srcEl.captureStream(FPS);
-      entry._mjpegForward = { canvas: srcEl, intervalId: null, stream, imgEl: srcEl };
-      entry.cameraStream = stream;
-      notifyRobotStreamChange(entry);
-    } catch { /* captureStream unsupported — phone forward silently skipped */ }
-    return;
-  }
-
-  // Legacy <img> path (HTTP MJPEG): poll the img into our own canvas.
+  // HTTP MJPEG <img>: poll the img into our own canvas.
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
   const state = { canvas, intervalId: null, stream: null, imgEl: srcEl };

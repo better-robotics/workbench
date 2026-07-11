@@ -88,15 +88,9 @@ export async function getPairDiagnostic() {
 if (typeof window !== "undefined") {
   window.lastPairDiagnostic = getPairDiagnostic;
 }
-// no-op kept for in-module call sites; per-step state lives in Diagnostics
-// dialog (lastPairDiagnostic + getStats).
-function dbg() {}
-
 function makePeerId(role) {
   return role + "-" + Math.random().toString(36).slice(2, 8);
 }
-
-export { makePeerId };
 
 // State snapshots can carry stale entries from prior sessions. Apply only
 // semantic-describe (offer/answer); ICE candidates tied to a dead pc would
@@ -252,7 +246,7 @@ class Peer {
         // Healthy connection → skip. Replaying an old offer on a working pc
         // would tear it down. We only want state during initial connect and
         // during active reconnect.
-        if (this._isConnected()) { dbg("peer state skipped (already connected)"); return; }
+        if (this._isConnected()) return;
         for (const d of extractFromState(msg.peers, this._myPeerId, this._otherRolePrefix)) {
           await this._applySignal(d);
         }
@@ -279,9 +273,7 @@ class Peer {
       }
       if (data.answer) await this._pc.setRemoteDescription(data.answer);
       if (data.ice)    { diagRemote(data.ice); try { await this._pc.addIceCandidate(data.ice); } catch {} }
-    } catch (err) {
-      dbg("peer signal error", err.message || err);
-    }
+    } catch {}
   }
 
   // iOS Safari kills idle WebSockets when the tab backgrounds; even a 20s
@@ -406,7 +398,6 @@ export async function hostPairingRoom({ onStatus = () => {} } = {}) {
   const roomId = crypto.randomUUID();
   const myPeerId = makePeerId("desktop");
   const otherRolePrefix = "phone";
-  dbg("desktop: opening room", roomId, "peerId=", myPeerId);
   const iceServers = [];   // LAN-only: host/mDNS candidates; see module header
   diagReset("desktop", roomId, iceServers);
   const pc = new RTCPeerConnection({ iceServers });
@@ -427,26 +418,19 @@ export async function hostPairingRoom({ onStatus = () => {} } = {}) {
     timeoutId = setTimeout(() => {
       if (resolved) return;
       resolved = true;
-      dbg("desktop: ICE timeout");
       try { ws.close(); } catch {}
       try { pc.close(); } catch {}
       rejectPeer(new Error("Phone connected but couldn't establish a peer-to-peer link within 30s. Network may be blocking WebRTC."));
     }, ICE_TIMEOUT_MS);
   };
 
-  ws.addEventListener("open",  () => dbg("desktop ws: open"));
-  ws.addEventListener("close", () => dbg("desktop ws: close"));
-  pc.addEventListener("iceconnectionstatechange", () => dbg("desktop ice", pc.iceConnectionState));
-  pc.addEventListener("connectionstatechange",    () => dbg("desktop pc",  pc.connectionState));
 
   pc.addEventListener("datachannel", (e) => {
-    dbg("desktop: ondatachannel");
     try { onStatus("Phone connected, establishing channel…"); } catch {}
     e.channel.addEventListener("open", () => {
       if (resolved) return;
       resolved = true;
       clearTimeout(timeoutId);
-      dbg("desktop: channel open, resolving peer");
       resolvePeer(new Peer({ pc, channel: e.channel, ws, myPeerId, otherRolePrefix, roomId }));
     });
   });
@@ -454,7 +438,6 @@ export async function hostPairingRoom({ onStatus = () => {} } = {}) {
   const applySignal = async (data) => {
     if (!data) return;
     if (data.offer) {
-      dbg("desktop: offer received");
       try { onStatus("Phone connected, negotiating…"); } catch {}
       armIceTimeout();
       await pc.setRemoteDescription(data.offer);
@@ -463,7 +446,6 @@ export async function hostPairingRoom({ onStatus = () => {} } = {}) {
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       ws.send(JSON.stringify({ type: "signal", peer: myPeerId, data: { answer } }));
-      dbg("desktop: answer sent");
     }
     if (data.ice) {
       diagRemote(data.ice);
@@ -485,7 +467,6 @@ export async function hostPairingRoom({ onStatus = () => {} } = {}) {
       // Pre-Peer state: only apply if phone already dropped a signal before
       // we arrived. Ignore our own role's stale entries.
       for (const d of extractFromState(msg.peers, myPeerId, otherRolePrefix)) {
-        dbg("desktop: replaying state entry");
         await applySignal(d);
       }
     }
@@ -518,7 +499,6 @@ export async function hostPairingRoom({ onStatus = () => {} } = {}) {
 export async function joinPairingRoom(roomId, { onStatus = () => {} } = {}) {
   const myPeerId = makePeerId("phone");
   const otherRolePrefix = "desktop";
-  dbg("phone: joining room", roomId, "peerId=", myPeerId);
   try { onStatus("Opening signal channel…"); } catch {}
   const iceServers = [];   // LAN-only: host/mDNS candidates; see module header
   diagReset("phone", roomId, iceServers);
@@ -529,11 +509,8 @@ export async function joinPairingRoom(roomId, { onStatus = () => {} } = {}) {
   const ws = openSignalWs(roomId);
   wireIceTrickle(pc, ws, myPeerId);
 
-  ws.addEventListener("close", () => dbg("phone ws: close"));
-  pc.addEventListener("connectionstatechange", () => dbg("phone pc", pc.connectionState));
   pc.addEventListener("iceconnectionstatechange", () => {
     const s = pc.iceConnectionState;
-    dbg("phone ice", s);
     if (s === "checking") { try { onStatus("Finding network path…"); } catch {} }
     else if (s === "connected" || s === "completed") { try { onStatus("Network path ready, opening channel…"); } catch {} }
   });
@@ -554,7 +531,6 @@ export async function joinPairingRoom(roomId, { onStatus = () => {} } = {}) {
     // Phone-side ICE timer — page is already loaded by the time we get here,
     // so this measures negotiation only (no human reaction time included).
     timeoutId = setTimeout(() => {
-      dbg("phone: ICE timeout");
       fail(new Error("Couldn't reach the desktop within 30s — try refreshing the QR there."));
     }, ICE_TIMEOUT_MS);
 
@@ -562,14 +538,12 @@ export async function joinPairingRoom(roomId, { onStatus = () => {} } = {}) {
       if (resolved) return;
       resolved = true;
       clearTimeout(timeoutId);
-      dbg("phone: channel open, resolving peer");
       resolve(new Peer({ pc, channel, ws, myPeerId, otherRolePrefix, roomId }));
     });
 
     const applySignal = async (data) => {
       if (!data) return;
       if (data.answer) {
-        dbg("phone: answer received");
         try { onStatus("Desktop answered. Negotiating…"); } catch {}
         await pc.setRemoteDescription(data.answer);
         for (const c of pendingIce) { try { await pc.addIceCandidate(c); } catch {} }
@@ -583,7 +557,6 @@ export async function joinPairingRoom(roomId, { onStatus = () => {} } = {}) {
     };
 
     ws.addEventListener("open", async () => {
-      dbg("phone ws: open");
       try {
         try { onStatus("Signal channel open. Creating offer…"); } catch {}
         const offer = await pc.createOffer();
@@ -601,7 +574,6 @@ export async function joinPairingRoom(roomId, { onStatus = () => {} } = {}) {
         await applySignal(msg.data);
       } else if (msg.type === "state") {
         for (const d of extractFromState(msg.peers, myPeerId, otherRolePrefix)) {
-          dbg("phone: replaying state entry");
           await applySignal(d);
         }
       }

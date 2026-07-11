@@ -204,7 +204,7 @@ const ALL_TOOLS = [
   },
   {
     name: "drive",
-    description: "Time-bounded motor pulse: (l, r) speeds in [-100, 100], duration_ms in [50, 4000]. Firmware auto-stops at end of window and clips pure-forward motion when dist_cm < ~15. Returns { ok, applied:{l,r,duration_ms} } or { ok:false, error }. PREFER drive_distance_cm or approach_until for non-trivial moves — they save 1-2 LLM round-trips per logical action.",
+    description: `Time-bounded motor pulse: (l, r) speeds in [-100, 100], duration_ms in [50, ${LLM_MAX_DURATION_MS}]. Firmware auto-stops at end of window and clips pure-forward motion when dist_cm < ~15. Returns { ok, applied:{l,r,duration_ms} } or { ok:false, error }. PREFER drive_distance_cm or approach_until for non-trivial moves — they save 1-2 LLM round-trips per logical action.`,
     input_schema: {
       type: "object",
       properties: {
@@ -725,80 +725,78 @@ async function dispatch(name, input) {
         let driveMs = drivePulseMsFar;
 
         // Target-aware path: detect, center, check bbox-area, decide pulse.
-        if (target) {
-          const sources = listCameraSources(e);
-          const primary = sources.find(s => s.label === "primary");
-          if (primary) {
-            let dets = null;
-            try { dets = await detectOnce(e, { classes: [target], source: primary.element }); }
-            catch { /* swallow per-iteration; loop guard handles total */ }
-            const hit = dets?.[0];
-            if (hit) {
-              lostCount = 0;
-              everSeen = true;
-              bboxArea = (hit.bbox?.w ?? 0) * (hit.bbox?.h ?? 0);
-              // Stop predicate #2: target fills enough of the frame. This
-              // is the reliable "close enough" signal for small objects
-              // the ultrasonic cone misses.
-              if (bboxArea >= stopBboxArea) {
-                reason = `bbox_area=${bboxArea.toFixed(2)} >= stop_bbox_area=${stopBboxArea} (close enough by sight)`;
-                break;
-              }
-              // Adaptive pulse: shorter when target is already biggish.
-              if (bboxArea > 0.10) driveMs = drivePulseMsNear;
-
-              const cx = hit.bbox?.cx ?? 0.5;
-              if (cx < 0.4 || cx > 0.6) {
-                const turnMs = 200;
-                const l = cx < 0.4 ? -speed : speed;
-                const r = cx < 0.4 ? speed : -speed;
-                await pulseMotors(input.id, l, r, turnMs);
-                e.lastMotorActionAt = Date.now();
-                trajectory.push({ action: cx < 0.4 ? "turn-left" : "turn-right", cx: +cx.toFixed(2), area: +bboxArea.toFixed(2), ms: turnMs });
-                await new Promise(res => setTimeout(res, turnMs + 30));
-                continue;
-              }
-            } else {
-              // Stop predicate #3: target was seen before but is now lost
-              // for N consecutive iterations — almost certainly out-of-
-              // frame because we got too close or overshot. Halt before
-              // we keep blindly driving past.
-              lostCount++;
-              if (everSeen && lostCount >= MAX_LOST) {
-                reason = `target '${target}' lost (${MAX_LOST} consecutive misses, was seen before — likely overshot or below camera)`;
-                break;
-              }
-              // Stop predicate #4: target was never seen even once. The
-              // detector probably can't recognize it at this angle / under
-              // this occlusion / in this lighting. No amount of scan-
-              // spinning will surface it — bail and let Pip narrate the
-              // dead end (try view_robot_frame, reposition, ask_human).
-              if (!everSeen && lostCount >= MAX_NEVER_SEEN) {
-                reason = `target '${target}' never detected in ${MAX_NEVER_SEEN} scan attempts — MediaPipe's closed-vocab detector likely can't see it at this angle / occlusion / lighting. Try view_robot_frame to confirm it's actually in view, or approach manually with drive.`;
-                break;
-              }
-              // Small scan-spin to try re-acquiring; don't drive forward
-              // blindly when we just lost the thing we're chasing.
-              // Alternate direction every SCAN_FLIP_EVERY misses so we
-              // sweep both sides of the FOV instead of rotating one way
-              // forever — UBC LTS/LTRA literature on bounded recovery
-              // sweeps. Without this the robot would scan-spin left for
-              // 15s if the target was to the right.
-              const SCAN_FLIP_EVERY = 4;
-              const turnMs = 200;
-              const turnLeft = Math.floor((lostCount - 1) / SCAN_FLIP_EVERY) % 2 === 0;
-              const lMot = turnLeft ? -speed :  speed;
-              const rMot = turnLeft ?  speed : -speed;
-              await pulseMotors(input.id, lMot, rMot, turnMs);
-              e.lastMotorActionAt = Date.now();
-              trajectory.push({
-                action: turnLeft ? "scan-spin-left" : "scan-spin-right",
-                lost_streak: lostCount,
-                ms: turnMs,
-              });
-              await new Promise(res => setTimeout(res, turnMs + 30));
-              continue;
+        const primary = target
+          ? listCameraSources(e).find(s => s.label === "primary")
+          : null;
+        if (primary) {
+          let dets = null;
+          try { dets = await detectOnce(e, { classes: [target], source: primary.element }); }
+          catch { /* swallow per-iteration; loop guard handles total */ }
+          const hit = dets?.[0];
+          if (!hit) {
+            // Stop predicate #3: target was seen before but is now lost
+            // for N consecutive iterations — almost certainly out-of-
+            // frame because we got too close or overshot. Halt before
+            // we keep blindly driving past.
+            lostCount++;
+            if (everSeen && lostCount >= MAX_LOST) {
+              reason = `target '${target}' lost (${MAX_LOST} consecutive misses, was seen before — likely overshot or below camera)`;
+              break;
             }
+            // Stop predicate #4: target was never seen even once. The
+            // detector probably can't recognize it at this angle / under
+            // this occlusion / in this lighting. No amount of scan-
+            // spinning will surface it — bail and let Pip narrate the
+            // dead end (try view_robot_frame, reposition, ask_human).
+            if (!everSeen && lostCount >= MAX_NEVER_SEEN) {
+              reason = `target '${target}' never detected in ${MAX_NEVER_SEEN} scan attempts — MediaPipe's closed-vocab detector likely can't see it at this angle / occlusion / lighting. Try view_robot_frame to confirm it's actually in view, or approach manually with drive.`;
+              break;
+            }
+            // Small scan-spin to try re-acquiring; don't drive forward
+            // blindly when we just lost the thing we're chasing.
+            // Alternate direction every SCAN_FLIP_EVERY misses so we
+            // sweep both sides of the FOV instead of rotating one way
+            // forever — UBC LTS/LTRA literature on bounded recovery
+            // sweeps. Without this the robot would scan-spin left for
+            // 15s if the target was to the right.
+            const SCAN_FLIP_EVERY = 4;
+            const turnMs = 200;
+            const turnLeft = Math.floor((lostCount - 1) / SCAN_FLIP_EVERY) % 2 === 0;
+            const lMot = turnLeft ? -speed :  speed;
+            const rMot = turnLeft ?  speed : -speed;
+            await pulseMotors(input.id, lMot, rMot, turnMs);
+            e.lastMotorActionAt = Date.now();
+            trajectory.push({
+              action: turnLeft ? "scan-spin-left" : "scan-spin-right",
+              lost_streak: lostCount,
+              ms: turnMs,
+            });
+            await new Promise(res => setTimeout(res, turnMs + 30));
+            continue;
+          }
+          lostCount = 0;
+          everSeen = true;
+          bboxArea = (hit.bbox?.w ?? 0) * (hit.bbox?.h ?? 0);
+          // Stop predicate #2: target fills enough of the frame. This
+          // is the reliable "close enough" signal for small objects
+          // the ultrasonic cone misses.
+          if (bboxArea >= stopBboxArea) {
+            reason = `bbox_area=${bboxArea.toFixed(2)} >= stop_bbox_area=${stopBboxArea} (close enough by sight)`;
+            break;
+          }
+          // Adaptive pulse: shorter when target is already biggish.
+          if (bboxArea > 0.10) driveMs = drivePulseMsNear;
+
+          const cx = hit.bbox?.cx ?? 0.5;
+          if (cx < 0.4 || cx > 0.6) {
+            const turnMs = 200;
+            const l = cx < 0.4 ? -speed : speed;
+            const r = cx < 0.4 ? speed : -speed;
+            await pulseMotors(input.id, l, r, turnMs);
+            e.lastMotorActionAt = Date.now();
+            trajectory.push({ action: cx < 0.4 ? "turn-left" : "turn-right", cx: +cx.toFixed(2), area: +bboxArea.toFixed(2), ms: turnMs });
+            await new Promise(res => setTimeout(res, turnMs + 30));
+            continue;
           }
         }
 

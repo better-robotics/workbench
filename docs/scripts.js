@@ -294,15 +294,21 @@ function saveBody(body) {
   try { localStorage.setItem(STORE_KEY, body); } catch {}
 }
 
+// Unsaved-divergence gate + editor/body write, shared by loadTemplate and
+// the "— (custom)" clear action: confirm only when the editor holds content
+// that matches no known template.
+function confirmAndSetBody(promptText, body) {
+  const current = editorValue();
+  const isKnown = TEMPLATES.some(t => t.body === current);
+  if (current && !isKnown && !confirm(promptText)) return false;
+  setEditorValue(body);
+  saveBody(body);
+  return true;
+}
+
 function loadTemplate(id) {
   const tpl = templateById(id);
-  const current = editorValue();
-  // If the user has unsaved divergence from any known template, confirm.
-  const isKnown = TEMPLATES.some(t => t.body === current);
-  if (current && !isKnown && !confirm(`Replace current script with "${tpl.name}"?`)) return false;
-  setEditorValue(tpl.body);
-  saveBody(tpl.body);
-  return true;
+  return confirmAndSetBody(`Replace current script with "${tpl.name}"?`, tpl.body);
 }
 
 // Pick whichever template's body matches the editor verbatim, or "" if none
@@ -459,19 +465,9 @@ export function init() {
     TEMPLATES.map(t => `<option value="${t.id}">${t.name}</option>`).join("");
   sel.addEventListener("change", () => {
     // Empty-value option (`— (custom)`) is a real action now: clear the
-    // editor so the user starts from a blank slate. Confirm only if the
-    // current contents are an unsaved divergence (matches loadTemplate's
-    // logic — don't pester when the user is about to discard a known
-    // template they could re-pick from the dropdown).
+    // editor so the user starts from a blank slate.
     if (!sel.value) {
-      const current = editorValue();
-      const isKnown = TEMPLATES.some(t => t.body === current);
-      if (current && !isKnown && !confirm("Clear current script?")) {
-        syncDropdownToEditor();
-        return;
-      }
-      setEditorValue("");
-      saveBody("");
+      if (!confirmAndSetBody("Clear current script?", "")) syncDropdownToEditor();
       return;
     }
     if (!loadTemplate(sel.value)) syncDropdownToEditor();

@@ -10,6 +10,16 @@ import { freshUrl, escapeHtml, fetchWithTimeout } from "../dom.js";
 import { logFor, log } from "../log.js";
 import { state } from "../state.js";
 
+// Chunked to avoid stack overflow from spreading a multi-MB array into
+// String.fromCharCode.
+function bytesToBase64(bytes) {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(bin);
+}
+
 // Stream a single-file OTA bundle to the Pi. Constructs a minimal bundle
 // on the fly (no reboot, optional service restart) and reuses the
 // ota-data char. Dest path goes through the firmware's allowed-prefix
@@ -20,13 +30,9 @@ export async function uploadFile(id, filename, destPath, contentBytes, { restart
     log("file upload not supported by this firmware");
     return false;
   }
-  let bin = "";
-  for (let i = 0; i < contentBytes.length; i += 0x8000) {
-    bin += String.fromCharCode.apply(null, contentBytes.subarray(i, i + 0x8000));
-  }
   const manifest = { files: [{ src: filename, dest: destPath, mode }] };
   if (restart) manifest.restart = restart;
-  const bundle = { manifest, files: { [filename]: btoa(bin) } };
+  const bundle = { manifest, files: { [filename]: bytesToBase64(contentBytes) } };
   const payload = encodeJson(bundle);
   await acquireWakeLock();
   try {
@@ -220,8 +226,7 @@ async function streamOtaBytes(entry, bytes) {
   patchOtaSection(entry);
 }
 
-async function buildBundle(entry, manifestUrl) {
-  manifestUrl = manifestUrl || entry.fwInfo?.bundle_url;
+async function buildBundle(manifestUrl) {
   const manifest = await (await fetchWithTimeout(freshUrl(manifestUrl), { cache: "no-cache" })).json();
   // Parallel file fetches; Promise.all preserves order so firmware sees
   // them in manifest order.
@@ -229,13 +234,7 @@ async function buildBundle(entry, manifestUrl) {
     const src = spec.src;
     // 60s per file — bundle binaries can be a few MB on a slow connection.
     const buf = await (await fetchWithTimeout(freshUrl(`firmware/pi_robot/${src}`), { cache: "no-cache" }, 60000)).arrayBuffer();
-    // Chunked to avoid stack overflow from spreading into String.fromCharCode.
-    const bytes = new Uint8Array(buf);
-    let bin = "";
-    for (let i = 0; i < bytes.length; i += 0x8000) {
-      bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-    }
-    return [src, btoa(bin)];
+    return [src, bytesToBase64(new Uint8Array(buf))];
   }));
   return { manifest, files: Object.fromEntries(entries) };
 }
@@ -256,7 +255,7 @@ export async function updateFirmware(id) {
     logFor(entry, `fetching bundle (${bundleUrl})…`);
     let bytes, bundle;
     try {
-      bundle = await buildBundle(entry, bundleUrl);
+      bundle = await buildBundle(bundleUrl);
       bytes = encodeJson(bundle);
       const stamp = bundle.manifest.commit ? ` · commit ${bundle.manifest.commit}` : "";
       logFor(entry, `bundle ready: ${bundle.manifest.files.length} files, ${bytes.length} B${stamp}`);

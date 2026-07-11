@@ -499,16 +499,13 @@ async function stopsignPatrol(ctx) {
   }
 }
 
-// 10 — Show-off. Greatest-hits reel chaining intro + figure8 + wiggle +
+// 10 — Show-off. Greatest-hits reel chaining intro + wiggle +
 //      dance. ~45s. Use this as the "full pitch" — every capability,
 //      back to back, with vocal narration tying them together.
 async function showOff(ctx) {
   await ctx.exec("speak", { text: "Alright. Showtime." });
   await ctx.sleep(600);
   await introduce(ctx);
-  await ctx.sleep(400);
-  await ctx.exec("speak", { text: "Figure eight." });
-  await figure8(ctx);
   await ctx.sleep(400);
   await ctx.exec("speak", { text: "Happy wiggle." });
   await wiggle(ctx);
@@ -556,19 +553,17 @@ export const STATIC_DEMO_PHRASES = [
   // wiggle — no speak
   // selfie
   "One sec, let me look around...", "I can't quite make out the room. Bring something closer?", "Nice meeting you.",
-  // figure8 / zigzag
-  "Figure eight. Here we go.", "Hmm... scanning around.", "All clear.",
   // stopsign
   "Patrolling. Watch this.",
   "Whoa — stop sign. Holding.", "Stop sign again. Pausing.", "Alright, I see it. Holding here.",
   "Off again.", "Wall ahead — turning.", "Around we go.", "Patrol stopped.",
   // showoff
-  "Alright. Showtime.", "Figure eight.", "Happy wiggle.", "That's a wrap. Thanks for watching.",
+  "Alright. Showtime.", "Happy wiggle.", "That's a wrap. Thanks for watching.",
 ];
 
 // Match `demo <name>` or `/demo <name>`. Aliases cover the variations
-// Web Speech produces — "figure eight" / "figure 8", "zig zag" /
-// "zigzag", "show off" / "showoff", etc. Dictated demo invocations
+// Web Speech produces — "show off" / "showoff", "hand follow" /
+// "gesture follow", etc. Dictated demo invocations
 // should "just work" without the user having to spell things exactly.
 // Order matters: more-specific aliases come first so they win against
 // shorter ones (e.g. `stopsign` before `patrol`, since "stop sign

@@ -18,7 +18,7 @@ function stopLogTail() {
   }
   if (logTailRobotId) {
     // Lazy-import to keep webrtc-robot.js out of the eager bundle.
-    import("./webrtc-robot.js").then((m) => m.closePeer(logTailRobotId)).catch(() => {});
+    import("../webrtc/webrtc-robot.js").then((m) => m.closePeer(logTailRobotId)).catch(() => {});
   }
   statusEl.hidden = true;
   tailBtn.textContent = "Tail live";
@@ -69,7 +69,7 @@ export function wireLogDialog({ getMenuTargetId, closeMenu }) {
     tailBtn.textContent = "Stop";
     body.textContent = "Connecting to live log…\n";
     try {
-      const { openChannel } = await import("./webrtc-robot.js");
+      const { openChannel } = await import("../webrtc/webrtc-robot.js");
       logTailChannel = await openChannel(id, entry.name, "logs", {
         onStatus: (s) => { body.textContent = `${s}\n`; },
         robotType: entry.fwType,

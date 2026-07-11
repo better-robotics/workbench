@@ -16,32 +16,33 @@ export async function sendCommand(entry, capName, msg) {
   }
 }
 
-export async function restartService(id) {
+// restartService / rebootRobot share the confirm → ops-write → log flow;
+// only the strings differ.
+async function confirmedOpsCommand(id, op, confirmText, logText) {
   const entry = state.devices.get(id);
   if (!entry?.opsChar) {
-    logFor(entry || { name: "?", lastEvent: null }, "restart unavailable on this robot");
+    logFor(entry || { name: "?", lastEvent: null }, `${op} unavailable on this robot`);
     return;
   }
-  if (!confirm(
-    `Restart the robot's service?\n\nThis disconnects BLE briefly. ` +
-    `Click Reconnect on the robot card once the service is back (~5–10 s).`
-  )) return;
-  if (await sendCommand(entry, "ops", { op: "restart-service" })) {
-    logFor(entry, "service restart requested");
+  if (!confirm(confirmText)) return;
+  if (await sendCommand(entry, "ops", { op })) {
+    logFor(entry, logText);
   }
 }
 
-export async function rebootRobot(id) {
-  const entry = state.devices.get(id);
-  if (!entry?.opsChar) return;
-  if (!confirm(
+export function restartService(id) {
+  return confirmedOpsCommand(id, "restart-service",
+    `Restart the robot's service?\n\nThis disconnects BLE briefly. ` +
+    `Click Reconnect on the robot card once the service is back (~5–10 s).`,
+    "service restart requested");
+}
+
+export function rebootRobot(id) {
+  return confirmedOpsCommand(id, "reboot",
     `Reboot the robot?\n\nFull system reboot — needed when a kernel-owned ` +
     `resource is stuck (camera, USB gadget, etc.) and a service restart ` +
-    `can't clear it. BLE drops for 30–60 s.`
-  )) return;
-  if (await sendCommand(entry, "ops", { op: "reboot" })) {
-    logFor(entry, "reboot requested");
-  }
+    `can't clear it. BLE drops for 30–60 s.`,
+    "reboot requested");
 }
 
 export async function installPackage(id, name, opts = {}) {
