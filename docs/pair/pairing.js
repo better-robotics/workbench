@@ -2,38 +2,22 @@
 // hard failure (channel closed and ICE restart didn't recover within the
 // grace window) counts as "disconnected, rescan QR".
 //
-// Signal protocol (wss://signal.neevs.io/{room}/ws):
+// Signal protocol (hub broker, pair/<room>/s/<peer> — broker-signal.js):
 //   send   { type: "signal", peer: myPeerId, data: { offer|answer|ice } }
-//   recv   { type: "state",  peers: { peerId: lastSignal } }  // once, on connect
+//   recv   { type: "state",  peers: { peerId: lastSignal } }  // retained replay
 //          { type: "signal", peer: theirPeerId, data: {...} }
 //
 // Phone is OFFERER (joins second), desktop is ANSWERER. peerId = role +
 // "-" + nonce so a stale tab doesn't collide with a fresh session under a
-// fixed role key. The server's `state` snapshot recovers signals sent
-// before late-joiners arrive; applied only when we're not already on a
-// healthy connection.
-import { SIGNAL_WS, TURN_URL } from "../endpoints.js";
-// TURN proxy mints short-lived Cloudflare Realtime creds. STUN stays in
-// line as a zero-roundtrip fallback so a degraded proxy (offline, rate-
-// limited, mis-deployed) still gives us STUN-only pairing instead of nothing.
-const STUN_FALLBACK = [
-  { urls: "stun:stun.l.google.com:19302" },
-  { urls: "stun:stun.cloudflare.com:3478" },
-];
-
-async function fetchIceServers() {
-  try {
-    const r = await fetch(TURN_URL, { method: "POST" });
-    if (!r.ok) throw new Error(`turn: ${r.status}`);
-    const { iceServers } = await r.json();
-    dbg("turn: fetched", iceServers.length, "server(s)");
-    return [...STUN_FALLBACK, ...iceServers];
-  } catch (err) {
-    dbg("turn: fetch failed, STUN-only", err.message || err);
-    return STUN_FALLBACK;
-  }
-}
-const HEARTBEAT_MS = 20000;   // Cloudflare closes idle WebSockets ~100s; ping well below that.
+// fixed role key. The retained-message replay recovers signals sent before
+// late-joiners arrive; applied only when we're not already on a healthy
+// connection.
+//
+// LAN-only by design: no ICE servers, no TURN — signaling moved from
+// wss://signal.neevs.io to the hub broker, so both peers are on the same
+// network and host/mDNS candidates carry the connection. The robot↔desktop
+// WebRTC paths keep TURN via webrtc/ice.js.
+import { openSignalChannel, getSignalBrokerHost } from "./broker-signal.js";
 const DISCONNECT_GRACE_MS = 10000;  // Transient ICE `disconnected` can recover on its own.
 // Backpressure: DataChannel.bufferedAmount grows unbounded if we outrun the
 // peer. Text/joypad traffic is tiny so we rarely get near this; the queue is
@@ -112,9 +96,7 @@ function makePeerId(role) {
   return role + "-" + Math.random().toString(36).slice(2, 8);
 }
 
-// Used by callers that build their own room flow on the same signal.neevs.io
-// (e.g. webrtc-robot.js).
-export { SIGNAL_WS, fetchIceServers, makePeerId };
+export { makePeerId };
 
 // State snapshots can carry stale entries from prior sessions. Apply only
 // semantic-describe (offer/answer); ICE candidates tied to a dead pc would
@@ -148,7 +130,6 @@ class Peer {
     this._onClose = () => {};
     this._status = "connected";
     this._graceTimer = null;
-    this._heartbeatTimer = null;
     this._sendQueue = [];
     this._reopening = false;
     this._visibilityHandler = null;
@@ -205,7 +186,6 @@ class Peer {
     });
     pc.addEventListener("negotiationneeded", () => this._renegotiate());
 
-    this._startHeartbeat();
     this._installSignalHandlers();
     this._installVisibilityRecovery();
   }
@@ -233,14 +213,6 @@ class Peer {
     if (this._status === status) return;
     this._status = status;
     try { this._onStatus(status, detail); } catch {}
-  }
-
-  _startHeartbeat() {
-    this._heartbeatTimer = setInterval(() => {
-      if (this._ws.readyState === WebSocket.OPEN) {
-        try { this._ws.send(JSON.stringify({ type: "ping" })); } catch {}
-      }
-    }, HEARTBEAT_MS);
   }
 
   _isConnected() {
@@ -364,7 +336,6 @@ class Peer {
 
   _finalClose() {
     if (this._graceTimer) { clearTimeout(this._graceTimer); this._graceTimer = null; }
-    if (this._heartbeatTimer) { clearInterval(this._heartbeatTimer); this._heartbeatTimer = null; }
     if (this._visibilityHandler) {
       document.removeEventListener("visibilitychange", this._visibilityHandler);
       this._visibilityHandler = null;
@@ -415,7 +386,7 @@ class Peer {
 }
 
 function openSignalWs(roomId) {
-  return new WebSocket(`${SIGNAL_WS}/${roomId}/ws`);
+  return openSignalChannel(roomId);
 }
 
 function wireIceTrickle(pc, ws, myPeerId) {
@@ -436,7 +407,7 @@ export async function hostPairingRoom({ onStatus = () => {} } = {}) {
   const myPeerId = makePeerId("desktop");
   const otherRolePrefix = "phone";
   dbg("desktop: opening room", roomId, "peerId=", myPeerId);
-  const iceServers = await fetchIceServers();
+  const iceServers = [];   // LAN-only: host/mDNS candidates; see module header
   diagReset("desktop", roomId, iceServers);
   const pc = new RTCPeerConnection({ iceServers });
   diagPc(pc);
@@ -526,9 +497,9 @@ export async function hostPairingRoom({ onStatus = () => {} } = {}) {
       clearTimeout(timeoutId);
       pc.close();
       rejectPeer(new Error(
-        "Couldn't reach the pairing server (signal.neevs.io). " +
-        "Check your network — captive portals, strict firewalls, " +
-        "and some carrier hotspots block WebSocket connections.",
+        `Couldn't reach the hub broker (${getSignalBrokerHost()}) for pairing. ` +
+        "Pairing signals over the hub — open the dashboard with ?hub=<host> " +
+        "on an http-served page, with both devices on the hub's network.",
       ));
     }
   });
@@ -549,7 +520,7 @@ export async function joinPairingRoom(roomId, { onStatus = () => {} } = {}) {
   const otherRolePrefix = "desktop";
   dbg("phone: joining room", roomId, "peerId=", myPeerId);
   try { onStatus("Opening signal channel…"); } catch {}
-  const iceServers = await fetchIceServers();
+  const iceServers = [];   // LAN-only: host/mDNS candidates; see module header
   diagReset("phone", roomId, iceServers);
   const pc = new RTCPeerConnection({ iceServers });
   diagPc(pc);
@@ -636,7 +607,7 @@ export async function joinPairingRoom(roomId, { onStatus = () => {} } = {}) {
       }
     });
 
-    ws.addEventListener("error", () => fail(new Error("Signal channel failed. Check your internet and try again.")));
+    ws.addEventListener("error", () => fail(new Error(`Couldn't reach the hub broker (${getSignalBrokerHost()}). Is this phone on the hub's Wi-Fi?`)));
     pc.addEventListener("connectionstatechange", () => {
       // Only fail the INITIAL connect this way; once Peer is constructed,
       // its own iceconnectionstatechange handler owns lifecycle.

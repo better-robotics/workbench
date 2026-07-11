@@ -10,7 +10,7 @@
 //   0x03                                      offer commit
 //   0xFF [utf8 msg]                           error (notify-only)
 
-import { fetchIceServers } from "../pair/pairing.js";
+import { fetchIceServers } from "./ice.js";
 import { SIGNAL_CHUNK_BYTES, OP_BEGIN, OP_CHUNK, OP_COMMIT } from "../protocol-constants.js";
 
 // aiortc on the Pi completes ICE in ~2-3s on a healthy LAN; 90s is a

@@ -8,7 +8,7 @@ import { OP_BEGIN, OP_CHUNK, OP_COMMIT } from "../../protocol-constants.js";
 import { escapeHtml } from "../../dom.js";
 import { logFor } from "../../log.js";
 import { persist } from "../../state.js";
-import { fetchIceServers } from "../../pair/pairing.js";
+import { fetchIceServers } from "../../webrtc/ice.js";
 import { registerExternalPc, unregisterExternalPc } from "../../webrtc/webrtc-robot.js";
 import { installPackage } from "./command.js";
 import { capSection } from "./cap-section.js";

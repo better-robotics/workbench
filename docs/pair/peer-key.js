@@ -1,14 +1,8 @@
-// signal.neevs.io SDK v1 — source of truth.
-// Mirrored to https://signal.neevs.io/sdk/v1/peer-key.js. Both copies
-// stay in sync; once signal.neevs.io serves this URL stably, consumers
-// will import directly from there and the local copy retires.
-// See docs/signal-sdk/README.md for the migration plan.
+// Per-origin persistent device key + sign/verify primitives (ECDSA P-256).
 //
-// Per-origin persistent device key + sign/verify primitives.
-//
-// Used by discover.js (opt-in signed ads) and by consumers that build
-// trust stores on top — e.g. "this is the Mac I paired yesterday, the
-// pubkey continues to match, so trust the discovery ad."
+// Used by broker-lobby.js (signed ads) and by consumers that build trust
+// stores on top — e.g. "this is the Mac I paired yesterday, the pubkey
+// continues to match, so trust the discovery ad."
 //
 // Trust model (consumer's responsibility, not ours):
 //   - First pair binds trust via an out-of-band channel (QR scan in person).

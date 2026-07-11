@@ -13,10 +13,11 @@ import { sendPairById, pickMotorsTarget } from "../capabilities/runtime/signed-p
 import { state } from "../state.js";
 import { setPhoneStream, getPhoneAttachment } from "./phone-helpers.js";
 import { reapplyPhoneScreenMode } from "./phone-screen-mode-plugin.js";
-import { discover } from "../signal-sdk/v1/discover.js";
-import { getMyPubkeyB64 } from "../signal-sdk/v1/peer-key.js";
+import { discover } from "./broker-lobby.js";
+import { getMyPubkeyB64 } from "./peer-key.js";
 import { makeTrustStore } from "../trust.js";
-import { pairRequestClient } from "../signal-sdk/v1/pair-request.js";
+import { pairRequestClient } from "./pair-request.js";
+import { getSignalBrokerHost } from "./broker-signal.js";
 const _trust = makeTrustStore();
 
 // Single shared lobby in signed mode: ads carry our device pubkey so the
@@ -308,13 +309,13 @@ function _renderPairDialogNearby() {
 
 // ── Incoming pair-requests ────────────────────────────────────────
 //
-// Protocol lives in signal/client/pair-request.js now — we supply
-// the match rule (ads targeted at our pubkey), the trust lookup,
-// and the UI (existing modal in this file). The library owns
-// nonce-dedup, subscribe filter, response publish, and timeout.
+// Protocol lives in pair-request.js — we supply the match rule (ads
+// targeted at our pubkey), the trust lookup, and the UI (existing modal
+// in this file). The library owns nonce-dedup, subscribe filter,
+// response publish, and timeout.
 //
-// Transport: the wss://signal.neevs.io discover lobby (cross-network,
-// always-on).
+// Transport: the hub broker's pair/lobby/ namespace (broker-lobby.js,
+// same-LAN).
 let _wssPairClient = null;
 
 async function _onPairRequest(req) {
@@ -525,12 +526,12 @@ async function beginPairing() {
   });
   _pendingSession = session;
 
-  // QR-fallback path: encode our pubkey alongside the room id so a
-  // cross-network phone can establish trust without going through the
-  // request/accept lobby (which only works on the same wifi).
+  // QR path: pubkey alongside the room id binds trust in person (no
+  // lobby round-trip), and the hub host tells the phone which broker
+  // carries the signaling — the QR is the phone's only config channel.
   const myPubkey = _myPubkey || await getMyPubkeyB64();
   const url = new URL("phone.html", window.location.href);
-  url.hash = `pair=${session.roomId}&pk=${myPubkey}`;
+  url.hash = `pair=${session.roomId}&pk=${myPubkey}&hub=${encodeURIComponent(getSignalBrokerHost())}`;
   const urlText = url.toString();
 
   if (window.qrcode) {

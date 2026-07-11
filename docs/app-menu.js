@@ -354,7 +354,7 @@ export function wireDiagnosticsMenuItem({ getTelemetrySources, onBeforeOpen } = 
     // "STUN works but TURN unreachable" (the WhiteSky-class fallback gap)
     // distinct from "all blocked" (full ICE failure).
     try {
-      const { fetchIceServers } = await import("./pairing.js");
+      const { fetchIceServers } = await import("./webrtc/ice.js");
       const iceServers = await fetchIceServers();
       result.iceReachability = await probeIceReachability(iceServers, { timeoutMs: 2500 });
     } catch (err) {

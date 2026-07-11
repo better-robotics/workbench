@@ -69,7 +69,6 @@ server.listen(PORT, '::', () => {
     tunnelUrl = match[0];
     waitForDns(new URL(tunnelUrl).hostname, () => {
       console.log(`  \x1b[32m→  Phone:  \x1b[0m  ${tunnelUrl}`);
-      console.log(`  \x1b[2m→  Signal:  \x1b[0m  signal.neevs.io`);
       console.log('');
     });
   }

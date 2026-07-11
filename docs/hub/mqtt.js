@@ -43,9 +43,9 @@ export function connectMqtt(url, {
     let recvBuf = new Uint8Array(0);
 
     const api = {
-      publish(topic, payload) {
+      publish(topic, payload, { retain = false } = {}) {
         const bytes = typeof payload === "string" ? enc.encode(payload) : payload;
-        ws.send(packet(0x30, [...mqttString(topic), ...bytes]));
+        ws.send(packet(0x30 | (retain ? 1 : 0), [...mqttString(topic), ...bytes]));
       },
       subscribe(filter) {
         const id = packetId++ & 0xffff || packetId++;
@@ -116,7 +116,9 @@ export function connectMqtt(url, {
         const topic = dec.decode(body.subarray(2, 2 + topicLen));
         let off = 2 + topicLen;
         if ((header >> 1) & 3) off += 2;              // packet id rides along on QoS>0
-        onMessage?.(topic, dec.decode(body.subarray(off)));
+        // retain bit distinguishes replayed-on-subscribe state from live
+        // traffic — the pairing facade turns retained into a state snapshot.
+        onMessage?.(topic, dec.decode(body.subarray(off)), { retain: !!(header & 1) });
       }
       // SUBACK / PINGRESP need no action at QoS 0.
     }

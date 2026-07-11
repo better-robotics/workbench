@@ -16,13 +16,16 @@ Diagnostic flags, console handles, debug paths. User-facing → `README.md`. Age
   publishes are silently dropped. **http-served pages only**: a https page
   (github.io) can't open `ws://` (mixed content), so use a local dev server
   or a hub-served copy. Covered: motors, led, telemetry. Not covered (BLE/
-  WebRTC-only): camera, OTA, ops, wifi provisioning. Card gotcha: Disconnect
+  WebRTC-only): camera, OTA, ops, wifi provisioning. The same host also
+  carries phone↔desktop pairing signaling (`pair/#` — see phone.html flags);
+  without `?hub=`, pairing signaling falls back to `hub.local`. Card
+  gotcha: Disconnect
   on a hub card is futile — the next `sys` beat (2 s) re-marks it connected;
   use `window.hub.disconnect()` to leave the hub. Implementation:
   `docs/hub/hub-transport.js` (lazy-imported by `app.js`).
 
 ### Phone (`phone.html`)
-- `#pair=<uuid>` — the pairing room id, normally injected by the QR. Required for the phone to find the room. Implementation: `mobile.js`.
+- `#pair=<uuid>[&pk=<pubkey>&hub=<host>]` — the pairing room id, normally injected by the QR. `pk` binds in-person trust; `hub` names the broker carrying the WebRTC signaling (`pair/#` topics — defaults to `hub.local`). Pairing is same-LAN only: signaling moved from signal.neevs.io to the hub broker 2026-07-10. Implementation: `mobile.js`, `pair/broker-signal.js`.
 
 ## Keyboard control
 

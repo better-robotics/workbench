@@ -309,10 +309,9 @@ export async function connect(id) {
       });
     } catch { /* ops-response char absent on older firmware — optional */ }
 
-    // signal char — chunked SDP exchange for WebRTC over BLE. When
-    // present, webrtc-robot.js uses BLE for signaling instead of
-    // wss://signal.neevs.io — fully P2P over LAN, no internet rendezvous.
-    // Older firmware silently skips and falls back to the wss path.
+    // signal char — chunked SDP exchange for WebRTC over BLE: the robot
+    // needs no broker and no internet rendezvous; BLE pair = signal = auth.
+    // Absent on older firmware — silently skipped.
     try {
       entry.signalChar = await service.getCharacteristic(SIGNAL_CHAR_UUID);
       await entry.signalChar.startNotifications();

@@ -20,7 +20,7 @@ The plan's original NFC role (handing the phone the puck's SoftAP creds) is dead
 
 - **Tag content:** NDEF URL → `https://better-robotics.github.io/workbench/?pair=<robot-id>`. Dashboard reads `pair` from `location.search`, filters BLE scan to that device.
 - **Android Chrome:** tap → URL → filtered scan → confirm.
-- **iPhone:** iOS opens the URL but Web Bluetooth is unavailable. Workaround uses the existing phone↔desktop pair layer (`signal.neevs.io`, signed pair-request, `phone.html`): encode `phone.html?pair=<robot-id>`. Phone forwards `{type:"pair-robot", robotId}` over WebRTC; desktop surfaces a "Phone wants to pair robot-7 — click to confirm" banner. Desktop click is required because `navigator.bluetooth.requestDevice` needs a user gesture. Cross-network works for free.
+- **iPhone:** iOS opens the URL but Web Bluetooth is unavailable. Workaround uses the existing phone↔desktop pair layer (hub-broker signaling + signed pair-request, `phone.html`): encode `phone.html?pair=<robot-id>`. Phone forwards `{type:"pair-robot", robotId}` over WebRTC; desktop surfaces a "Phone wants to pair robot-7 — click to confirm" banner. Desktop click is required because `navigator.bluetooth.requestDevice` needs a user gesture. Same-LAN only since the broker migration (2026-07-10) — both devices on the hub's network.
 - **Bootstrap caveat:** first-ever use still needs the existing phone↔desktop pair ceremony.
 
 ~An afternoon to prototype. Concrete iOS+NFC demo defuses the "BLE-first leaves iPhones out" objection.

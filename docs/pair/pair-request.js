@@ -1,8 +1,4 @@
-// signal.neevs.io SDK v1 — source of truth.
-// Mirrored to https://signal.neevs.io/sdk/v1/pair-request.js. See
-// docs/signal-sdk/README.md for the migration plan.
-//
-// Request/accept protocol over the /discover lobby.
+// Request/accept protocol over the discovery lobby (broker-lobby.js).
 //
 // The pattern: one peer publishes a "pair-request" ad; another peer
 // subscribed to the lobby filters for requests addressed to it, chooses
@@ -65,7 +61,7 @@
 //     onError: (err, req) => log('pair-request handler: ' + err.message),
 //   });
 
-import { discover } from './discover.js';
+import { discover } from './broker-lobby.js';
 import { getMyPubkeyB64 } from './peer-key.js';
 
 const DEFAULT_REQUEST_TTL_MS = 30_000;

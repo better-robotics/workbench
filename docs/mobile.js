@@ -1,7 +1,8 @@
 import { $ } from "./dom.js";
 import { joinPairingRoom } from "./pair/pairing.js";
 import { attachJoypad } from "./input/joypad.js";
-import { getMyPubkeyB64 } from "./signal-sdk/v1/peer-key.js";
+import { getMyPubkeyB64 } from "./pair/peer-key.js";
+import { setSignalBrokerHost } from "./pair/broker-signal.js";
 import { makeTrustStore } from "./trust.js";
 import {
   setupServiceWorker, wireInstallMenuItem, wireCheckUpdatesMenuItem,
@@ -706,13 +707,16 @@ async function init() {
     startNearbyDiscovery();
     return;
   }
-  // Hash format is now `pair=<roomId>(&pk=<pubkey>)?`. The pk is the
-  // in-person trust binding: scanning a QR with pk = consenting that
+  // Hash format is `pair=<roomId>(&pk=<pubkey>)(&hub=<host>)`. The pk is
+  // the in-person trust binding: scanning a QR with pk = consenting that
   // this pubkey belongs to the device that printed the QR. Stored
   // before WebRTC even starts so the trust holds even if pair fails.
+  // hub names the broker carrying pairing signaling (broker-signal.js;
+  // defaults to hub.local without it).
   const params = new URLSearchParams(match[1]);
   const roomId = (match[1].split("&")[0]) || "";
   const remotePk = params.get("pk");
+  if (params.get("hub")) setSignalBrokerHost(params.get("hub"));
   if (remotePk) {
     // Label is unknown until the data channel exchanges it. "Computer"
     // is a placeholder; the pair-keys handshake replaces it with what
