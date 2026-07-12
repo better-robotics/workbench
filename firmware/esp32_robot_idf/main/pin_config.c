@@ -83,6 +83,13 @@ static int nvs_get_pin(nvs_handle_t h, const char *key, int dflt) {
 }
 
 void pin_config_load(pin_config_t *out) {
+    // ENA/ENB default to -1: firmware drives PWM on the direction pins
+    // (legacy mode, what AI-Thinker with factory jumpers wants). A board
+    // whose kit wiring standard is 6-wire overrides below; the dashboard
+    // pinout editor switches either way (PWM-on-enable matches the Pi
+    // side's Motor(enable=) behavior).
+    out->motor_ena = -1;
+    out->motor_enb = -1;
 #if CONFIG_BR_BOARD_AITHINKER_CAM
     // ESP32-CAM has ~8 user-assignable GPIOs (most SD- or PSRAM-shared)
     // — these four are the only set that doesn't collide with the camera
@@ -116,15 +123,15 @@ void pin_config_load(pin_config_t *out) {
     out->motor_l_bwd = 4;
     out->motor_r_fwd = 5;
     out->motor_r_bwd = 6;
+    // 6-wire L298N is the C3 kit standard: ENA=1 / ENB=0 — neither is a
+    // strapping pin on C3 (those are 2/8/9). PWM-on-enable claims 2 LEDC
+    // channels instead of 4, which is what lets servo (1) + RGB (3) fit
+    // the C3's 6-channel budget alongside motors.
+    out->motor_ena   = 1;
+    out->motor_enb   = 0;
 #else
 #error "pin_config: no BR_BOARD_* defined — check Kconfig.projbuild"
 #endif
-    // ENA/ENB default to -1 on every board: firmware drives PWM on the
-    // direction pins (legacy mode, what AI-Thinker with factory jumpers
-    // wants). User sets these via the dashboard pinout editor to switch
-    // to PWM-on-enable mode (matches Pi side's Motor(enable=) behavior).
-    out->motor_ena = -1;
-    out->motor_enb = -1;
     // Encoders default disabled — picking sensible defaults requires
     // knowing the user's motor driver wiring (encoder OUT pins land
     // wherever the driver leaves them). User picks via dashboard.

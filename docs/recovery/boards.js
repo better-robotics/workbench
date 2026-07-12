@@ -211,8 +211,11 @@ export const BOARDS = [
     maxGpio: 21,
     pinDefaults: {
       led: 8, flash: -1,
+      // 6-wire L298N kit standard — ENA/ENB wired (PWM-on-enable), so
+      // motors claim 2 LEDC channels and servo + RGB still fit the C3's
+      // 6-channel budget. GPIO 0/1 carry no strapping role on C3.
       m_l_fwd: 3, m_l_bwd: 4, m_r_fwd: 5, m_r_bwd: 6,
-      m_ena: -1, m_enb: -1,
+      m_ena: 1, m_enb: 0,
       enc_l: -1, enc_r: -1,
       servo: -1, rgb_r: -1, rgb_g: -1, rgb_b: -1,
     },
