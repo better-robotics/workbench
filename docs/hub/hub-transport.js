@@ -13,7 +13,7 @@
 // Reach: page must be http-served (localhost dev server or hub-served) —
 // a https page can't open ws:// (mixed content). Anonymous connects are
 // read-only fleet view per the broker ACL; drive/led need a team or
-// professor credential.
+// instructor credential.
 import { state, makeEntry } from "../state.js";
 import { MOTOR_CHAR_UUID, LED_CHAR_UUID } from "../ble/uuids.js";
 import { RUNTIMES } from "../capabilities/runtime/index.js";
