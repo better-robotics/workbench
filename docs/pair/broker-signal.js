@@ -63,14 +63,24 @@ const PUBLIC_PREFIX = "better-robotics/";
 // Signaling answers "no" by switching rendezvous, so pairing works either
 // way. The always-on presence lobby (broker-lobby.js) has no such escape and
 // gates on this instead — see the note there for why it must not follow.
+// An https page can't open ws:// — so the DEFAULT on https is blocked, and a
+// synchronous throw is only what CLEARS it. Blink throws in the constructor
+// when it blocks the connection, and its per-site "Insecure content: Allow"
+// override makes that throw stop happening — so a Blink user who allowed
+// insecure content clears the flag and reaches their hub broker. WebKit (all
+// iOS browsers) never throws here and has no such override: it accepts the
+// construct and fails async. So absent a throw we MUST stay blocked — the old
+// "no throw ⇒ not blocked" default was a false negative on iOS, which sent the
+// phone to the LAN broker it can't reach instead of the public wss fallback.
 let _blocked = null;
 export function lanBrokerBlocked() {
   if (_blocked === null) {
     if (location.protocol !== "https:") {
       _blocked = false;
     } else {
+      _blocked = true;
       try { new WebSocket("ws://mixed-content-probe.invalid").close(); _blocked = false; }
-      catch { _blocked = true; }
+      catch { /* stays blocked */ }
     }
   }
   return _blocked;
