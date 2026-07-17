@@ -2218,6 +2218,37 @@ dialog[open]::backdrop { opacity: 1; }
 .pwd-value { word-break: break-all; }
 .pwd-actions { display: flex; gap: 6px; flex-shrink: 0; }
 
+/* Numbered stepper for the Pi-setup dialog. The digit is a CSS counter, so
+   reordering or inserting a <li> renumbers itself — no hardcoded index to drift.
+   The gutter line connects them into a sequence rather than three lone sections. */
+.prep-steps { list-style: none; counter-reset: prep-step; margin: 0; padding: 0; }
+.prep-steps > li {
+  counter-increment: prep-step;
+  position: relative;
+  padding: 0 0 20px 34px;
+}
+.prep-steps > li:last-child { padding-bottom: 0; }
+.prep-steps > li::before {
+  content: counter(prep-step);
+  position: absolute;
+  left: 0; top: -1px;
+  width: 24px; height: 24px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1px solid var(--border-default);
+  color: var(--ink-muted);
+  font-size: 13px; font-weight: 600;
+}
+.prep-steps > li:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  left: 11px; top: 27px; bottom: 6px;
+  width: 1px;
+  background: var(--border-default);
+}
+.prep-step-head { font-weight: 500; margin-bottom: 10px; }
+
 .caps-list { display: flex; flex-direction: column; gap: 8px; }
 .caps-list .cap-row {
   display: flex;

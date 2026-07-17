@@ -422,46 +422,49 @@
     <div class="label">Set up a Pi robot</div>
     <button class="icon" id="prepare-close" aria-label="Close"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
   </div>
-  <p class="hint" style="margin: 0 0 16px;">
-    Image with Raspberry Pi Imager first, then fill these in and pick the mounted boot partition.
-  </p>
   <div id="prep-unsupported" class="unsupported" hidden>
     File System Access API required — use Chrome or Edge on desktop.
   </div>
-  <div class="field">
-    <label for="prep-username">Username</label>
-    <input id="prep-username" value="pi">
-    <div class="hint" style="margin-top: 4px;">The Pi names itself on first boot from the last four digits of its serial — <code>pi-4a2f.local</code>, say — the way ESP32 robots name themselves from their MAC.</div>
-  </div>
-  <div class="field">
-    <label for="prep-password">Sudo password</label>
-    <input id="prep-password" type="password" autocomplete="new-password">
-    <div class="hint" style="margin-top: 4px;">Used for sudo, the recovery console, and SSH. Leave blank and one gets generated for you — find it under Settings → Robot passwords.</div>
-  </div>
-  <div class="field">
-    <label>Capabilities</label>
-    <div class="caps-list">
-      <div class="cap-row">
-        <input type="checkbox" id="prep-cap-led">
-        <label for="prep-cap-led">LED</label>
-        <span class="cap-suffix">GPIO</span>
-        <input type="number" id="prep-cap-led-pin" value="17" min="0" max="40">
+  <ol class="prep-steps">
+    <li>
+      <div class="prep-step-head">Pick the SD card</div>
+      <div class="row">
+        <button id="prep-pick-btn" class="secondary sm">Choose directory</button>
+        <span class="hint" id="prep-pick-meta">Image with Raspberry Pi Imager first</span>
       </div>
-      <div class="cap-row">
-        <input type="checkbox" id="prep-cap-motors" checked>
-        <label for="prep-cap-motors">Motors (H-bridge / PWM)</label>
+    </li>
+    <li>
+      <div class="prep-step-head">Name &amp; password</div>
+      <div class="field">
+        <label for="prep-username">Username</label>
+        <input id="prep-username" value="pi">
       </div>
-      <div class="cap-row">
-        <input type="checkbox" id="prep-cap-camera" checked>
-        <label for="prep-cap-camera">Camera (auto-detect, needs picamera2 + aiortc)</label>
+      <div class="field">
+        <label for="prep-password">Sudo password</label>
+        <input id="prep-password" type="password" autocomplete="new-password">
+        <div class="hint" style="margin-top: 4px;">Blank generates one — Settings → Robot passwords.</div>
       </div>
-    </div>
-    <div class="hint" style="margin-top: 4px;">Only checked capabilities will appear on the robot's dashboard card.</div>
-  </div>
-  <div class="row" style="margin-top: 12px;">
-    <button id="prep-pick-btn" class="secondary sm">Pick SD card directory</button>
-    <span class="hint" id="prep-pick-meta">No card selected</span>
-  </div>
+    </li>
+    <li>
+      <div class="prep-step-head">Capabilities</div>
+      <div class="caps-list">
+        <div class="cap-row">
+          <input type="checkbox" id="prep-cap-led">
+          <label for="prep-cap-led">LED</label>
+          <span class="cap-suffix">GPIO</span>
+          <input type="number" id="prep-cap-led-pin" value="17" min="0" max="40">
+        </div>
+        <div class="cap-row">
+          <input type="checkbox" id="prep-cap-motors" checked>
+          <label for="prep-cap-motors">Motors (H-bridge / PWM)</label>
+        </div>
+        <div class="cap-row">
+          <input type="checkbox" id="prep-cap-camera" checked>
+          <label for="prep-cap-camera">Camera (auto-detect, needs picamera2 + aiortc)</label>
+        </div>
+      </div>
+    </li>
+  </ol>
   <div class="modal-footer">
     <button class="secondary sm" id="prep-cancel-btn">Cancel</button>
     <button id="prep-go-btn" disabled>Prepare card</button>
