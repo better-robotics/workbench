@@ -19,7 +19,6 @@ STATUS_FILE=$BOOTFS/firstrun.status
 STAGED=$BOOTFS/betterpi
 WHEELS=$BOOTFS/wheels
 
-HOSTNAME=__REPLACE_HOSTNAME__
 USER_NAME=__REPLACE_USER_NAME__
 USER_PASS=__REPLACE_USER_PASS__
 SSH_KEY=__REPLACE_SSH_KEY__
@@ -51,7 +50,32 @@ note start
 sed -i 's| systemd\.run=[^ ]*||g; s| systemd\.run_success_action=[^ ]*||g; s| systemd\.unit=[^ ]*||g' "$BOOTFS/cmdline.txt"
 note trigger_cleared
 
+# Hostname is derived here, never chosen in the dashboard. pi_robot.py's
+# device_name() turns the last 4 of the cpuinfo serial into the BLE name
+# "PI-4A2F"; the same 4 become "pi-4a2f" here, so avahi's %h and the
+# dashboard's `<ble-name>.local:81/health` probe (wifi-presence.js, which
+# lowercases the BLE name) agree by construction. They didn't when this was
+# a text field — avahi published whatever was typed. Mirrors the ESP32,
+# which names itself off its MAC (esp32_robot_idf/main/app_main.c).
+# Keep the no-serial fallback in lockstep with device_name(): last 4 of the
+# pre-existing hostname, right-padded to 4. Both sides read /proc/cpuinfo,
+# so they fall back together.
+# `tail -c 4`, not "${VAR: -4}": bash's negative-offset substring yields an
+# EMPTY string when the value is shorter than the offset, where device_name()'s
+# Python [-4:] yields the whole value — a short hostname would have landed on
+# pi-0000 here while the BLE name said PI-AB00, recreating the very mismatch
+# this derivation removes.
 CURRENT_HOSTNAME=$(tr -d " \t\n\r" < /etc/hostname)
+SERIAL=$(sed -n 's/^Serial[[:space:]]*:[[:space:]]*//p' /proc/cpuinfo | head -n1)
+SUFFIX=""
+if [ -n "$SERIAL" ]; then
+    SUFFIX=$(printf '%s' "$SERIAL" | tail -c 4 | tr 'A-F' 'a-f')
+fi
+if [ -z "$SUFFIX" ]; then
+    SUFFIX=$(printf '%s' "$CURRENT_HOSTNAME" | tail -c 4 | tr 'A-Z' 'a-z')
+    while [ ${#SUFFIX} -lt 4 ]; do SUFFIX="${SUFFIX}0"; done
+fi
+HOSTNAME="pi-${SUFFIX}"
 echo "$HOSTNAME" > /etc/hostname
 sed -i "s/127.0.1.1.*$CURRENT_HOSTNAME/127.0.1.1\t$HOSTNAME/g" /etc/hosts
 note hostname_set "$HOSTNAME"
@@ -312,8 +336,8 @@ BTEOF
     if [ $RTC_RC -eq 0 ]; then
       note rtc_install_ok
       if [ -f "$DEST/pi-robot-rtc.service" ]; then
-        sed "s|__HOME__|/home/$USER_NAME|g" "$DEST/pi-robot-rtc.service" \
-          > /etc/systemd/system/pi-robot-rtc.service
+        sed -e "s|__HOME__|/home/$USER_NAME|g" -e "s|__USER__|$USER_NAME|g" \
+          "$DEST/pi-robot-rtc.service" > /etc/systemd/system/pi-robot-rtc.service
         chmod 644 /etc/systemd/system/pi-robot-rtc.service
       fi
     else

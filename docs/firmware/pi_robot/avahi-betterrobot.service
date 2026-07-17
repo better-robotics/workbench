@@ -5,8 +5,10 @@ Better Robotics presence — avahi-daemon publishes the Pi's hostname over
 mDNS so the dashboard can resolve <hostname>.local without an internet
 rendezvous. The /health endpoint on port 81 (pi_robot_health.py) serves
 the JSON status the dashboard probe consumes. %h expands to the system
-hostname (firstrun.template.sh sets this to "BetterRobot-XXXX", so the
-mDNS name lands at betterrobot-xxxx.local — same shape as ESP32).
+hostname, which firstrun.template.sh derives from the cpuinfo serial as
+"pi-4a2f" — the lowercase twin of the BLE name pi_robot.py advertises.
+That equality is what makes the probe work: wifi-presence.js builds the
+URL from the BLE name, lowercased. Same shape as ESP32 (esp-xxxx).
 
 Drop into /etc/avahi/services/ at firstrun + on OTA. avahi monitors that
 directory and republishes whenever it changes.
