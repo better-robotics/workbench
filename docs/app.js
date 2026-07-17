@@ -11,13 +11,12 @@ import {
   formatRssi, rssiSeverity, tempSeverity,
 } from "./format.js";
 import { updateFirmware, updateFromFile } from "./capabilities/ota.js";
-import { restartService, rebootRobot, enrollKey } from "./capabilities/runtime/command.js";
+import { restartService, rebootRobot } from "./capabilities/runtime/command.js";
 import { initGamepad } from "./input/gamepad.js";
 import { initMotorsKeyboard } from "./capabilities/runtime/signed-pair.js";
 // prepare.js / pinout.js / recovery.js are lazy-loaded on first use (~750 LOC
 // combined, none of it needed for first paint). See the dynamic import()
 // calls in the DOMContentLoaded wiring below.
-import { initAuthUI, fingerprint as dashFingerprint, pubkeySsh, onKeyChange } from "./auth.js";
 import { initPasswordsUI } from "./passwords.js";
 import { initAssistant } from "./pip/assistant.js";
 import { initPhones, listPhones } from "./pair/phones.js";
@@ -213,19 +212,6 @@ function computeExpanded(entry) {
   return state.devices.size === 1;  // solo robot → expand; crowd → let user pick
 }
 
-// Dashboard's own fingerprint. Cached sync so renderEntry can compare
-// against fw-info.authorized without awaiting. Refreshed whenever the
-// keypair changes (generate / import / regenerate).
-let myFingerprint = null;
-async function refreshMyFingerprint() {
-  myFingerprint = await dashFingerprint();
-  for (const e of state.devices.values()) {
-    if (e.status === "connected") renderEntry(e);
-  }
-}
-onKeyChange(refreshMyFingerprint);
-
-
 // QR hint: ?robot=X on the URL means a scan landed us here. Surface a
 // one-click Pair CTA when that robot isn't paired yet. Chrome gates
 // requestDevice on user activation, so the button click is the activation.
@@ -355,28 +341,6 @@ function renderEntry(entry) {
     const st = robotStateText(entry);
     return st ? `<div class="robot-state${st.sticky ? " sticky" : ""}">${escapeHtml(st.text)}</div>` : "";
   })();
-  // Enroll prompt flattened to match the capability row rhythm (label + state
-  // + action) so it doesn't visually break the card's structure.
-  const enrollHtml = (() => {
-    if (!connected || !entry.opsChar) return "";
-    const auth = entry.fwInfo?.authorized;
-    if (!Array.isArray(auth) || !myFingerprint || auth.includes(myFingerprint)) return "";
-    if (auth.length === 0) {
-      return `
-        <div class="robot-controls">
-          <div class="row">
-            <div><div class="label">Enrollment</div><div class="meta">Dashboard not enrolled on this robot.</div></div>
-            <button class="secondary sm" data-action="enroll">Enroll</button>
-          </div>
-        </div>`;
-    }
-    return `
-      <div class="robot-controls">
-        <div class="row">
-          <div><div class="label">Enrollment</div><div class="meta">Enrolled to another dashboard.</div></div>
-        </div>
-      </div>`;
-  })();
   const typeBadge = entry.fwType
     ? `<span class="type-badge type-${escapeHtml(entry.fwType)}">${
         escapeHtml(entry.fwType === "esp32" ? "ESP32" : entry.fwType.toUpperCase())
@@ -479,7 +443,6 @@ function renderEntry(entry) {
     ${expanded && !firmwareDown ? `
       <div class="robot-body">
         ${sysRow}
-        ${enrollHtml}
         ${sections}
         ${attachedCameraHtml(entry)}
       </div>
@@ -560,19 +523,6 @@ function renderEntry(entry) {
     if (e.target.closest("button")) return;
     toggleExpand();
   });
-  const enrollBtn = entry.node.querySelector('[data-action="enroll"]');
-  if (enrollBtn) enrollBtn.addEventListener("click", async () => {
-    const pub = await pubkeySsh();
-    if (await enrollKey(id, pub) && myFingerprint) {
-      // Optimistic: assume the Pi accepted. fw-info is re-published by the
-      // firmware after enroll, but we also update locally so the prompt
-      // disappears immediately.
-      if (!entry.fwInfo) entry.fwInfo = {};
-      entry.fwInfo.authorized = [...(entry.fwInfo.authorized || []), myFingerprint];
-      renderEntry(entry);
-    }
-  });
-
   // Restore focus + selection to the data-action element that had focus
   // before the rebuild, if any. Preserves the user's typing in inline
   // editors across telemetry ticks.
@@ -1047,7 +997,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   initGamepad();
   initMotorsKeyboard();
-  initAuthUI();
   initPasswordsUI();
   // Pip is additive; if it can't init (CDN failure, regression in pip-core,
   // bad cached SW), the rest of the dashboard must keep working. Fence the

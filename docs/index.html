@@ -194,7 +194,7 @@
     <li>App cache and service worker (re-downloaded on reload)</li>
     <li>Profile name, paired robots, settings</li>
     <li>User scripts (the code in the Scripts editor)</li>
-    <li>Saved passwords, SSH keys, trust store</li>
+    <li>Saved passwords, trust store</li>
     <li>Auth tokens (you'll need to sign in again)</li>
   </ul>
   <p class="hint" style="margin: 0 0 16px;">Bluetooth pairing is controlled by the browser, not this app. If a robot won't reconnect after the refresh, revoke it at <code>chrome://bluetooth-internals/#devices</code> and re-pair.</p>
@@ -266,29 +266,13 @@
        /model is contextual: it switches the backend AND prompts for a
        key inline if the chosen one needs one. Settings keeps only what
        slash can't carry: identity (name) + advanced one-time setup
-       (dashboard key, robot passwords). -->
+       (robot passwords). -->
 
   <!-- Advanced (was "Security"). One-time setup; collapsed by default to
-       keep the daily-use Pip + Experimental rows scannable above. Each
+       keep the daily-use Pip + Experimental rows scannable above. The
        row's summary shows the current value at a glance; tapping reveals
        the action set + the explanatory help. -->
   <div class="settings-group-header">Advanced</div>
-  <details class="settings-item settings-disclosure key-row">
-    <summary class="settings-disclosure-summary">
-      <div class="settings-title">Dashboard key</div>
-      <div class="meta key-fingerprint" id="key-fingerprint">—</div>
-      <svg class="icon-svg disclosure-chevron" aria-hidden="true"><use href="icons.svg#icon-chevron-down"/></svg>
-    </summary>
-    <div class="settings-disclosure-body">
-      <div class="hint">Authorizes SSH + BLE ops on robots you prepare.</div>
-      <div class="key-actions">
-        <button class="secondary sm" id="key-copy-pub">Copy public</button>
-        <button class="secondary sm" id="key-download">Download private key</button>
-        <button class="secondary sm" id="key-import">Import</button>
-        <button class="secondary sm danger" id="key-regenerate">Regenerate</button>
-      </div>
-    </div>
-  </details>
   <details class="settings-item settings-disclosure passwords-row">
     <summary class="settings-disclosure-summary">
       <div class="settings-title">Robot passwords</div>
@@ -296,7 +280,7 @@
       <svg class="icon-svg disclosure-chevron" aria-hidden="true"><use href="icons.svg#icon-chevron-down"/></svg>
     </summary>
     <div class="settings-disclosure-body">
-      <div class="hint">Auto-generated during Pi setup when the password is blank. SSH uses the dashboard key; these are for sudo / terminal login.</div>
+      <div class="hint">Generated during Pi setup when you leave the password blank. Used for sudo, the recovery console, and SSH.</div>
       <div id="passwords-list"></div>
     </div>
   </details>
@@ -445,25 +429,14 @@
     File System Access API required — use Chrome or Edge on desktop.
   </div>
   <div class="field">
-    <label for="prep-hostname">Hostname</label>
-    <input id="prep-hostname" value="betterpi">
-  </div>
-  <div class="field">
     <label for="prep-username">Username</label>
-    <input id="prep-username" value="robot">
+    <input id="prep-username" value="pi">
+    <div class="hint" style="margin-top: 4px;">The Pi names itself on first boot from the last four digits of its serial — <code>pi-4a2f.local</code>, say — the way ESP32 robots name themselves from their MAC.</div>
   </div>
   <div class="field">
     <label for="prep-password">Sudo password</label>
     <input id="prep-password" type="password" autocomplete="new-password">
-    <div class="hint" style="margin-top: 4px;">Leave blank for key-only SSH. Set one to enable password SSH too.</div>
-  </div>
-  <div class="field">
-    <label for="prep-sshkey">SSH public keys</label>
-    <div class="field-overlay">
-      <textarea id="prep-sshkey" rows="3" placeholder="ssh-ed25519 AAAA..." autocomplete="off"></textarea>
-      <button type="button" class="overlay-action" id="prep-sshkey-load">Upload</button>
-    </div>
-    <div class="hint" style="margin-top: 4px;">Pre-filled with your dashboard key. Add more lines to authorize other keys, or clear to disable key auth.</div>
+    <div class="hint" style="margin-top: 4px;">Used for sudo, the recovery console, and SSH. Leave blank and one gets generated for you — find it under Settings → Robot passwords.</div>
   </div>
   <div class="field">
     <label>Capabilities</label>

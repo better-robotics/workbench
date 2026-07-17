@@ -21,7 +21,6 @@ WHEELS=$BOOTFS/wheels
 
 USER_NAME=__REPLACE_USER_NAME__
 USER_PASS=__REPLACE_USER_PASS__
-SSH_KEY=__REPLACE_SSH_KEY__
 
 # note STEP [MSG] — append a breadcrumb to firstrun.status on the boot
 # partition, readable by popping the card back into another machine.
@@ -103,35 +102,15 @@ for g in sudo adm dialout cdrom audio video plugdev games users input render net
 done
 note user_created "$USER_NAME"
 
-# Each field is its own switch: SSH_KEY non-empty → key auth;
-# USER_PASS non-empty → password auth. Either turns SSH on. Both empty =
-# BLE-only recovery, SSH stays off. Matches the two hints in the dialog.
-if [ -n "$SSH_KEY" ]; then
-  install -d -m 700 -o "$USER_NAME" -g "$USER_NAME" "/home/$USER_NAME/.ssh"
-  printf '%s\n' "$SSH_KEY" > "/home/$USER_NAME/.ssh/authorized_keys"
-  chmod 600 "/home/$USER_NAME/.ssh/authorized_keys"
-  chown "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.ssh/authorized_keys"
-fi
-if [ -n "$SSH_KEY" ] || [ -n "$USER_PASS" ]; then
+# The sudo password is the only SSH credential. Empty means the account got
+# the unguessable random hash above, which nobody can type — so SSH would be
+# unreachable anyway; leave it off rather than expose a dead port.
+if [ -n "$USER_PASS" ]; then
   systemctl enable ssh
   systemctl start ssh
-  if [ -n "$SSH_KEY" ] && [ -n "$USER_PASS" ]; then
-    note ssh_enabled "key + password"
-  elif [ -n "$SSH_KEY" ]; then
-    note ssh_enabled "key only"
-  else
-    note ssh_enabled "password only"
-  fi
+  note ssh_enabled "password"
 else
   note ssh_skipped
-fi
-
-# Dashboard.pub is independent of authorized_keys — staged for the Phase 3
-# BLE-auth consumer (pi-robot reads this dir to accept signed challenges).
-if [ -f "$BOOTFS/dashboard.pub" ]; then
-  install -d -m 755 "$BOOTFS/pi-robot-auth"
-  install -m 644 "$BOOTFS/dashboard.pub" "$BOOTFS/pi-robot-auth/dashboard.pub"
-  note dashboard_key_staged
 fi
 
 # USB composite gadget (ECM ethernet + ACM serial). Independent of

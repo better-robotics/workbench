@@ -300,28 +300,6 @@ button.icon.sm { min-height: 28px; min-width: 28px; padding: 0 6px; font-size: 1
   outline: none;
   border-color: var(--focus);
 }
-.field-overlay { position: relative; }
-.field-overlay textarea {
-  padding-right: 84px;
-  padding-bottom: 32px;
-  resize: none;  /* native resize grip lives where the overlay button sits */
-}
-.overlay-action {
-  position: absolute;
-  bottom: 10px;
-  right: 10px;
-  min-height: unset;
-  padding: 4px 10px;
-  font-size: 11px;
-  font-weight: 400;
-  line-height: 1.4;
-  background: var(--surface);
-  color: var(--ink-muted);
-  border: 1px solid var(--border-default);
-  border-radius: 6px;
-}
-.overlay-action:hover { color: var(--ink); background: var(--border-default); }
-
 .menu {
   position: fixed;
   margin: 0;
@@ -1119,9 +1097,6 @@ details.tray.has-alert > summary::after {
   max-height: 60vh;
   overflow-y: auto;
 }
-
-/* Enroll prompt — appears on a connected robot whose authorized list
-   doesn't contain this dashboard's fingerprint. Empty list = TOFU invite. */
 
 /* OTA progress bar — thin inline indicator styled to match the dashboard
    rather than the browser's chunky native bar. */
@@ -2190,14 +2165,11 @@ dialog[open]::backdrop { opacity: 1; }
 .settings-title { font-weight: 500; margin-bottom: 2px; }
 
 /* Stacked layout — avoids narrow-viewport wrapping when the buttons' auto
-   column steals width from the fingerprint. word-break targets only the
-   fingerprint so prose lines wrap normally. */
-.settings-item.key-row { grid-template-columns: 1fr; gap: 6px; }
-.settings-item.key-row .key-fingerprint { word-break: break-all; }
+   column steals width from the summary value. */
 .settings-item.passwords-row { grid-template-columns: 1fr; gap: 6px; }
 
 /* Disclosure-row pattern — Advanced section uses <details> so one-time
-   setup tasks (key, passwords) collapse to a one-line summary by default.
+   setup tasks (passwords) collapse to a one-line summary by default.
    Summary shows label + current value at a glance; tap reveals the action
    set. Same iOS-Settings idiom. The grid template on the summary mirrors
    a normal settings-item row for visual rhythm. */
@@ -2221,7 +2193,6 @@ dialog[open]::backdrop { opacity: 1; }
    platforms, vs. the generated-glyph approach this replaced. Grid's 3rd
    "auto" column already places it at the trailing edge. */
 .settings-disclosure[open] .settings-disclosure-summary .disclosure-chevron { transform: rotate(0); }
-.settings-disclosure-summary .key-fingerprint,
 .settings-disclosure-summary .meta {
   text-align: right;
   word-break: break-all;
@@ -2246,7 +2217,6 @@ dialog[open]::backdrop { opacity: 1; }
 .pwd-host { font-weight: 500; }
 .pwd-value { word-break: break-all; }
 .pwd-actions { display: flex; gap: 6px; flex-shrink: 0; }
-.key-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
 
 .caps-list { display: flex; flex-direction: column; gap: 8px; }
 .caps-list .cap-row {

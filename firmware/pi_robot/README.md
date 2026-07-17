@@ -10,10 +10,10 @@ All characteristics live under one service UUID. Presence is config-driven (`/bo
 - `wifi-scan` — read/notify. JSON array of `{s, r, p}` (ssid, 0..100 strength, 1 if secured). Reading triggers a rescan; results arrive via notify.
 - `wifi-join` — write. JSON `{s, p}` (ssid, password). Empty password for open networks.
 - `wifi-status` — read/notify. JSON `{st, ssid, err, ip?}`. `st` ∈ `idle|joining|joined|failed`.
-- `fw-info` — read. JSON `{type, url, caps, bundle_url, version, authorized?}`.
+- `fw-info` — read. JSON `{type, url, caps, bundle_url, version}`.
 - `robot-status` — notify. JSON `{st, msg?}` — top-level state, sticky-on-disconnect.
 - `telemetry` — notify (~6s). JSON `{uptime_s, mem_free_mb, temp_c?}`.
-- `ops` / `ops-response` — write / chunked notify. Typed verbs: `get-log`, `get-config`, `restart-service`, `reboot`, `install-pkg`, `enroll-key`. Each verb is a deliberate, reviewable decision; this is the BLE/WiFi debug surface in lieu of a remote shell.
+- `ops` / `ops-response` — write / chunked notify. Typed verbs: `get-log`, `get-config`, `restart-service`, `reboot`, `install-pkg`. Each verb is a deliberate, reviewable decision; this is the BLE/WiFi debug surface in lieu of a remote shell.
 - `motors` — write. Pulse-bounded; auto-stop watchdog in firmware.
 - `ota-control` / `ota-data` — single-file and bundle OTA, sha256-verified.
 - `camera-signal` / `camera-status` — registered only when the camera stack imports successfully; WebRTC SDP/ICE chunked over a symmetric protocol to OTA.
@@ -29,7 +29,7 @@ Alongside `pi-robot.service`, each independently restartable:
 
 ## SD-card first boot
 
-Flash Raspberry Pi OS, then open the dashboard (the repo **About** link) and click **Customize card** (or `?prepare` in the URL). Fill in username + sudo password, paste or pick an SSH public key, point at the mounted boot partition (usually `/Volumes/bootfs` on macOS). The dialog stages aarch64 Python wheels (`bless`, `bleak`, `dbus-fast`, `dbus-next`, `typing-extensions`) into `/boot/firmware/wheels/`, pi_robot source into `/boot/firmware/betterpi/`, renders `firstrun.sh`, and patches `cmdline.txt` + `config.txt`. Wheels for both Python 3.11 and 3.13 are bundled so Bookworm or Trixie works without re-prep.
+Flash Raspberry Pi OS, then open the dashboard (the repo **About** link) and click **Customize card** (or `?prepare` in the URL). Fill in username + sudo password, point at the mounted boot partition (usually `/Volumes/bootfs` on macOS). The dialog stages aarch64 Python wheels (`bless`, `bleak`, `dbus-fast`, `dbus-next`, `typing-extensions`) into `/boot/firmware/wheels/`, pi_robot source into `/boot/firmware/betterpi/`, renders `firstrun.sh`, and patches `cmdline.txt` + `config.txt`. Wheels for both Python 3.11 and 3.13 are bundled so Bookworm or Trixie works without re-prep.
 
 First boot runs entirely offline: no WiFi, no captive portal, no PyPI roundtrip. `firstrun.sh` copies staged firmware into `/home/pi/better-robotics/firmware/pi_robot/`, creates a venv with `--system-site-packages` (picks up `python3-lgpio` from the base image), installs with `pip install --no-index --find-links=/boot/firmware/wheels`, unblocks Bluetooth via rfkill, enables BlueZ's experimental advertising API, and starts `pi-robot.service` as root. Progress appends to `/boot/firmware/firstrun.status` as an offline breadcrumb.
 

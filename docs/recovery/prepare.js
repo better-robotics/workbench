@@ -1,5 +1,4 @@
 import { $, freshUrl, fetchWithTimeout } from "../dom.js";
-import { pubkeySsh } from "../auth.js";
 import { createPassword } from "../passwords.js";
 
 const FIRMWARE_URL    = "firmware/pi_robot";
@@ -13,7 +12,6 @@ const FIRMWARE_FILES  = [
   // + aiohttp on first boot (online deps; not in the offline wheels).
   "pi_robot_rtc.py", "pi-robot-rtc.service",
 ];
-const SSH_KEY_STORE   = "better-robotics:ssh-pub";
 // libcomposite is the generic USB-gadget driver; the actual composite
 // (ECM ethernet + ACM serial) is configured via configfs at boot by
 // usb-gadget.service. Replaces the old `g_ether` one-function gadget.
@@ -104,14 +102,11 @@ async function runPrepare() {
 
   const username = $("prep-username").value.trim() || "pi";
   let password   = $("prep-password").value;
-  const sshKey   = $("prep-sshkey").value.trim();
   let passwordGenerated = false;
   if (!password) {
     password = createPassword();
     passwordGenerated = true;
   }
-
-  // Password optional: firstrun skips chpasswd when empty (SSH-key-only login).
 
   try {
     prepLog("Validating SD card…");
@@ -145,12 +140,8 @@ async function runPrepare() {
     const firstrun = renderFirstrun(template, {
       USER_NAME: username,
       USER_PASS: password,
-      SSH_KEY:   sshKey,
     });
     await writeFile(dirHandle, "firstrun.sh", firstrun);
-
-    prepLog("Writing dashboard.pub…");
-    await writeFile(dirHandle, "dashboard.pub", (await pubkeySsh()) + "\n");
 
     // Absent → firmware defaults all-on for backward compat with pre-config Pis.
     prepLog("Writing pi-robot.conf…");
@@ -172,7 +163,6 @@ async function runPrepare() {
     if (oldCfg === null) throw new Error("config.txt not found on card");
     await writeFile(dirHandle, "config.txt", patchConfig(oldCfg));
 
-    try { localStorage.setItem(SSH_KEY_STORE, sshKey); } catch {}
     if (passwordGenerated) {
       prepLog(`Generated a random sudo password — see Settings → Robot passwords.`, "ok");
     }
@@ -208,25 +198,8 @@ function initOnce() {
     $("prep-pick-btn").disabled = true;
   }
 
-  try {
-    const saved = localStorage.getItem(SSH_KEY_STORE);
-    if (saved) $("prep-sshkey").value = saved;
-  } catch {}
-
   $("prepare-close").addEventListener("click", closeDialog);
   $("prep-cancel-btn").addEventListener("click", closeDialog);
-
-  $("prep-sshkey-load").addEventListener("click", () => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".pub,text/*";
-    input.addEventListener("change", async () => {
-      const file = input.files && input.files[0];
-      if (!file) return;
-      $("prep-sshkey").value = (await file.text()).trim();
-    });
-    input.click();
-  });
 
   $("prep-pick-btn").addEventListener("click", async () => {
     try {
@@ -241,14 +214,7 @@ function initOnce() {
   $("prep-go-btn").addEventListener("click", runPrepare);
 }
 
-export async function openDialog() {
+export function openDialog() {
   initOnce();
-  // Guarantee the dashboard key is present in the textarea on open, without
-  // clobbering anything the user pasted or saved from a previous prep.
-  const dashKey = await pubkeySsh();
-  const ta = $("prep-sshkey");
-  if (!ta.value.includes(dashKey)) {
-    ta.value = ta.value.trim() ? `${dashKey}\n${ta.value.trim()}` : dashKey;
-  }
   $("prepare-dialog").showModal();
 }

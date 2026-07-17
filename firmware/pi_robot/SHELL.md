@@ -1,6 +1,6 @@
 # Shell over BLE — not pursuing
 
-**Status:** not pursuing (2026-04-19, reaffirmed 2026-04-23). Typed ops verbs (`get-log`, `get-config`, `restart-service`, `reboot`, `install-pkg`, `enroll-key`) plus heartbeat plus USB-C recovery xterm cover every concrete debug case. Each verb is a deliberate, reviewable decision; a shell is "everything you can run."
+**Status:** not pursuing (2026-04-19, reaffirmed 2026-04-23). Typed ops verbs (`get-log`, `get-config`, `restart-service`, `reboot`, `install-pkg`) plus heartbeat plus USB-C recovery xterm cover every concrete debug case. Each verb is a deliberate, reviewable decision; a shell is "everything you can run."
 
 ## Why not
 
