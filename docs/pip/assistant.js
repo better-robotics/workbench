@@ -203,12 +203,12 @@ async function injectVoiceMidTurn(text) {
 // Send + stop buttons live in pip-core 2.1.0+; we just toggle responding
 // state and provide an onAbort callback below.
 
-// Bridge failure copy. anthropic / openai use the inline-button +
+// subscription-backend failure copy. anthropic / openai use the inline-button +
 // main-input recovery path in actOnFailure, so they don't need text
 // hints anymore.
 function backendFailureHint(backend) {
   const hints = {
-    bridge:
+    subscription:
       "ai-bridge isn't responding. Check the local service is running, or `/model` to switch backends.",
   };
   return hints[backend] || "Can't think right now — try again?";
@@ -242,20 +242,20 @@ async function actOnFailure(backend, turnEl) {
 }
 
 // "Does the current backend have what it needs to make a request?" Used
-// to decide whether to surface the first-message onboarding picker. Bridge
+// to decide whether to surface the first-message onboarding picker. `subscription`
 // is Keychain-backed by the ai-bridge proxy, opaque to the page; treat it
 // as always-credentialed and let the existing failure-recovery flow handle
 // "proxy not running."
 function hasCredentialsForBackend(backend) {
   switch (backend) {
-    case "anthropic": return !!settings.pipApiKey;
-    case "openai":    return !!settings.pipOpenaiKey;
-    case "bridge":    return true;
-    default:          return false;
+    case "anthropic":    return !!settings.pipApiKey;
+    case "openai":       return !!settings.pipOpenaiKey;
+    case "subscription": return true;
+    default:             return false;
   }
 }
 
-// First-message onboarding. The default backend is bridge, which is
+// First-message onboarding. The default backend is `subscription`, which is
 // always treated as credentialed (see hasCredentialsForBackend), so this
 // only fires once the user has switched to anthropic/openai without a
 // key. Surface the choice up front, route through the same inline
@@ -426,7 +426,7 @@ async function runTurn(text, turnEl) {
     const failureText = await actOnFailure(settings.pipBackend, turnEl);
     if (failureText) _pip.appendReplyBubble(turnEl).setText(failureText);
   } else if (!currentReply) {
-    // Non-streaming path (e.g. backend != bridge) had no deltas — render
+    // Non-streaming path (e.g. backend != subscription) had no deltas — render
     // the full reply once now so the user actually sees it.
     _pip.appendReplyBubble(turnEl).setText(reply);
   }

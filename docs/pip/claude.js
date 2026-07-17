@@ -1,5 +1,5 @@
 // Pip backend dispatch — picks how to reach the LLM based on user setting:
-//   bridge    — AI Bridge localhost proxy at 127.0.0.1:7337 (Keychain-backed
+//   subscription — AI Bridge localhost proxy at 127.0.0.1:7337 (Keychain-backed
 //               creds, token never visible to the page). Requires the proxy
 //               launchd agent (`make install-proxy` in ai-bridge). Default.
 //   anthropic — direct fetch() to api.anthropic.com using the user's API key
@@ -8,9 +8,9 @@
 //               calling). Different protocol from Anthropic; translated below.
 import { settings } from "../settings.js";
 
-const BRIDGE_PROXY_URL = "http://127.0.0.1:7337";
+const LOCAL_PROXY_URL = "http://127.0.0.1:7337";
 
-// Claude variants available on the bridge + anthropic backends. Short aliases
+// Claude variants available on the subscription + anthropic backends. Short aliases
 // are what the user types into `/model`; the id is what goes on the wire.
 export const CLAUDE_VARIANTS = [
   { alias: "opus",   id: "claude-opus-4-7" },
@@ -28,11 +28,11 @@ function currentClaudeModel() {
 // API-shape partition. CLAUDE_BACKENDS speak the Anthropic messages API
 // (used directly, or proxied through ai-bridge); OPENAI_SHAPED_BACKENDS
 // speak /chat/completions (OpenAI direct). Centralizing the predicate
-// stops the `=== "bridge" || === "anthropic"` ladder from drifting
+// stops the `=== "subscription" || === "anthropic"` ladder from drifting
 // between call sites. Note: do NOT alias this to "supports
 // vision" or "supports tool_result images" — those happen to coincide
 // today but are separate facts (see pip-tools.js's VISION_BACKENDS).
-export const CLAUDE_BACKENDS = new Set(["bridge", "anthropic"]);
+export const CLAUDE_BACKENDS = new Set(["subscription", "anthropic"]);
 const OPENAI_SHAPED_BACKENDS = new Set(["openai"]);
 const OPENAI_MODEL = "gpt-4o-mini";        // cheap default for direct OpenAI
 
@@ -62,7 +62,7 @@ async function streamAnthropicViaProxy(body, onTextDelta) {
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   let resp;
   try {
-    resp = await fetch(BRIDGE_PROXY_URL + "/v1/messages", {
+    resp = await fetch(LOCAL_PROXY_URL + "/v1/messages", {
       method: "POST",
       headers: { "content-type": "application/json", "accept": "text/event-stream" },
       body: JSON.stringify({ ...body, stream: true }),
@@ -153,7 +153,7 @@ async function bridgeRequest({ path, method, body }) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
-    const resp = await fetch(BRIDGE_PROXY_URL + path, {
+    const resp = await fetch(LOCAL_PROXY_URL + path, {
       method: method || "POST",
       headers: { "content-type": "application/json" },
       body: body ? JSON.stringify(body) : undefined,
@@ -249,7 +249,7 @@ function sanitizeTool(t) {
 // on the last system block covers the system prompt. Max 4 breakpoints
 // per request; we use 2.
 //
-// Tested 2026-05: Claude Max OAuth tokens (the bridge backend's default)
+// Tested 2026-05: Claude Max OAuth tokens (the subscription backend's default)
 // silently IGNORE cache_control — confirmed via /v1/messages with 3000+
 // token system prompts returning usage.cache_creation_input_tokens: 0
 // even with the prompt-caching-2024-07-31 beta header. Prompt caching is
@@ -281,10 +281,10 @@ function withPromptCache(body) {
 // useful content back. Names the active backend so the message points at the
 // right thing to investigate.
 function logBackendError(label, res) {
-  const b = settings.pipBackend || "bridge";
+  const b = settings.pipBackend || "subscription";
   const which = b === "anthropic" ? "anthropic-direct"
               : b === "openai"    ? "openai-direct"
-              :                     "bridge";
+              :                     "subscription";
   if (!res)           console.info(`[claude/${which}] ${label}: unreachable`);
   else if (res.error) console.warn(`[claude/${which}] ${label}: ${res.error}`);
   else                console.warn(`[claude/${which}] ${label}: HTTP ${res.status}`, res.body?.slice?.(0, 500) ?? res.body);
@@ -300,7 +300,7 @@ export async function ask(userText, opts = {}) {
 // that need a short LLM observation about a frame without going through
 // the full askWithTools tool-loop. Image is sent as a base64 content
 // block alongside the prompt. Returns the response text, or null on
-// any failure. Bridge backend only (the path that proxies through
+// any failure. `subscription` backend only (the path that proxies through
 // 127.0.0.1:7337); falls through to null on the openai backend since
 // it doesn't share the same vision content-block protocol.
 export async function askAboutFrame(imageDataUrl, prompt, { maxTokens = 100, system } = {}) {
@@ -421,9 +421,9 @@ async function _anthropicAskWithTools(messages, { system, tools, executor, maxIt
   // Cumulative text across iterations so the bubble keeps growing through
   // multi-step tool conversations rather than resetting per iteration.
   let priorText = "";
-  // Streaming only on the bridge backend — anthropic-direct path stays
+  // Streaming only on the subscription backend — anthropic-direct path stays
   // buffered for now (direct fetch doesn't use this transport).
-  const canStream = onDelta && settings.pipBackend === "bridge";
+  const canStream = onDelta && settings.pipBackend === "subscription";
   while (i < budget) {
     if (shouldAbort?.()) return "(stopped)";
     const body = withPromptCache({

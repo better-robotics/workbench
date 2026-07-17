@@ -106,7 +106,7 @@ function setEditorValue(text) {
 }
 
 // pip.ask(prompt, opts?) — routes through whichever Pip backend the user
-// picked in Settings (GitHub Models / Anthropic / OpenAI / Bridge / local).
+// picked with /model (local proxy / Anthropic / OpenAI).
 // Throws on any backend/HTTP/parse failure so scripts catch a single error
 // path instead of branching on null vs. text. Costs the user's quota.
 const pip = {

@@ -390,9 +390,9 @@ const ALL_TOOLS = [
 // Backends that accept image blocks in tool_result content. OpenAI's
 // tool-result image support is untested here so gated out until verified
 // end-to-end.
-const VISION_BACKENDS = new Set(["bridge", "anthropic"]);
+const VISION_BACKENDS = new Set(["subscription", "anthropic"]);
 export function isVisionAvailable() {
-  return !!settings.pipVisionEnabled && VISION_BACKENDS.has(settings.pipBackend || "bridge");
+  return !!settings.pipVisionEnabled && VISION_BACKENDS.has(settings.pipBackend || "subscription");
 }
 
 // Dynamic per-call so runtime toggles (Settings → Pip vision, /vision

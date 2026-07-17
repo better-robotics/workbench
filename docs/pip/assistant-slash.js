@@ -7,22 +7,42 @@ import { getActiveDetectorName, getAvailableDetectors, setActiveDetector } from 
 // pip-core built-ins (v1.7.0+); these are the dashboard-specific ones.
 //
 // Provider list mirrors pip-core's bundle taxonomy (`./bundle/anthropic`,
-// `./bundle/openai`) plus the dashboard-specific transport
-// (`bridge` = localhost ai-bridge proxy). Anthropic's Claude variants nest
-// under `anthropic` rather than living as sibling top-level entries —
-// they're not providers.
+// `./bundle/openai`) plus the dashboard-specific `subscription` (= the
+// ai-bridge proxy on 127.0.0.1, which injects the Mac's Keychain token).
+// Anthropic's Claude variants nest under `anthropic` rather than living as
+// sibling top-level entries — they're not providers.
+//
+// `subscription`, not `local`: the token names what pays for the call, since
+// that is the axis separating it from anthropic/openai. It is NOT local
+// compute — the proxy forwards to api.anthropic.com — and `local` is
+// reserved for the planned on-robot Gemma backend.
 //
 // Descriptions answer the only question that changes the user's next
-// action: does picking this ask me for a key? The vendor name doesn't
-// say that, and `bridge` names a transport the user shouldn't need to
-// know. pip-core renders these in the dropdown's .desc column when a
+// action: does picking this ask me for a key? The vendor name doesn't say
+// that. pip-core renders them in the dropdown's .desc column when a
 // completion returns {name, description} instead of a bare string.
 const PIP_PROVIDERS = [
-  { name: "bridge",    description: "localhost proxy · no key" },
-  { name: "anthropic", description: "Claude direct · needs API key" },
-  { name: "openai",    description: "GPT direct · needs API key" },
+  { name: "subscription", description: "your Claude plan · no key" },
+  { name: "anthropic",    description: "direct · needs Anthropic key" },
+  { name: "openai",       description: "direct · needs OpenAI key" },
 ];
 const PIP_PROVIDER_NAMES = PIP_PROVIDERS.map(p => p.name);
+
+// Mark the live backend. Its own channel, deliberately: pip-core paints
+// the highlighted row with --pip-accent, and that already means "the
+// keyboard cursor is here" — row zero is lit on open whether or not it's
+// the active provider, so reusing it for state would make the menu answer
+// a question the user didn't ask. A leading glyph in .desc is the one
+// channel left (pip-core gives us .name and .desc, and .name is inserted
+// into the input verbatim by acceptSlashSuggest, so it can't carry marks).
+// It's also the accessible half: .desc is read aloud; a background colour
+// isn't. State goes first because .desc truncates with an ellipsis.
+const IN_USE = "✓ in use · ";
+function describeProvider(p) {
+  return p.name === settings.pipBackend
+    ? { name: p.name, description: IN_USE + p.description }
+    : p;
+}
 
 // Prompt for + store an API key for anthropic/openai. Shared by the
 // /model gate here and assistant.js's failure-recovery / onboarding
@@ -41,11 +61,11 @@ export async function collectAndSaveKey(pip, isAnthropic) {
 
 export function registerSlashCommands({ pip }) {
   // /model — pick a provider, optionally with a sub-arg.
-  //   /model anthropic | bridge            switch provider (current variant)
+  //   /model anthropic | subscription           switch provider (current variant)
   //   /model anthropic opus                switch + set Claude variant
-  //   /model bridge sonnet                 same for the bridge provider
+  //   /model subscription sonnet           same for that provider
   //   /model openai
-  // Both providers in CLAUDE_BACKENDS (anthropic, bridge) accept the
+  // Both providers in CLAUDE_BACKENDS (anthropic, subscription) accept the
   // /model <provider> <variant> two-token shape — they share pipClaudeModel.
   // Setup (API key) happens inline: an askInChat confirmation card first
   // (same card the failure-recovery path in assistant.js shows), then
@@ -54,21 +74,26 @@ export function registerSlashCommands({ pip }) {
   const CLAUDE_ALIASES = CLAUDE_VARIANTS.map(v => v.alias);
   pip.registerSlash({
     name: "model",
-    description: "switch Pip's provider; /model anthropic|bridge <variant> for opus/sonnet/haiku",
+    description: "switch Pip's provider; /model anthropic|subscription <variant> for opus/sonnet/haiku",
     // Two-level completion: top tokens are providers; after a
     // Claude-capable provider the second token completes against
     // Claude variants. (Real drill-down, unlike /vision — see its comment.)
     complete: (partial) => {
       const tokens = partial.split(/\s+/);
       if (tokens.length <= 1) {
-        return PIP_PROVIDERS.filter(p => p.name.startsWith(tokens[0].toLowerCase()));
+        return PIP_PROVIDERS
+          .filter(p => p.name.startsWith(tokens[0].toLowerCase()))
+          .map(describeProvider);
       }
       const [provider, ...rest] = tokens;
       const lastToken = rest[rest.length - 1] || "";
       if (CLAUDE_BACKENDS.has(provider.toLowerCase())) {
         return CLAUDE_VARIANTS
           .filter(v => v.alias.startsWith(lastToken.toLowerCase()))
-          .map(v => ({ name: v.alias, description: v.id }));
+          .map(v => ({
+            name: v.alias,
+            description: v.id === settings.pipClaudeModel ? IN_USE + v.id : v.id,
+          }));
       }
       return [];
     },
@@ -93,7 +118,7 @@ export function registerSlashCommands({ pip }) {
       // locally, don't mutate settings until any auth prompt resolves.
       // Without staging, a user cancelling the API-key prompt below would
       // leave pipClaudeModel changed even though the provider switch was
-      // cancelled (notably visible on `bridge`, which reads the variant live).
+      // cancelled (notably visible on `subscription`, which reads the variant live).
       let pendingClaudeModel = null;
       if (CLAUDE_BACKENDS.has(provider) && subArg) {
         const variant = CLAUDE_VARIANTS.find(v => v.alias === subArg);
@@ -219,7 +244,7 @@ export function registerSlashCommands({ pip }) {
   // commands even though a generic /config key=value already exists that
   // could hold both — flat wins when two axes are each common enough to
   // deserve their own verb. Pip vision wires the Anthropic image-in-
-  // tool_result content shape; only the bridge + anthropic backends ship
+  // tool_result content shape; only the subscription + anthropic backends ship
   // the right content-block packing.
   const PIP_VISION_VALUES = ["on", "off"];
 
