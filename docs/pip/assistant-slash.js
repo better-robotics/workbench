@@ -11,7 +11,18 @@ import { getActiveDetectorName, getAvailableDetectors, setActiveDetector } from 
 // (`bridge` = localhost ai-bridge proxy). Anthropic's Claude variants nest
 // under `anthropic` rather than living as sibling top-level entries —
 // they're not providers.
-const PIP_PROVIDERS = ["bridge", "anthropic", "openai"];
+//
+// Descriptions answer the only question that changes the user's next
+// action: does picking this ask me for a key? The vendor name doesn't
+// say that, and `bridge` names a transport the user shouldn't need to
+// know. pip-core renders these in the dropdown's .desc column when a
+// completion returns {name, description} instead of a bare string.
+const PIP_PROVIDERS = [
+  { name: "bridge",    description: "localhost proxy · no key" },
+  { name: "anthropic", description: "Claude direct · needs API key" },
+  { name: "openai",    description: "GPT direct · needs API key" },
+];
+const PIP_PROVIDER_NAMES = PIP_PROVIDERS.map(p => p.name);
 
 // Prompt for + store an API key for anthropic/openai. Shared by the
 // /model gate here and assistant.js's failure-recovery / onboarding
@@ -50,12 +61,14 @@ export function registerSlashCommands({ pip }) {
     complete: (partial) => {
       const tokens = partial.split(/\s+/);
       if (tokens.length <= 1) {
-        return PIP_PROVIDERS.filter(p => p.startsWith(tokens[0].toLowerCase()));
+        return PIP_PROVIDERS.filter(p => p.name.startsWith(tokens[0].toLowerCase()));
       }
       const [provider, ...rest] = tokens;
       const lastToken = rest[rest.length - 1] || "";
       if (CLAUDE_BACKENDS.has(provider.toLowerCase())) {
-        return CLAUDE_ALIASES.filter(v => v.startsWith(lastToken.toLowerCase()));
+        return CLAUDE_VARIANTS
+          .filter(v => v.alias.startsWith(lastToken.toLowerCase()))
+          .map(v => ({ name: v.alias, description: v.id }));
       }
       return [];
     },
@@ -72,8 +85,8 @@ export function registerSlashCommands({ pip }) {
       const provider = providerArg.toLowerCase();
       const subArg = rest.join(" ").trim().toLowerCase();
 
-      if (!PIP_PROVIDERS.includes(provider)) {
-        return { reply: `Unknown provider \`${provider}\`. Available: ${PIP_PROVIDERS.map(p => `\`${p}\``).join(", ")}.` };
+      if (!PIP_PROVIDER_NAMES.includes(provider)) {
+        return { reply: `Unknown provider \`${provider}\`. Available: ${PIP_PROVIDER_NAMES.map(p => `\`${p}\``).join(", ")}.` };
       }
 
       // Claude-capable provider + variant sub-arg: stage the variant
