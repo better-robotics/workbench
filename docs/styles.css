@@ -239,26 +239,6 @@ a.secondary.sm:hover { background: var(--border-subtle); filter: brightness(1.08
 a.secondary.sm:active { filter: brightness(0.94); }
 body.phone a.secondary.sm { min-height: 44px; padding: 10px 14px; }
 
-/* Tertiary text-link action sitting in a button slot — no dedicated style
-   existed before because it only ever appeared conditionally (post-failure
-   escape hatch); now that "Show all serial ports" is always visible next
-   to Connect, it needs to read as a quiet secondary affordance rather than
-   inheriting the bare-button default (solid accent fill, 44px) and out-
-   competing the actual primary action. */
-.link-btn {
-  background: transparent;
-  border: none;
-  padding: 0;
-  min-height: auto;
-  color: var(--link);
-  font-size: 13px;
-  font-weight: 400;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-.link-btn:not(:disabled):hover { color: var(--ink); filter: none; }
-.link-btn:active { transform: none; }
-
 button.danger { background: var(--danger); }
 /* Destructive + secondary — bordered, no fill, danger-red text. Apple HIG
    pattern for "risky but not the primary action." Used on Regenerate next to
@@ -1789,10 +1769,59 @@ body.phone .segmented .mode-btn { min-height: 44px; }
   flex: none;
 }
 .console-toolbar-left, .console-toolbar-right { display: flex; align-items: center; gap: 10px; }
-/* Destructive Flash firmware trails Connect rather than sharing its
-   margin-left:auto isolation trick from the old stacked layout — with
-   only a few controls on one toolbar side, proximity plus the .danger
-   color is enough separation (Apple HIG: safe action first). */
+/* Connect is the only always-visible action and takes the bare-button accent
+   fill; the port-pick escape hatch and destructive Flash firmware moved
+   behind ⋯ (Apple HIG: one primary action per surface, rare + risky detours
+   in the overflow). The divider groups Connect away from ⋯/× so the accent
+   button doesn't read as part of the icon cluster. */
+.toolbar-divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 4px 2px;
+  background: var(--border-default);
+}
+
+/* Status pill, grouped left with the title it describes rather than into the
+   action cluster (the robot card's split: identity + state left, actions
+   right). Beside Connect, proximity would claim it labels that button.
+   The dot alone can't carry state — color is the one channel that fails
+   silently for a colorblind operator and reads as nothing at all to a
+   screen reader, so the word rides with it (console.js's STATUS_LABEL). */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 28ch;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--border-subtle);
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+.status-pill .dot { width: 6px; height: 6px; flex: none; }
+.status-pill > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Placeholder for the terminal well before a session exists. Sits in the
+   term's own dark ground so connecting swaps content without the panel
+   shifting color underneath. */
+.console-empty {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: #000;  /* match .recovery-term / xterm's default theme */
+  text-align: center;
+  padding: 24px;
+}
+.console-empty[hidden] { display: none; }
+.console-empty-icon { font-size: 22px; color: var(--ink-muted); opacity: 0.6; }
+.console-empty-title { font-size: 13px; color: var(--ink-muted); }
+.console-empty-sub { font-size: 12px; color: var(--ink-muted); opacity: 0.7; }
+
 .console-section {
   display: flex;
   flex-direction: column;

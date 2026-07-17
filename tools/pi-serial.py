@@ -3,7 +3,7 @@
 
 For diagnostic loops where SSH/BLE are down and the only path is the
 recovery serial console (USB-C cable to the Pi's ttyGS0). The Pi's
-autologin lands at `robot@betterpi:~$` — this script wraps a single
+autologin lands at `pi@pi-xxxx:~$` — this script wraps a single
 command-and-response cycle so output comes back cleanly to the host shell
 (or to Claude in an interactive session).
 

@@ -1,4 +1,4 @@
-import { $, escapeHtml } from "./dom.js";
+import { $, escapeHtml, wirePopover } from "./dom.js";
 import { log } from "./log.js";
 import { state } from "./state.js";
 import { ALL as CAPABILITIES, setCapabilityRenderer } from "./capabilities/index.js";
@@ -741,9 +741,14 @@ async function openConsole() {
   if (!$("console-modal").open) $("console-modal").show();
 }
 // .show() doesn't get native Escape-to-close (that's showModal()-only) —
-// wire it manually to match every other dialog's close affordance.
+// wire it manually to match every other dialog's close affordance. Yields to
+// an open console ⋯ menu: this listener registers at app.js load, before
+// console.js's lazy init wires the menu's own Escape, so without the guard
+// one Escape would dismiss both and take the terminal session with it.
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && $("console-modal").open) $("console-modal").close();
+  if (e.key !== "Escape" || !$("console-modal").open) return;
+  if ($("console-menu")?.matches(":popover-open")) return;
+  $("console-modal").close();
 });
 
 // Recovery menu (BetterRobotics dropdown) — wired FIRST in DOMContentLoaded
@@ -752,43 +757,6 @@ document.addEventListener("keydown", (e) => {
 // single missing element doesn't abort the rest of the wiring. Same panda
 // principle the firmware applies: the recovery layer enforced *below* the
 // failure-prone intelligent layer.
-// popover="manual" menus get no native outside-click/Escape dismiss — wire
-// both at document level, plus (when btnId is given) the anchored open/
-// toggle on the trigger button. `triggerSelector` names the element whose
-// clicks must NOT count as outside (it handles its own toggle); `onClose`
-// overrides the default hidePopover (robot-menu needs its closeMenu()).
-function wirePopover(btnId, menuId, { anchor = "left", triggerSelector, onClose } = {}) {
-  const menu = $(menuId);
-  const btn = btnId ? $(btnId) : null;
-  if (!menu || (btnId && !btn)) return;
-  const close = onClose || (() => menu.hidePopover());
-  if (btn) {
-    btn.addEventListener("click", (e) => {
-      if (menu.matches(":popover-open")) { close(); return; }
-      const rect = e.currentTarget.getBoundingClientRect();
-      menu.style.top = `${rect.bottom + 6}px`;
-      if (anchor === "right") {
-        menu.style.right = `${Math.max(8, window.innerWidth - rect.right)}px`;
-        menu.style.left = "auto";
-      } else {
-        menu.style.left = `${Math.max(8, rect.left)}px`;
-        menu.style.right = "auto";
-      }
-      if (menu.showPopover) menu.showPopover();
-    });
-  }
-  const trigger = triggerSelector || `#${btnId}`;
-  document.addEventListener("click", (e) => {
-    if (!menu.matches(":popover-open")) return;
-    if (e.target.closest(`#${menuId}`)) return;
-    if (e.target.closest(trigger)) return;
-    close();
-  });
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && menu.matches(":popover-open")) close();
-  });
-}
-
 function wireRecoveryMenu() {
   const appMenu = $("app-menu");
   if (!$("app-menu-btn") || !appMenu) return;

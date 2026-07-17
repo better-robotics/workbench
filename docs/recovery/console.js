@@ -5,7 +5,7 @@
 // Replaces the old recovery.js (Pi-only) + esp-serial.js's console half;
 // esp-serial.js now owns only the flash/install flow, reused here for the
 // Flash firmware button.
-import { $ } from "../dom.js";
+import { $, wirePopover } from "../dom.js";
 import { log } from "../log.js";
 import { mountTerminal } from "./xterm-host.js";
 import { portLabel, ESP_USB_VIDS } from "./boards.js";
@@ -44,10 +44,23 @@ function knownConsolePorts(ports) {
 }
 
 // state: "" (idle) | "connecting" | "connected" | "error". Drives the dot
-// color; text only renders for detail beyond what the dot already shows.
+// color; the pill always carries a word too — the dot alone encodes state by
+// color, which no screen reader and no colorblind operator can read.
+const STATUS_LABEL = { "": "Disconnected", connecting: "Connecting…", connected: "Connected", error: "Error" };
 function setStatus(state, text = "") {
   $("console-status-dot").className = `dot${state ? ` ${state}` : ""}`;
-  $("console-status").textContent = text;
+  const label = text || STATUS_LABEL[state];
+  const el = $("console-status");
+  el.textContent = label;
+  el.title = label;  // pill ellipsizes; hover recovers long error detail
+}
+
+// Terminal well shows the placeholder until a session exists. The term div
+// can't just stay mounted-and-empty behind it: xterm's FitAddon measures the
+// host on mount, so it has to be visible by then — swap, don't overlay.
+function setTermVisible(on) {
+  $("console-term").hidden = !on;
+  $("console-empty").hidden = on;
 }
 
 async function pickPort({ unfiltered = false } = {}) {
@@ -83,7 +96,7 @@ async function connect({ unfiltered = false } = {}) {
     setStatus("error", "unsupported browser");
     return;
   }
-  setStatus("connecting", "opening…");
+  setStatus("connecting");
   let port;
   try {
     port = await pickPort({ unfiltered });
@@ -112,6 +125,7 @@ async function connect({ unfiltered = false } = {}) {
   }
   _port = port;
 
+  setTermVisible(true);
   ({ term: _term, fit: _fit, resizeObs: _resizeObs } = await mountTerminal($("console-term")));
   _term.focus();
   if (_profile?.key === "pi") {
@@ -169,6 +183,7 @@ async function disconnect() {
   _fit = null;
   _term?.dispose();
   _term = null;
+  setTermVisible(false);
   setStatus("");
   $("console-connect").textContent = "Connect";
 }
@@ -179,16 +194,28 @@ export function init() {
   _initialized = true;
   $("console-close").addEventListener("click", () => $("console-modal").close());
   $("console-connect").addEventListener("click", () => _port ? disconnect() : connect());
-  $("console-show-all").addEventListener("click", () => connect({ unfiltered: true }));
+  // Port-pick escape hatch and Flash firmware live behind ⋯ so Connect reads
+  // as the one primary action. Both are rare, deliberate detours from the
+  // default path, and Flash keeps its destructive weight via .destructive.
+  wirePopover("console-menu-btn", "console-menu", { anchor: "right" });
+  const menu = $("console-menu");
+  $("console-show-all").addEventListener("click", () => {
+    menu.hidePopover();
+    connect({ unfiltered: true });
+  });
   // No outside-click dismiss — terminal session is real work; an
   // accidental click would kill the connection and scrollback. Explicit
   // × button, Escape, or Disconnect only.
-  $("console-modal").addEventListener("close", () => { if (_port) disconnect(); });
+  $("console-modal").addEventListener("close", () => {
+    if (menu.matches(":popover-open")) menu.hidePopover();
+    if (_port) disconnect();
+  });
   // Flash firmware: independent action with its own port pick and dialog,
   // not gated by what this console session detected — release any active
   // console connection first (same port could be the flash target), then
   // reopen it afterward if one was active.
   $("esp-serial-flash").addEventListener("click", async () => {
+    menu.hidePopover();
     const wasConnected = !!_port;
     if (_port) await disconnect();
     await installEsp32();

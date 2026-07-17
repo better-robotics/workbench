@@ -338,20 +338,32 @@
   <div class="console-toolbar">
     <div class="console-toolbar-left">
       <div class="label"><svg class="icon-svg modal-title-icon"><use href="icons.svg#icon-terminal"/></svg>Serial console</div>
+      <span class="status-pill">
+        <span class="dot" id="console-status-dot"></span>
+        <span id="console-status" aria-live="polite">Disconnected</span>
+      </span>
     </div>
     <div class="console-toolbar-right">
-      <span class="dot" id="console-status-dot"></span>
-      <span class="meta" id="console-status" aria-live="polite"></span>
-      <button class="link-btn" id="console-show-all">Show all serial ports</button>
-      <button class="secondary sm" id="console-connect">Connect</button>
-      <button class="secondary sm danger" id="esp-serial-flash">Flash firmware</button>
+      <button class="sm" id="console-connect">Connect</button>
+      <span class="toolbar-divider"></span>
+      <button class="icon" id="console-menu-btn" aria-label="More options"><svg class="icon-svg"><use href="icons.svg#icon-more"/></svg></button>
       <button class="icon" id="console-close" aria-label="Close"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
     </div>
   </div>
   <div class="console-section">
-    <div id="console-term" class="recovery-term"></div>
+    <div id="console-term" class="recovery-term" hidden></div>
+    <div id="console-empty" class="console-empty">
+      <svg class="icon-svg console-empty-icon"><use href="icons.svg#icon-unplug"/></svg>
+      <span class="console-empty-title">Not connected</span>
+      <span class="console-empty-sub">Click Connect — or if your board isn't detected, pick its port from the ⋯ menu</span>
+    </div>
   </div>
 </dialog>
+
+<div id="console-menu" class="menu" popover="manual">
+  <button class="menu-item" id="console-show-all"><svg class="icon-svg"><use href="icons.svg#icon-usb"/></svg>Show all serial ports</button>
+  <button class="menu-item destructive" id="esp-serial-flash"><svg class="icon-svg"><use href="icons.svg#icon-download"/></svg>Flash firmware</button>
+</div>
 
 <!-- Single canonical install dialog. Hosts every state of the flow:
      connect → chip-detect → board pick → write progress → done. Both

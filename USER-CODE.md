@@ -49,4 +49,4 @@ Firmware enforces motor watchdog + pulse duration cap + ultrasonic dist_cm forwa
 
 User code lives in the browser, not on the robot. No upload-to-Pi, no GH Actions push, no `scp`.
 
-If a robot needs to run behavior with the dashboard disconnected for minutes+ (outside the wedge today — see `.claude/CLAUDE.md → Anti-drift guards`), the path forward is the existing OTA pipeline: drop user code into a `/home/robot/user/` slot via BLE OTA, have `pi_robot.py` import it via a typed plugin API. No new sync server needed.
+If a robot needs to run behavior with the dashboard disconnected for minutes+ (outside the wedge today — see `.claude/CLAUDE.md → Anti-drift guards`), the path forward is the existing OTA pipeline: drop user code into a `/home/pi/user/` slot via BLE OTA, have `pi_robot.py` import it via a typed plugin API. No new sync server needed.

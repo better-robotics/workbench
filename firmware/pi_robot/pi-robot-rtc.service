@@ -6,14 +6,15 @@ Wants=network-online.target
 [Service]
 Type=simple
 # Runs as the robot user — the PTY spawned for `shell` channels lands at
-# this UID, matching `ssh robot@<host>.local`. Independent of pi-robot
+# this UID, matching `ssh pi@<host>.local`. Independent of pi-robot
 # (which still runs as root for BLE), so a crash here doesn't touch
-# motors / LEDs.
-User=robot
+# motors / LEDs. __USER__ is substituted by firstrun.sh / OTA apply; a
+# hardcoded `robot` here silently broke the unit on any other username.
+User=__USER__
 # Phase 2.F.1: BLE-signaled WebRTC offers arrive over the Unix socket at
 # /run/pi-robot-rtc/sock, bridged here from pi_robot.py (which owns the
 # BLE GATT). The robot user can't write to /run/ directly, so let
-# systemd create the per-service runtime directory as robot:robot — the
+# systemd create the per-service runtime directory owned by it — the
 # socket lives inside, 0o666 set by the daemon so root (pi_robot.py)
 # can connect from outside.
 RuntimeDirectory=pi-robot-rtc

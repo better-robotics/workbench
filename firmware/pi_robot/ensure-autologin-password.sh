@@ -6,7 +6,7 @@
 # that the user never sees resolves it; SSH still uses the dashboard key.
 # Idempotent: leaves existing passwords alone.
 set -e
-USER_NAME="${1:-robot}"
+USER_NAME="${1:-pi}"
 entry=$(getent shadow "$USER_NAME" || true)
 if [ -z "$entry" ]; then exit 0; fi
 hash=$(echo "$entry" | cut -d: -f2)

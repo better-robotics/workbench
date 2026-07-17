@@ -1,6 +1,6 @@
 import { $, freshUrl, fetchWithTimeout } from "../dom.js";
 import { pubkeySsh } from "../auth.js";
-import { ensurePassword } from "../passwords.js";
+import { createPassword } from "../passwords.js";
 
 const FIRMWARE_URL    = "firmware/pi_robot";
 const FIRMWARE_FILES  = [
@@ -102,13 +102,12 @@ async function runPrepare() {
   $("prep-progress").hidden = false;
   $("prep-progress").innerHTML = "";
 
-  const hostname = $("prep-hostname").value.trim() || "betterpi";
-  const username = $("prep-username").value.trim() || "robot";
+  const username = $("prep-username").value.trim() || "pi";
   let password   = $("prep-password").value;
   const sshKey   = $("prep-sshkey").value.trim();
   let passwordGenerated = false;
   if (!password) {
-    password = await ensurePassword(hostname);
+    password = createPassword();
     passwordGenerated = true;
   }
 
@@ -144,7 +143,6 @@ async function runPrepare() {
 
     prepLog("Rendering firstrun.sh…");
     const firstrun = renderFirstrun(template, {
-      HOSTNAME:  hostname,
       USER_NAME: username,
       USER_PASS: password,
       SSH_KEY:   sshKey,
