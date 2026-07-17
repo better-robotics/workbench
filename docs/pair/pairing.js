@@ -26,30 +26,27 @@
 // Read this before touching iceServers.
 //
 // The QR's &pk= authenticates the DESKTOP TO THE PHONE: scanning in person
-// is the trust act (mobile.js stores it before WebRTC starts). Nothing
-// authenticates the PHONE TO THE DESKTOP. The room-join below accepts any
-// peer not prefixed with our own role and applies its offer without checking
-// a key, and mobile.js then hands over its pubkey to be trusted for next
-// time. Two things — NOT the ECDSA ceremony — are what actually keep a
-// stranger out:
+// is the trust act (mobile.js stores it before WebRTC starts).
 //
-//   1. Room secrecy. The roomId is a UUID shown on screen. On the hub broker
-//      only the LAN could see it. On the public rendezvous the topic is
-//      world-subscribable, so the id leaks the moment the phone offers —
-//      this protection is already gone there.
-//   2. THE EMPTY iceServers BELOW. An off-LAN attacker who reads the room
-//      still has no route to a host/mDNS-only peer, so their datachannel
-//      never opens. This is the only thing standing between the public
-//      rendezvous and a pairing hijack.
+// The PHONE TO THE DESKTOP is authenticated by &s=, the room secret (room-
+// mac.js). The desktop mints it, delivers it only through the QR or the
+// signed lobby accept — channels a broker eavesdropper can't read — and drops
+// any signal that doesn't carry a matching HMAC. So a stranger who reads the
+// room off the public rendezvous can't inject an offer: no secret, no MAC.
 //
-// So: giving the pair path STUN/TURN — the obvious way to "finally fix"
-// cross-network pairing — would silently upgrade a remote nuisance into a
-// remote takeover of any pairing on the public rendezvous. Do not add ICE
-// servers here without first authenticating the joining peer: carry a secret
-// in the QR (&s=) and require signals to be MAC'd with it, so the desktop can
-// reject anyone who never scanned the code. THEN the ceremony is the boundary
-// and this comment can go.
+// Two lines still hold this shut, and both matter:
+//   1. &s= — above. Without it the desktop applied whatever offer arrived.
+//   2. THE EMPTY iceServers BELOW. Defence in depth: even a signal that
+//      somehow passed the MAC check has no media path to a host/mDNS-only
+//      peer from off-LAN. This is why the MAC is not a license to add TURN —
+//      the two guards are independent, and dropping this one alone would put
+//      full weight on &s= against an attacker who has, by then, the room id.
+//
+// So adding STUN/TURN here — the obvious "finally fix cross-network pairing"
+// move — is a security change, not a connectivity tweak. Only do it with &s=
+// enforcement intact and its replay gap (room-mac.js) closed first.
 import { openSignalChannel, getSignalRendezvous } from "./broker-signal.js";
+import { newRoomSecret, wrapSignalChannel } from "./room-mac.js";
 const DISCONNECT_GRACE_MS = 10000;  // Transient ICE `disconnected` can recover on its own.
 // Backpressure: DataChannel.bufferedAmount grows unbounded if we outrun the
 // peer. Text/joypad traffic is tiny so we rarely get near this; the queue is
@@ -142,7 +139,7 @@ function extractFromState(peers, selfPeerId, otherRolePrefix) {
 // JSON-framed data channel wrapper with a multi-state status channel
 // (connecting / connected / reconnecting / failed) for UI.
 class Peer {
-  constructor({ pc, channel, ws, myPeerId, otherRolePrefix, roomId }) {
+  constructor({ pc, channel, ws, myPeerId, otherRolePrefix, roomId, secret }) {
     this._pc = pc;
     this._channel = channel;
     this._ws = ws;
@@ -151,6 +148,8 @@ class Peer {
     // roomId lets us reopen the signaling WS when iOS backgrounds the tab
     // and silently kills it — we rejoin the same room instead of a fresh pair.
     this._roomId = roomId;
+    // Same room secret, so a reopened channel keeps MAC'ing its signals.
+    this._secret = secret;
     this._onMessage = () => {};
     this._onStatus = () => {};
     this._onClose = () => {};
@@ -329,7 +328,7 @@ class Peer {
   _reopenSignal() {
     this._reopening = true;
     this._setStatus("reconnecting", "Signal channel dropped, reopening…");
-    const newWs = openSignalWs(this._roomId, this._myPeerId);
+    const newWs = openSignalWs(this._roomId, this._myPeerId, this._secret);
     newWs.addEventListener("open", () => {
       const oldWs = this._ws;
       this._ws = newWs;
@@ -409,8 +408,8 @@ class Peer {
   }
 }
 
-function openSignalWs(roomId, myPeerId) {
-  return openSignalChannel(roomId, myPeerId);
+function openSignalWs(roomId, myPeerId, secret) {
+  return wrapSignalChannel(openSignalChannel(roomId, myPeerId), { roomId, myPeerId, secret });
 }
 
 function wireIceTrickle(pc, ws, myPeerId) {
@@ -428,18 +427,24 @@ function wireIceTrickle(pc, ws, myPeerId) {
 // instead of a frozen "waiting for phone" when something's silently wedged.
 export async function hostPairingRoom({ onStatus = () => {} } = {}) {
   const roomId = crypto.randomUUID();
+  // Minted here, by the side that owns the room, and handed to the phone only
+  // through the QR or the signed lobby accept — both channels a stranger on
+  // the broker can't read. A signal without a matching MAC is dropped, so this
+  // is what authenticates the phone TO the desktop. The caller must deliver it
+  // (phones.js puts it in the QR and the accept payload).
+  const secret = newRoomSecret();
   const myPeerId = makePeerId("desktop");
   const otherRolePrefix = "phone";
   // LAN-only: host/mDNS candidates. Load-bearing for security, not just
-  // scope — this emptiness is what stops a stranger who read the room off the
-  // public rendezvous from completing a pair. See "Who is authenticated" in
-  // the module header before adding anything to it.
+  // scope — with a public rendezvous, the room secret + this empty ICE list
+  // are the two things standing between a broker eavesdropper and a hijack.
+  // See "Who is authenticated" in the module header before adding anything.
   const iceServers = [];
   diagReset("desktop", roomId, iceServers);
   const pc = new RTCPeerConnection({ iceServers });
   diagPc(pc);
   pc.addEventListener("icecandidate", (e) => { if (e.candidate) diagLocal(e.candidate); });
-  const ws = openSignalWs(roomId, myPeerId);
+  const ws = openSignalWs(roomId, myPeerId, secret);
   wireIceTrickle(pc, ws, myPeerId);
   let resolvePeer, rejectPeer;
   const peerPromise = new Promise((res, rej) => { resolvePeer = res; rejectPeer = rej; });
@@ -467,7 +472,7 @@ export async function hostPairingRoom({ onStatus = () => {} } = {}) {
       if (resolved) return;
       resolved = true;
       clearTimeout(timeoutId);
-      resolvePeer(new Peer({ pc, channel: e.channel, ws, myPeerId, otherRolePrefix, roomId }));
+      resolvePeer(new Peer({ pc, channel: e.channel, ws, myPeerId, otherRolePrefix, roomId, secret }));
     });
   });
 
@@ -525,6 +530,7 @@ export async function hostPairingRoom({ onStatus = () => {} } = {}) {
 
   return {
     roomId,
+    secret,   // caller embeds this in the QR + lobby accept; see hostPairingRoom
     waitForPeer: () => peerPromise,
     cancel: () => { clearTimeout(timeoutId); ws.close(); pc.close(); },
   };
@@ -534,21 +540,21 @@ export async function hostPairingRoom({ onStatus = () => {} } = {}) {
 // onStatus fires at each negotiation stage ("opening signal channel…",
 // "offer sent, waiting…", etc.) so mobile.js can surface exactly where the
 // pair is — instead of a single "connecting…" blob that hides every stall.
-export async function joinPairingRoom(roomId, { onStatus = () => {} } = {}) {
+export async function joinPairingRoom(roomId, { onStatus = () => {}, secret = null } = {}) {
   const myPeerId = makePeerId("phone");
   const otherRolePrefix = "desktop";
   try { onStatus("Opening signal channel…"); } catch {}
   // LAN-only: host/mDNS candidates. Load-bearing for security, not just
-  // scope — this emptiness is what stops a stranger who read the room off the
-  // public rendezvous from completing a pair. See "Who is authenticated" in
-  // the module header before adding anything to it.
+  // scope — with a public rendezvous, the room secret + this empty ICE list
+  // are the two things standing between a broker eavesdropper and a hijack.
+  // See "Who is authenticated" in the module header before adding anything.
   const iceServers = [];
   diagReset("phone", roomId, iceServers);
   const pc = new RTCPeerConnection({ iceServers });
   diagPc(pc);
   pc.addEventListener("icecandidate", (e) => { if (e.candidate) diagLocal(e.candidate); });
   const channel = pc.createDataChannel("pip");
-  const ws = openSignalWs(roomId, myPeerId);
+  const ws = openSignalWs(roomId, myPeerId, secret);
   wireIceTrickle(pc, ws, myPeerId);
 
   pc.addEventListener("iceconnectionstatechange", () => {
@@ -580,7 +586,7 @@ export async function joinPairingRoom(roomId, { onStatus = () => {} } = {}) {
       if (resolved) return;
       resolved = true;
       clearTimeout(timeoutId);
-      resolve(new Peer({ pc, channel, ws, myPeerId, otherRolePrefix, roomId }));
+      resolve(new Peer({ pc, channel, ws, myPeerId, otherRolePrefix, roomId, secret }));
     });
 
     const applySignal = async (data) => {

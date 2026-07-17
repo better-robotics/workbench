@@ -121,6 +121,11 @@ export async function verifyBytes(bytes, sigB64, pubkeyB64) {
   }
 }
 
+// The same URL-safe alphabet the QR already uses for pubkeys, exported so
+// room-mac.js encodes its secret and its MACs identically.
+export const b64urlEncode = _b64encode;
+export const b64urlDecode = _b64decode;
+
 // Stable JSON for signing — sort keys recursively so two implementations
 // that reconstruct the same object produce the same bytes.
 export function canonical(obj) {

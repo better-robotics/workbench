@@ -58,7 +58,11 @@ async function requestPairWith(macAd) {
     // QR path (mobile.js init already calls _trust.trust when pk rides
     // in on the QR hash, and the pair-keys data-channel handshake
     // refreshes the label).
-    location.replace(location.pathname + '#pair=' + result.data.roomId);
+    // Carry the room secret (accept payload) into the same hash the QR path
+    // writes, so mobile.js's one parse site MACs this pairing too. The accept
+    // was signed + addressed to us, so the secret never touched an open topic.
+    const s = result.data.secret ? '&s=' + encodeURIComponent(result.data.secret) : '';
+    location.replace(location.pathname + '#pair=' + result.data.roomId + s);
     location.reload();
     return;
   }

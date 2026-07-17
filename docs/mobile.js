@@ -716,6 +716,11 @@ async function init() {
   const params = new URLSearchParams(match[1]);
   const roomId = (match[1].split("&")[0]) || "";
   const remotePk = params.get("pk");
+  // &s= is the room secret. It arrives the same way whether we scanned a QR
+  // or accepted a nearby request (mobile-nearby-discovery.js writes the same
+  // hash). A desktop old enough to have sent no secret leaves this null, and
+  // the channel wrapper degrades to unMAC'd — kept compatible on purpose.
+  const secret = params.get("s");
   if (params.get("hub")) setSignalBrokerHost(params.get("hub"));
   if (remotePk) {
     // Label is unknown until the data channel exchanges it. "Computer"
@@ -725,7 +730,7 @@ async function init() {
   }
   try {
     setStatus("connecting", "");
-    _peer = await joinPairingRoom(roomId, {});
+    _peer = await joinPairingRoom(roomId, { secret });
     setStatus("connected", "");
     hideReconnect();
     // Send the desktop our pubkey + label so it can trust us on future

@@ -403,7 +403,10 @@ async function _respondAndHostPair(accepted, senderPubkey, senderLabel, req, aut
     await req.deny();
     return;
   }
-  await req.accept({ roomId: session.roomId });
+  // The accept is signed and addressed to the requester's pubkey, so it's a
+  // trusted channel too — the secret rides back alongside the roomId, never
+  // onto an open lobby topic.
+  await req.accept({ roomId: session.roomId, secret: session.secret });
   // Memorize trust BEFORE the WebRTC handshake — the user already
   // consented; if pairing fails, the trust still holds (next attempt
   // won't re-prompt).
@@ -534,9 +537,14 @@ async function beginPairing() {
   // QR path: pubkey alongside the room id binds trust in person (no
   // lobby round-trip), and the hub host tells the phone which broker
   // carries the signaling — the QR is the phone's only config channel.
+  // &s= is the room secret: scanning it in person is what lets the desktop
+  // reject signals from anyone who didn't (see pairing.js "Who is
+  // authenticated"). The QR is a trusted channel, so it can carry the secret;
+  // the broker the QR is *about* cannot read the QR.
   const myPubkey = _myPubkey || await getMyPubkeyB64();
   const url = new URL("phone.html", window.location.href);
-  url.hash = `pair=${session.roomId}&pk=${myPubkey}&hub=${encodeURIComponent(getSignalBrokerHost())}`;
+  url.hash = `pair=${session.roomId}&pk=${myPubkey}&s=${session.secret}`
+    + `&hub=${encodeURIComponent(getSignalBrokerHost())}`;
   const urlText = url.toString();
 
   if (window.qrcode) {
