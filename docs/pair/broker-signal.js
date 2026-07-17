@@ -86,11 +86,31 @@ export function getSignalBrokerHost() {
   return h || "hub.local";
 }
 
+// ?sig=<wss-url> / #sig=<wss-url> — override for the public rendezvous, the
+// escape hatch for a broker outage: the hardcoded PUBLIC_RENDEZVOUS is a
+// no-SLA test broker, and when it's down the deployed site can't pair with no
+// other recourse. Post one ?sig= link and a room recovers. Read live from the
+// URL (search first, then hash) so it reaches the phone through the QR the
+// same way &hub= does — no setter, no build step.
+//
+// wss:// only, and only on the blocked (https) branch: a ws:// override from a
+// https page is mixed-content-blocked anyway, and on the http branch ?hub=
+// already selects the broker. Anything else is ignored — a bad override falls
+// back to the default rather than silently wedging pairing.
+function getSigOverride() {
+  const raw = new URLSearchParams(location.search).get("sig")
+    || new URLSearchParams(location.hash.replace(/^#/, "")).get("sig");
+  if (raw && /^wss:\/\//i.test(raw)) return raw;
+  if (raw) console.warn(`[pair] ignoring ?sig= override (not wss://): ${raw}`);
+  return null;
+}
+export function hasSigOverride() { return getSigOverride() !== null; }
+
 // The rendezvous this page will actually use. `public` is for callers that
 // need to say so out loud (error copy); `prefix` is "" on the hub.
 export function getSignalRendezvous() {
   return lanBrokerBlocked()
-    ? { url: PUBLIC_RENDEZVOUS, prefix: PUBLIC_PREFIX, public: true }
+    ? { url: getSigOverride() || PUBLIC_RENDEZVOUS, prefix: PUBLIC_PREFIX, public: true }
     : { url: `ws://${getSignalBrokerHost()}:${WS_PORT}`, prefix: "", public: false };
 }
 

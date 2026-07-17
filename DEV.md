@@ -23,6 +23,13 @@ Diagnostic flags, console handles, debug paths. User-facing → `README.md`. Age
   on a hub card is futile — the next `sys` beat (2 s) re-marks it connected;
   use `window.hub.disconnect()` to leave the hub. Implementation:
   `docs/hub/hub-transport.js` (lazy-imported by `app.js`).
+- `?sig=<wss-url>` — overrides the public signaling rendezvous used when the
+  page is https-served (the default is a no-SLA public test broker). The escape
+  hatch for a broker outage: post one `?sig=` link and pairing recovers without
+  a redeploy. `wss://` only (a `ws://` override is mixed-content-blocked from
+  https and is ignored); no effect on http-served pages, where `?hub=` selects
+  the broker. Carried into the pair QR so the phone joins the same broker.
+  Implementation: `pair/broker-signal.js` (`getSignalRendezvous`).
 
 ### Phone (`phone.html`)
 - `#pair=<uuid>[&pk=<pubkey>&s=<secret>&hub=<host>]` — the pairing room id, normally injected by the QR. `pk` binds in-person trust (desktop→phone); `s` is the room secret that authenticates the other direction (phone→desktop) — signals are HMAC'd with it and the desktop drops any that aren't, so a broker eavesdropper on the public rendezvous can't inject an offer (`pair/room-mac.js`). `s` only ever rides the QR or the signed lobby accept, never an open topic. `hub` names the broker carrying signaling (`pair/#` topics — defaults to `hub.local`) and carries *which* hub, never the scheme: each side derives that from its own origin, and since the QR is built from the desktop's origin both land on the same rendezvous. **Media is same-LAN only** (no ICE servers on the pair path), but signaling is not: a https page signals over a public wss broker under a `better-robotics/` prefix. Implementation: `mobile.js`, `pair/broker-signal.js`, `pair/room-mac.js`.

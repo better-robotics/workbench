@@ -17,7 +17,7 @@ import { discover } from "./broker-lobby.js";
 import { getMyPubkeyB64 } from "./peer-key.js";
 import { makeTrustStore } from "../trust.js";
 import { pairRequestClient } from "./pair-request.js";
-import { getSignalBrokerHost, lanBrokerBlocked } from "./broker-signal.js";
+import { getSignalBrokerHost, lanBrokerBlocked, hasSigOverride, getSignalRendezvous } from "./broker-signal.js";
 const _trust = makeTrustStore();
 
 // Single shared lobby in signed mode: ads carry our device pubkey so the
@@ -544,7 +544,10 @@ async function beginPairing() {
   const myPubkey = _myPubkey || await getMyPubkeyB64();
   const url = new URL("phone.html", window.location.href);
   url.hash = `pair=${session.roomId}&pk=${myPubkey}&s=${session.secret}`
-    + `&hub=${encodeURIComponent(getSignalBrokerHost())}`;
+    + `&hub=${encodeURIComponent(getSignalBrokerHost())}`
+    // If this desktop is on a ?sig= broker override, the phone must join the
+    // same one — carry it, same as &hub=. Absent normally.
+    + (hasSigOverride() ? `&sig=${encodeURIComponent(getSignalRendezvous().url)}` : "");
   const urlText = url.toString();
 
   if (window.qrcode) {
