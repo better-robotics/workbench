@@ -49,6 +49,12 @@ const ESP_DRIVER_Y     = ESP_H + ESP_DRIVER_GAP;
 const ESP_DRIVER_H     = 175;
 const ESP_TERM_R       = 7;
 const ESP_TERMINAL_XS  = [50, 134, 218, 302, 386, 470];
+// Left-to-right terminal order as drawn on the L298N silkscreen. Both the
+// terminal labels and the motor-wire endpoints index ESP_TERMINAL_XS
+// through this array, so flipping the order here moves labels + wires
+// together. Mirrored physically (ENB…ENA) so the enable pins sit outboard
+// of the four IN lines.
+const ESP_TERMINAL_ORDER = ["enb", "in4", "in3", "in2", "in1", "ena"];
 const ESP_TERM_CY      = ESP_DRIVER_Y + 85;
 const ESP_TOTAL_H      = ESP_DRIVER_Y + ESP_DRIVER_H + 40;
 
@@ -152,7 +158,7 @@ function espMotorWiresFragment(claims, gpioMap) {
     if (!term) continue;
     const pos = gpioMap.get(parseInt(gpioStr, 10));
     if (!pos) continue;
-    const termIdx = ["ena", "in1", "in2", "in3", "in4", "enb"].indexOf(term);
+    const termIdx = ESP_TERMINAL_ORDER.indexOf(term);
     const termCx = ESP_TERMINAL_XS[termIdx];
     const startY = pos.cy + ESP_PIN_R;
     const endY = ESP_TERM_CY - ESP_TERM_R;
@@ -271,7 +277,7 @@ function renderEsp32BoardWithDriver(entry, opts = {}) {
     <rect class="driver-pcb" x="15" y="${ESP_DRIVER_Y}" width="${ESP_W - 30}" height="${ESP_DRIVER_H}" rx="6"/>
     <text class="driver-title" x="${ESP_W / 2}" y="${ESP_DRIVER_Y + 22}" text-anchor="middle">H-bridge driver inputs</text>
   `;
-  const terminals = ["ena", "in1", "in2", "in3", "in4", "enb"].map((role, i) => {
+  const terminals = ESP_TERMINAL_ORDER.map((role, i) => {
     const cx = ESP_TERMINAL_XS[i];
     const kind = role.startsWith("en") ? "enable" : "input";
     const label = { ena: "ENA", in1: "IN1", in2: "IN2", in3: "IN3", in4: "IN4", enb: "ENB" }[role];

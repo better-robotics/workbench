@@ -119,16 +119,18 @@ void pin_config_load(pin_config_t *out) {
     // affect boot). Motors from the clean general-purpose set.
     out->led         = 8;
     out->flash       = -1;
-    out->motor_l_fwd = 3;
-    out->motor_l_bwd = 4;
-    out->motor_r_fwd = 5;
-    out->motor_r_bwd = 6;
-    // 6-wire L298N is the C3 kit standard: ENA=1 / ENB=0 — neither is a
+    // IN1..IN4 on the contiguous 0/1/3/4 set — skips GPIO 2 (the one
+    // strapping pin in that range; 2/8/9 are the C3's straps).
+    out->motor_l_fwd = 0;
+    out->motor_l_bwd = 1;
+    out->motor_r_fwd = 3;
+    out->motor_r_bwd = 4;
+    // 6-wire L298N is the C3 kit standard: ENA=6 / ENB=5 — neither is a
     // strapping pin on C3 (those are 2/8/9). PWM-on-enable claims 2 LEDC
     // channels instead of 4, which is what lets servo (1) + RGB (3) fit
     // the C3's 6-channel budget alongside motors.
-    out->motor_ena   = 1;
-    out->motor_enb   = 0;
+    out->motor_ena   = 6;
+    out->motor_enb   = 5;
 #else
 #error "pin_config: no BR_BOARD_* defined — check Kconfig.projbuild"
 #endif
