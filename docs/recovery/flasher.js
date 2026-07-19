@@ -19,9 +19,12 @@ let _esptoolModule = null;
 
 async function ensureEsptoolLoaded() {
   if (_esptoolModule) return _esptoolModule;
-  // Pin to a known release line — `latest` would silently break us on
-  // a major version bump. esptool-js@^0.5 is the current stable.
-  _esptoolModule = await import("https://cdn.jsdelivr.net/npm/esptool-js@0.5/+esm");
+  // Pin to an EXACT version — `@0.5` floats across patch releases, and the
+  // reset method names drift between them (which is why resetChip stopped
+  // trusting library reset methods and drives the reset line itself). 0.5.7
+  // is the newest 0.5.x; 0.6.0 exists but isn't adopted (house choice;
+  // default = latest). Bump deliberately, re-test a real flash's reboot.
+  _esptoolModule = await import("https://cdn.jsdelivr.net/npm/esptool-js@0.5.7/+esm");
   return _esptoolModule;
 }
 
@@ -117,59 +120,44 @@ export async function flashFirmware(port, { onLog = () => {}, onProgress = () =>
     terminal: makeBufferingTerminal(onTrace),
   });
 
-  // esptool-js method names drift between minor versions (v0.4's
-  // `loader.hardReset()` is gone in v0.5; v0.5's `transport.hardReset()`
-  // also isn't there in some patch releases; transport.setRTS exists
-  // but is a no-op while the transport's reader/writer locks are still
-  // held on the port). The flash itself is done by the time we hit
-  // this, so the post-flash reset is best-effort.
+  // Reboot the chip into the just-written app. We do NOT rely on
+  // esptool-js's own reset methods: their names drift across 0.5.x patches
+  // (the old code guessed loader.after / loader.hardReset / transport.
+  // hardReset), and worse, a library call that returned *without throwing*
+  // was counted as success and skipped the real reset — leaving the chip in
+  // the ROM stub loader until a manual power-cycle. That was the bug: it hit
+  // every board, because a no-op "success" suppressed the reliable path.
   //
-  // Order: try the documented method names, then release the transport
-  // and drive port.setSignals directly. Any failure is swallowed —
-  // worst case the chip stays in stub-loader mode until the user
-  // power-cycles, which is fine because the firmware is already on it.
+  // Instead drive the reset line directly — the same RTS→EN pulse esptool.py
+  // does over the identical wire. It works for every board we ship: classic
+  // ESP32 (CP2102 / CH340 / FT232 auto-reset) AND the C3 SuperMini's native
+  // USB-Serial-JTAG both map RTS to EN. port.setSignals works while the
+  // transport streams are still locked. No chip-family branch needed:
+  // reset-to-run is an EN pulse on all of them.
   async function resetChip() {
     const attempt = async (label, fn) => {
       try { await fn(); onTrace(`reset: ${label} ok`); return true; }
       catch (e) { onTrace(`reset: ${label} failed (${e?.message || e})`); return false; }
     };
 
-    // 1. Library reset method if available (esptool-js handles its own
-    //    RTS pulse to reboot the chip). Don't early-return — we still
-    //    need the cleanup steps below.
-    let libReset = false;
-    if (typeof loader.after === "function")
-      libReset = await attempt("loader.after(hard_reset)", () => loader.after("hard_reset"));
-    if (!libReset && typeof loader.hardReset === "function")
-      libReset = await attempt("loader.hardReset()", () => loader.hardReset());
-    if (!libReset && typeof transport.hardReset === "function")
-      libReset = await attempt("transport.hardReset()", () => transport.hardReset());
+    // Pulse EN low→high with IO0 (DTR) held high so the chip boots the app,
+    // not download mode. On the C3 this reset re-enumerates USB, so the
+    // deassert below may throw on a vanished port — harmless, the reboot has
+    // already fired (the peripheral releases EN high on re-enumeration).
+    await attempt("EN pulse (reset to app)", async () => {
+      await port.setSignals({ requestToSend: true, dataTerminalReady: false });
+      await new Promise((r) => setTimeout(r, 150));
+      await port.setSignals({ requestToSend: false, dataTerminalReady: false });
+    });
 
-    // 2. If the library didn't reset, drive the standard ESP reset
-    //    manually now while the port is still open and the transport
-    //    streams are still active (setSignals coexists with locked
-    //    streams). RTS=true asserts EN (reset), DTR=false keeps IO0 high
-    //    (normal boot, not download).
-    if (!libReset) {
-      await attempt("port.setSignals RTS=1 DTR=0", () =>
-        port.setSignals({ requestToSend: true, dataTerminalReady: false }));
-      await new Promise((r) => setTimeout(r, 100));
-    }
-
-    // 3. Final-state cleanup BEFORE the transport closes the port.
-    //    Library reset can leave DTR asserted — when DTR stays asserted,
-    //    IO0 stays low, and the chip boots into *download mode*, not into
-    //    the just-flashed firmware. Symptom: no BLE advertisement until
-    //    the user physically unplugs (driver releases DTR on disconnect).
-    //    Forcing both signals false here ensures a clean boot state
-    //    regardless of what library reset left behind.
+    // Leave both signals deasserted so a lingering asserted DTR can't hold
+    // IO0 low and drop the chip into download mode on its next boot.
     await attempt("port.setSignals RTS=0 DTR=0 (final)", () =>
       port.setSignals({ requestToSend: false, dataTerminalReady: false }));
 
-    // 4. Release transport reader/writer locks (and on esptool-js v0.5
-    //    this also closes the port). Without this, port.close() in
-    //    installEsp32's finally silently fails and Chrome's tab keeps
-    //    the serial-port indicator on.
+    // Release the transport reader/writer locks (esptool-js v0.5 also closes
+    // the port here). Without this, port.close() in installEsp32's finally
+    // silently fails and Chrome keeps the serial-port indicator on.
     if (typeof transport.disconnect === "function")
       await attempt("transport.disconnect()", () => transport.disconnect());
   }
