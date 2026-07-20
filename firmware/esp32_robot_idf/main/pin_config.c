@@ -121,6 +121,12 @@ void pin_config_load(pin_config_t *out) {
     out->flash       = -1;
     // IN1..IN4 on the contiguous 0/1/3/4 set — skips GPIO 2 (the one
     // strapping pin in that range; 2/8/9 are the C3's straps).
+    // "l"/"r" = the ROBOT'S left/right, standing behind it facing forward,
+    // and the map assumes the kit wiring convention: left wheel plugs into
+    // the L298N's OUT1/OUT2 (channel A — the ENA/IN1/IN2 silkscreen side).
+    // A build with the motor plugs swapped mirrors every turn while
+    // forward/reverse work; verify one wheel at a time and swap the plugs,
+    // don't remap.
     out->motor_l_fwd = 0;
     out->motor_l_bwd = 1;
     out->motor_r_fwd = 3;
