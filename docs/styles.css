@@ -1619,13 +1619,14 @@ body.phone .segmented .mode-btn { min-height: 44px; }
 .pinout-svg.esp32 .pin-dot.esp-reserved  { fill: #6b7280; stroke: #1f2937; }
 .pinout-svg.esp32 .pin-dot.esp-forbidden { fill: #b91c1c; stroke: #450a0a; }
 
-/* Console (Pi USB-C + ESP32 USB serial unified) — docked full-bleed under
-   the topbar rather than a centered floating modal: a terminal session is
-   a workspace, not a quick prompt, so it claims the whole viewport below
-   "BetterRobotics" instead of competing with it for attention behind a
-   dimmed backdrop. flex-column so the active section's term container has
-   a measurable size for FitAddon; recovery.js's ResizeObserver re-fits
-   xterm on any viewport resize. */
+/* Console (Pi USB-C + ESP32 USB serial unified) — full-viewport takeover
+   rather than a centered floating modal: a terminal session is a workspace,
+   not a quick prompt. Its toolbar replaces the "BetterRobotics" topbar
+   outright (inset: 0 paints over it — the dialog follows the topbar in DOM
+   with no competing z-index), reclaiming the topbar's row for the terminal.
+   flex-column so the active section's term container has a measurable size
+   for FitAddon; recovery.js's ResizeObserver re-fits xterm on any viewport
+   resize. */
 /* [open]-scoped: an unscoped #console-modal rule would out-specificity the
    UA's `dialog:not([open]) { display: none }` (ID beats attribute+element),
    leaving a full-viewport `position: fixed` box laid out — invisible via
@@ -1635,10 +1636,10 @@ body.phone .segmented .mode-btn { min-height: 44px; }
    state normally. */
 #console-modal[open] {
   position: fixed;
-  inset: var(--topbar-height) 0 0 0;
+  inset: 0;
   margin: 0;
   width: 100vw;
-  height: calc(100dvh - var(--topbar-height));
+  height: 100dvh;
   max-width: none;
   max-height: none;
   min-width: 0;
@@ -1646,7 +1647,6 @@ body.phone .segmented .mode-btn { min-height: 44px; }
   padding: 0;
   border-radius: 0;
   box-shadow: none;
-  border-top: 1px solid var(--border-default);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1660,7 +1660,11 @@ body.phone .segmented .mode-btn { min-height: 44px; }
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 10px 20px;
+  /* Same height + horizontal padding as .topbar — this row stands in for
+     the app header while the console is open, so it must land in the same
+     slot, not a near-miss of it. */
+  height: var(--topbar-height);
+  padding: 0 20px;
   border-bottom: 1px solid var(--border-subtle);
   flex: none;
 }
