@@ -37,8 +37,8 @@ static const char *TAG = "motors";
 #define MOTOR_RES        LEDC_TIMER_8_BIT
 
 // MOTOR_WATCHDOG_MS / LLM_MAX_DURATION_MS come from protocol_constants.h
-// (protocol/constants.json — shared with firmware/pi_robot/pi_robot.py, so
-// the two firmwares can't silently drift apart). LLM-issued pulses get the
+// (protocol/constants.json — the single source, so firmware and dashboard
+// can't silently drift apart). LLM-issued pulses get the
 // full signed-byte magnitude range (same as joypad); duration + watchdog +
 // the ultrasonic dist_cm clip elsewhere are the firmware safety floor — a
 // single bad pulse is bounded in time even when the planner is wrong about

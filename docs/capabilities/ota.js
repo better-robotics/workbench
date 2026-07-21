@@ -1,51 +1,13 @@
-// Routes updates: ESP32 → BLE-stream only (~30 s for 1.6 MB, works
-// anywhere; ESP32 has no WebRTC signal char). Pi → WebRTC OTA (seconds,
-// P2P, no rendezvous) with BLE-stream fallback, via its own bundle path.
+// Routes ESP32 firmware updates over BLE-stream (~30 s for 1.6 MB, works
+// anywhere — ESP32 has no WebRTC signal char).
 import {
   OTA_DATA_CHAR_UUID, OTA_STATUS_CHAR_UUID,
-  decodeJson, encodeJson,
+  decodeJson,
 } from "../ble/ble.js";
 import { OTA_OP_ABORT, OP_BEGIN, OP_CHUNK, OP_COMMIT } from "../protocol-constants.js";
 import { freshUrl, escapeHtml, fetchWithTimeout } from "../dom.js";
 import { logFor, log } from "../log.js";
 import { state } from "../state.js";
-
-// Chunked to avoid stack overflow from spreading a multi-MB array into
-// String.fromCharCode.
-function bytesToBase64(bytes) {
-  let bin = "";
-  for (let i = 0; i < bytes.length; i += 0x8000) {
-    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-  }
-  return btoa(bin);
-}
-
-// Stream a single-file OTA bundle to the Pi. Constructs a minimal bundle
-// on the fly (no reboot, optional service restart) and reuses the
-// ota-data char. Dest path goes through the firmware's allowed-prefix
-// whitelist; no new security surface.
-export async function uploadFile(id, filename, destPath, contentBytes, { restart, mode = "644" } = {}) {
-  const entry = state.devices.get(id);
-  if (!entry?.otaDataChar) {
-    log("file upload not supported by this firmware");
-    return false;
-  }
-  const manifest = { files: [{ src: filename, dest: destPath, mode }] };
-  if (restart) manifest.restart = restart;
-  const bundle = { manifest, files: { [filename]: bytesToBase64(contentBytes) } };
-  const payload = encodeJson(bundle);
-  await acquireWakeLock();
-  try {
-    logFor(entry, `uploading ${filename} → ${destPath} (${contentBytes.length} B)`);
-    await streamOtaBytes(entry, payload);
-    return true;
-  } catch (err) {
-    logFor(entry, `upload failed: ${err.message}`);
-    return false;
-  } finally {
-    await releaseWakeLock();
-  }
-}
 
 import { renderEntry } from "./runtime/render-bus.js";
 
@@ -110,90 +72,6 @@ function patchOtaSectionThrottled(entry) {
   });
 }
 
-// Stream bundle to the Pi's WebRTC peer over a DataChannel. RTC daemon
-// (low priv `robot`) stages to /tmp/...json, replies "staged"; we
-// BLE-trigger apply-staged-ota which root pi_robot.py picks up. Two-step
-// because of privilege boundaries — bulk at user privs, apply at root.
-//
-// Throws on any failure — caller falls back to BLE-stream.
-async function streamOtaViaWebRTC(entry, bytes) {
-  if (!entry.opsChar) {
-    throw new Error("no ops channel — can't trigger apply");
-  }
-  const { openChannel, closePeer } = await import("../webrtc/webrtc-robot.js");
-  let channel;
-  try {
-    channel = await openChannel(entry.id, entry.name, "ota", {
-      onStatus: (s) => logFor(entry, `ota webrtc: ${s}`),
-      signalChar: entry.signalChar,
-    });
-  } catch (err) {
-    throw new Error(`webrtc open: ${err.message || err}`);
-  }
-  try {
-    channel.binaryType = "arraybuffer";
-    // Pi RTC replies with {type:"staged"} when the file is closed and
-    // sized correctly; resolve the staging step on that. {type:"error"}
-    // surfaces from the Pi side (write/open failure, size mismatch).
-    const stagedAck = new Promise((resolve, reject) => {
-      const onMsg = (e) => {
-        if (typeof e.data !== "string") return;
-        let msg; try { msg = JSON.parse(e.data); } catch { return; }
-        if (msg.type === "staged") { channel.removeEventListener("message", onMsg); resolve(msg); }
-        else if (msg.type === "error") { channel.removeEventListener("message", onMsg); reject(new Error(msg.error)); }
-      };
-      channel.addEventListener("message", onMsg);
-      // Bound the wait — 60 s covers a 1.6 MB transfer easily; longer
-      // than that means the Pi is wedged or never sending the ack.
-      setTimeout(() => reject(new Error("staged ack timeout")), 60000);
-    });
-
-    logFor(entry, `ota webrtc: channel state=${channel.readyState}, sending begin`);
-    channel.send(JSON.stringify({ type: "begin", size: bytes.length }));
-
-    // Let begin land before flooding chunks; separates "begin lost" from
-    // "bulk send wedged" in observability.
-    await new Promise((r) => setTimeout(r, 50));
-    logFor(entry, `ota webrtc: post-begin state=${channel.readyState} buffered=${channel.bufferedAmount}`);
-
-    // Chunk size: keep below SCTP's default max-message limit (16 KB
-    // is the universal floor across Chrome / aiortc; both can negotiate
-    // higher via sctp.maxMessageSize but 16 KB always works).
-    const CHUNK = 16 * 1024;
-    entry.otaSent = 0;
-    patchOtaSection(entry);
-    for (let i = 0; i < bytes.length; i += CHUNK) {
-      const slice = bytes.subarray(i, Math.min(i + CHUNK, bytes.length));
-      channel.send(slice);
-      entry.otaSent = i + slice.length;
-      patchOtaSectionThrottled(entry);
-      // Backpressure: queue can grow unbounded if we send faster than
-      // SCTP drains. Pause when buffered amount climbs past 1 MB.
-      while (channel.bufferedAmount > 1 * 1024 * 1024) {
-        await new Promise((r) => setTimeout(r, 10));
-      }
-    }
-    logFor(entry, `ota webrtc: all chunks sent, sending commit`);
-    channel.send(JSON.stringify({ type: "commit" }));
-    await stagedAck;
-    entry.otaSent = bytes.length;
-    patchOtaSection(entry);
-
-    // Trigger the privileged apply. The existing _apply_bundle path runs
-    // as root and drives the OTA status notifies the dashboard already
-    // renders. Body matches the apply-staged-ota verb's args shape (path
-    // is allowlisted on the Pi side).
-    const applyMsg = encodeJson({
-      op: "apply-staged-ota",
-      args: { path: "/tmp/pi-robot-staged-ota.json" },
-    });
-    await entry.opsChar.writeValueWithResponse(applyMsg);
-  } finally {
-    try { channel?.close(); } catch {}
-    closePeer(entry.id);
-  }
-}
-
 async function streamOtaBytes(entry, bytes) {
   const ch = entry.otaDataChar;
   // All chunks WithResponse. Each chunk's ATT_WRITE_RSP flows behind the
@@ -226,19 +104,6 @@ async function streamOtaBytes(entry, bytes) {
   patchOtaSection(entry);
 }
 
-async function buildBundle(manifestUrl) {
-  const manifest = await (await fetchWithTimeout(freshUrl(manifestUrl), { cache: "no-cache" })).json();
-  // Parallel file fetches; Promise.all preserves order so firmware sees
-  // them in manifest order.
-  const entries = await Promise.all((manifest.files || []).map(async (spec) => {
-    const src = spec.src;
-    // 60s per file — bundle binaries can be a few MB on a slow connection.
-    const buf = await (await fetchWithTimeout(freshUrl(`firmware/pi_robot/${src}`), { cache: "no-cache" }, 60000)).arrayBuffer();
-    return [src, bytesToBase64(new Uint8Array(buf))];
-  }));
-  return { manifest, files: Object.fromEntries(entries) };
-}
-
 export async function updateFirmware(id) {
   const entry = state.devices.get(id);
   if (!entry || !entry.otaDataChar) {
@@ -246,64 +111,10 @@ export async function updateFirmware(id) {
     return;
   }
 
-  // Pi path: bundle-only OTA. Falls back to the default manifest URL when
-  // fw-info wouldn't parse — lets us unstick a Pi whose FW_INFO read is
-  // truncated by an MTU issue (otaDataChar still present).
-  const bundleUrl = entry.fwInfo?.bundle_url
-    || (entry.otaDataChar && !entry.fwInfo?.url ? "firmware/pi_robot/ota-manifest.json" : null);
-  if (bundleUrl) {
-    logFor(entry, `fetching bundle (${bundleUrl})…`);
-    let bytes, bundle;
-    try {
-      bundle = await buildBundle(bundleUrl);
-      bytes = encodeJson(bundle);
-      const stamp = bundle.manifest.commit ? ` · commit ${bundle.manifest.commit}` : "";
-      logFor(entry, `bundle ready: ${bundle.manifest.files.length} files, ${bytes.length} B${stamp}`);
-    } catch (err) {
-      logFor(entry, `bundle build failed: ${err.message}`);
-      return;
-    }
-    // Skip if published bundle matches running. Otherwise the robot
-    // reboots pointlessly and "OTA succeeded" runs while the commit stamp
-    // doesn't change. Common when CI/GH Pages hasn't caught up to the
-    // latest push.
-    if (bundle.manifest.commit && entry.fwInfo?.version
-        && bundle.manifest.commit === entry.fwInfo.version) {
-      logFor(entry, `already at commit ${bundle.manifest.commit} — nothing to update (CI may still be building)`);
-      return;
-    }
-    await acquireWakeLock();
-    try {
-      logFor(entry, `OTA streaming bundle ${bytes.length} B…`);
-      // Prefer WebRTC for Pi bundles: 1.6 MB minutes (BLE chunked) →
-      // seconds (WebRTC P2P). Falls back to BLE-stream on any error so
-      // the existing OTA path remains a safety net.
-      let webrtcOk = false;
-      try {
-        await streamOtaViaWebRTC(entry, bytes);
-        webrtcOk = true;
-        logFor(entry, "OTA staged + apply triggered — click Reconnect when the robot's back");
-      } catch (err) {
-        logFor(entry, `WebRTC OTA failed: ${err.message} — falling back to BLE`);
-      }
-      if (!webrtcOk) {
-        try {
-          await streamOtaBytes(entry, bytes);
-          logFor(entry, "OTA commit sent — click Reconnect when the robot's back");
-        } catch (err) {
-          logFor(entry, `OTA failed: ${err.message}`);
-        }
-      }
-    } finally {
-      await releaseWakeLock();
-    }
-    return;
-  }
-
-  // ESP32 path: single-binary OTA. Pis no longer expose `url` — only ESP32 does.
+  // ESP32 single-binary OTA — fw-info carries the bin's URL.
   const fetchUrl = entry.fwInfo?.url;
   if (!fetchUrl) {
-    logFor(entry, "no firmware source (fw-info missing url / bundle_url)");
+    logFor(entry, "no firmware source (fw-info missing url)");
     return;
   }
   logFor(entry, `fetching ${fetchUrl}…`);

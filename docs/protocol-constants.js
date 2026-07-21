@@ -7,7 +7,6 @@ export const LLM_MAX_DURATION_MS = 4000;
 
 // ble_chunking
 export const CHUNK_BYTES = 180;
-export const SIGNAL_CHUNK_BYTES = 100;
 
 // chunked_transfer
 export const OTA_OP_ABORT = 0;

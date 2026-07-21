@@ -1,15 +1,15 @@
 // Motor calibration wizard — pulses each driver in turn, asks the user
 // what they observed, derives the three orientation flips (swap channels,
-// invert motor A, invert motor B), and writes them to pi-robot.conf. The
-// pulses go through a "raw" ops verb that bypasses the firmware's
-// orientation transform, so the user is observing motor-A vs motor-B in
-// their physical wiring — exactly what we need to discover.
+// invert motor A, invert motor B), and persists them to the robot's flash
+// via the motors-set-orientation ops verb. The pulses go through a "raw"
+// ops verb that bypasses the firmware's orientation transform, so the user
+// is observing motor-A vs motor-B in their physical wiring — exactly what
+// we need to discover.
 //
 // Renders inside the pinout dialog body (same modal); on done we either
 // re-render the pinout editor or close the dialog after a successful save.
 import { $ } from "./dom.js";
 import { sendCommand } from "./capabilities/runtime/command.js";
-import { uploadFile } from "./capabilities/ota.js";
 import { logFor } from "./log.js";
 
 // Map a per-step user answer (one of five buttons) to the bits that the
@@ -64,7 +64,7 @@ async function pulseRaw(entry, motor) {
   });
 }
 
-export function beginMotorsCalibration({ entry, editConfig, onCancel, onDone }) {
+export function beginMotorsCalibration({ entry, onCancel, onDone }) {
   const state = { step: "intro", answers: { a: null, b: null }, status: "" };
 
   const choicesHtml = (side) => `
@@ -130,7 +130,7 @@ export function beginMotorsCalibration({ entry, editConfig, onCancel, onDone }) 
         <p><strong>Step 3 of 3</strong> — confirm and save.</p>
         ${warn}
         <ul class="cal-summary">${lines.map(l => `<li>${l}</li>`).join("")}</ul>
-        <p class="meta">Saving writes <code>motors_orientation</code> into <code>pi-robot.conf</code> and restarts the service so the flips take effect.</p>
+        <p class="meta">Saving stores the orientation in the robot's flash; the firmware reboots to apply the flips.</p>
         <div class="row" style="gap: 8px;">
           <button class="secondary sm" id="cal-redo">Re-run</button>
           <button class="sm" id="cal-save">Save &amp; restart</button>
@@ -194,29 +194,11 @@ export function beginMotorsCalibration({ entry, editConfig, onCancel, onDone }) 
     const o = deriveOrientation(state.answers.a, state.answers.b);
     state.step = "saving";
     render();
-    // ESP32: persist via BLE ops verb (NVS-backed, firmware reboots itself).
-    // Pi: persist via pi-robot.conf upload, restart the service. Same
-    // {swap, invert_a, invert_b} shape, different transports.
-    if (entry.fwType === "esp32") {
-      const ok = await sendCommand(entry, "ops", {
-        op: "motors-set-orientation",
-        args: { swap: o.swap, invert_a: o.invert_a, invert_b: o.invert_b },
-      });
-      onDone?.(ok);
-      return;
-    }
-    const merged = {
-      ...editConfig,
-      motors_orientation: {
-        swap: o.swap,
-        invert_a: o.invert_a,
-        invert_b: o.invert_b,
-      },
-    };
-    const bytes = new TextEncoder().encode(JSON.stringify(merged, null, 2) + "\n");
-    const ok = await uploadFile(entry.id, "pi-robot.conf",
-                                "/boot/firmware/pi-robot.conf", bytes,
-                                { restart: "pi-robot" });
+    // Persist via the BLE ops verb (NVS-backed; the firmware reboots itself).
+    const ok = await sendCommand(entry, "ops", {
+      op: "motors-set-orientation",
+      args: { swap: o.swap, invert_a: o.invert_a, invert_b: o.invert_b },
+    });
     onDone?.(ok);
   }
 

@@ -6,7 +6,6 @@ of truth.
 Source: protocol/constants.json
 Outputs:
     firmware/esp32_robot_idf/main/protocol_constants.h — `#define X 500`
-    firmware/pi_robot/protocol_constants.py             — `X = 500`
     docs/protocol-constants.js                          — `export const X = 500;`
 
 Each group in the JSON carries a "_targets" list selecting which of the
@@ -80,8 +79,6 @@ def main():
     targets = [
         ("firmware/esp32_robot_idf/main/protocol_constants.h",
          "c",  "//", "#pragma once\n\n", lambda n, v: f"#define {n:24} {v}\n"),
-        ("firmware/pi_robot/protocol_constants.py",
-         "py", "#",  "\n",               lambda n, v: f"{n} = {v}\n"),
         ("docs/protocol-constants.js",
          "js", "//", "\n",               lambda n, v: f"export const {n} = {v};\n"),
     ]

@@ -14,8 +14,7 @@
 // connection.
 //
 // LAN-only MEDIA by design: no ICE servers, no TURN — host/mDNS candidates
-// carry the connection, so both peers must be on the same network. The
-// robot↔desktop WebRTC paths keep TURN via webrtc/ice.js.
+// carry the connection, so both peers must be on the same network.
 //
 // Signaling is a separate question and may leave the LAN: broker-signal.js
 // picks the hub broker or a public one by what the page's origin can open.

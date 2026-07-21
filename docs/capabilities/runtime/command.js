@@ -57,10 +57,13 @@ export async function installPackage(id, name, opts = {}) {
   }
 }
 
-export async function getLog(id, lines = 200, unit = "pi-robot") {
+export async function getLog(id, lines = 200, unit = null) {
   const entry = state.devices.get(id);
   if (!entry?.opsChar) return false;
-  return sendCommand(entry, "ops", { op: "get-log", args: { lines, unit } });
+  // `unit` selects a systemd unit on hosts that have one; ESP32 has a single
+  // ring buffer and ignores it, so it's omitted unless a caller asks for one.
+  const args = unit ? { lines, unit } : { lines };
+  return sendCommand(entry, "ops", { op: "get-log", args });
 }
 
 export async function getConfig(id) {

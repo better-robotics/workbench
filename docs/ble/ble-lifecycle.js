@@ -1,6 +1,6 @@
-import { SERVICE_UUID, HEARTBEAT_SVC_UUID, HEARTBEAT_CHAR_UUID,
+import { SERVICE_UUID,
   FW_INFO_CHAR_UUID, ROBOT_STATUS_CHAR_UUID,
-  OPS_RESPONSE_CHAR_UUID, TELEMETRY_CHAR_UUID, SIGNAL_CHAR_UUID,
+  OPS_RESPONSE_CHAR_UUID, TELEMETRY_CHAR_UUID,
   decodeJson } from "./ble.js";
 import { log, logFor } from "../log.js";
 import {
@@ -88,15 +88,12 @@ export async function scanForNew() {
     const hintedName = new URLSearchParams(location.search).get("robot");
     const useHint = hintedName
       && ![...state.devices.values()].some(e => e.name === hintedName);
-    // Match devices advertising EITHER the main service OR the heartbeat —
-    // a robot whose pi-robot.service is dead still appears via heartbeat.
     const filters = useHint
-      ? [{ name: hintedName, services: [SERVICE_UUID] },
-         { name: hintedName, services: [HEARTBEAT_SVC_UUID] }]
-      : [{ services: [SERVICE_UUID] }, { services: [HEARTBEAT_SVC_UUID] }];
+      ? [{ name: hintedName, services: [SERVICE_UUID] }]
+      : [{ services: [SERVICE_UUID] }];
     // Hide already-paired robots from the chooser — Scan is the "add new"
     // path, Reconnect on the existing card is the re-pair path. Names are
-    // unique per chassis (ESP-/PI-XXXX hash from MAC/serial) so name-exclusion is safe.
+    // unique per chassis (ESP-XXXX hash from MAC) so name-exclusion is safe.
     // exclusionFilters is Chrome 114+; older browsers silently ignore the
     // option and show every match as before — graceful degradation.
     const exclusionFilters = [...state.devices.values()]
@@ -104,7 +101,7 @@ export async function scanForNew() {
       .map(e => ({ name: e.name }));
     const device = await pickDeviceOrFail({
       filters,
-      optionalServices: [SERVICE_UUID, HEARTBEAT_SVC_UUID],
+      optionalServices: [SERVICE_UUID],
       ...(exclusionFilters.length ? { exclusionFilters } : {}),
     });
     const name = device.name || device.id;
@@ -120,9 +117,8 @@ export async function scanForNew() {
 async function restoreDevice(entry) {
   // Required on browsers without getDevices(): chooser filtered to the saved name.
   const device = await pickDeviceOrFail({
-    filters: [{ name: entry.name, services: [SERVICE_UUID] },
-              { name: entry.name, services: [HEARTBEAT_SVC_UUID] }],
-    optionalServices: [SERVICE_UUID, HEARTBEAT_SVC_UUID],
+    filters: [{ name: entry.name, services: [SERVICE_UUID] }],
+    optionalServices: [SERVICE_UUID],
   });
   attachDevice(entry, device);
 }
@@ -175,18 +171,7 @@ export async function connect(id) {
     return;
   }
   try {
-    let service;
-    try {
-      service = await server.getPrimaryService(SERVICE_UUID);
-    } catch (svcErr) {
-      // pi-robot.service is dead but the robot's heartbeat plane is still up.
-      // Surface the recovery info instead of bouncing the user back to "Error".
-      if (await tryConnectHeartbeatOnly(entry, server)) {
-        renderers.renderEntry(entry);
-        return;
-      }
-      throw svcErr;
-    }
+    const service = await server.getPrimaryService(SERVICE_UUID);
     // A robot advertising only the service (no chars) is still "connected".
     // Every capability is optional.
     entry.status = "connected";
@@ -277,12 +262,6 @@ export async function connect(id) {
       entry.telemetry = null;
     }
 
-    // Recovery-plane heartbeat — best-effort read alongside the main service.
-    // Pi-only: ESP32 doesn't advertise HEARTBEAT_SVC_UUID. Surfaces the state
-    // of usb-gadget + ssh so a degraded recovery path shows as a warning chip
-    // *before* the operator needs it (i.e., before BLE also drops).
-    await readHeartbeatPlane(entry, server);
-
     // ops-response (notify, chunked) — dispatches request/response ops like
     // get-log / get-config to the right handler. Same opcode protocol as OTA
     // and camera: 0x01 begin+u32 len, 0x02 chunk, 0x03 commit.
@@ -308,18 +287,6 @@ export async function connect(id) {
         }
       });
     } catch { /* ops-response char absent on older firmware — optional */ }
-
-    // signal char — chunked SDP exchange for WebRTC over BLE: the robot
-    // needs no broker and no internet rendezvous; BLE pair = signal = auth.
-    // Absent on older firmware — silently skipped.
-    try {
-      entry.signalChar = await service.getCharacteristic(SIGNAL_CHAR_UUID);
-      await entry.signalChar.startNotifications();
-      // The signaling state machine in webrtc-robot.js installs its own
-      // characteristicvaluechanged listener when it initiates a session.
-    } catch {
-      entry.signalChar = null;
-    }
 
     entry.runtimeCaps = [];
     for (const cap of CAPABILITIES) {
@@ -360,45 +327,6 @@ async function retryGattRead(readFn, label, entry, { max = 3, baseDelayMs = 200 
     }
   }
   throw lastErr;
-}
-
-// Read the heartbeat plane's status char + subscribe to its notifications.
-// Best-effort: ESP32 doesn't advertise HEARTBEAT_SVC_UUID and old Pi
-// firmware predates it — both cases leave entry.heartbeat null and the
-// caller keeps going. Returns true if heartbeat is readable, false
-// otherwise. Shared by tryConnectHeartbeatOnly (firmware-down recovery)
-// and the successful main-connect path (surfaces usb-gadget / ssh chips
-// while the main firmware is healthy).
-async function readHeartbeatPlane(entry, server) {
-  try {
-    const svc = await server.getPrimaryService(HEARTBEAT_SVC_UUID);
-    const ch  = await svc.getCharacteristic(HEARTBEAT_CHAR_UUID);
-    entry.heartbeat = decodeJson(await ch.readValue()) || {};
-    try {
-      await ch.startNotifications();
-      ch.addEventListener("characteristicvaluechanged", (e) => {
-        entry.heartbeat = decodeJson(e.target.value) || entry.heartbeat;
-        renderers.renderEntry(entry);
-      });
-    } catch { /* notify optional */ }
-    return true;
-  } catch {
-    entry.heartbeat = null;
-    return false;
-  }
-}
-
-// Recovery-plane connect. The robot's main GATT service is gone, but
-// heartbeat.py is still advertising. Read its status char so the card can
-// show the IP + a recovery-console shortcut instead of an opaque error.
-async function tryConnectHeartbeatOnly(entry, server) {
-  if (!(await readHeartbeatPlane(entry, server))) return false;
-  entry.status = "firmware-down";
-  entry.lastConnectedAt = Date.now();
-  entry.lastConnectError = null;
-  persist();
-  logFor(entry, `firmware down — heartbeat ip=${entry.heartbeat?.ip || "?"} pi_robot=${entry.heartbeat?.pi_robot || "?"}`);
-  return true;
 }
 
 // Build + probe only runtime caps that aren't already live. Used both at
@@ -444,7 +372,6 @@ export function onDisconnected(id) {
     }, 30000);
   }
   entry.robotStatus = null;
-  entry.heartbeat = null;
   for (const cap of CAPABILITIES) cap.cleanup(entry);
   for (const cap of entry.runtimeCaps || []) cap.cleanup(entry);
   entry.runtimeCaps = [];

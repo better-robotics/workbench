@@ -5,7 +5,6 @@ import { makeRgbCap               } from "./rgb.js";
 import { makeSignedPairCap        } from "./signed-pair.js";
 import { makeCommandCap           } from "./command.js";
 import { makeWifiScanCap          } from "./wifi-scan.js";
-import { makeWebrtcInstallableCap } from "./webrtc-installable.js";
 import { makeMjpegStreamCap       } from "./mjpeg-stream.js";
 import { makeBleSnapshotCap       } from "./ble-snapshot.js";
 import { setRender as setBusRender } from "./render-bus.js";
@@ -17,7 +16,6 @@ export const RUNTIMES = {
   "signed-pair":         makeSignedPairCap,
   "command":             makeCommandCap,
   "wifi-scan":           makeWifiScanCap,
-  "webrtc-installable":  makeWebrtcInstallableCap,
   "mjpeg-stream":        makeMjpegStreamCap,
   "ble-snapshot":        makeBleSnapshotCap,
 };

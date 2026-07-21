@@ -68,7 +68,7 @@ export function formatUptime(telemetry) {
 
 // "WiFi" / "WiFi joining…" / "WiFi failed", null for idle so an
 // offline robot's row doesn't carry an empty label. Status shape
-// matches pi_robot.py's wifi-status JSON ({st, ssid, ip}).
+// matches the firmware's wifi-status JSON ({st, ssid, ip}).
 export function formatWifiShort(wifiStatus) {
   const w = wifiStatus;
   if (!w) return null;

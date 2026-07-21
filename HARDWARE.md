@@ -18,7 +18,7 @@ Firmware advertises a `camera` capability and broadcasts the LAN IP on `wifi-sta
 
 ### Motor wiring (L298N)
 
-Default firmware pins: left `forward=14, backward=15`, right `forward=13, backward=4`. The schema names match gpiozero's `Motor(forward=, backward=, enable=)` constructor — same vocabulary on ESP32 and Pi. Camera + PSRAM consume 15 GPIOs; 13/14/15/4 are the survivors. GPIO 4 doubles as the white flash LED, so it flickers visibly when the right motor is driven — cosmetic only.
+Default firmware pins: left `forward=14, backward=15`, right `forward=13, backward=4`. The schema names match gpiozero's `Motor(forward=, backward=, enable=)` constructor vocabulary. Camera + PSRAM consume 15 GPIOs; 13/14/15/4 are the survivors. GPIO 4 doubles as the white flash LED, so it flickers visibly when the right motor is driven — cosmetic only.
 
 "Forward" / "backward" only mean what they say *after* the wiring is calibrated. The chip side speaks IN1..IN4 (silkscreen on the L298N/DRV8833/TB6612 board); each per-motor pair wires to two of those chip terminals. If a wheel spins the wrong direction, swap the motor leads at the driver — or swap the two GPIO assignments in the Pinout editor.
 
@@ -45,20 +45,14 @@ Source compiles for both. **CI doesn't publish prebuilt binaries yet.** Clone th
 
 Buy in US: [Adafruit](https://www.adafruit.com/?q=ESP32-C6) (C6, S3), DigiKey, Mouser. Espressif's official store ships globally. Freenove kit ships from Amazon.
 
-## Raspberry Pi
+## Raspberry Pi (the classroom hub)
 
-Tested on **Pi 4 Model B**. Bluetooth radio built in. Pi OS Bookworm (Python 3.11) or Trixie (Python 3.13) — the dashboard's Customize-card flow stages wheels for both.
-
-Buy in US: [Adafruit](https://www.adafruit.com/?q=raspberry+pi+4), CanaKit, PiShop.us. Outside US: [official reseller list](https://www.raspberrypi.com/products/raspberry-pi-4-model-b/).
-
-### Recovery plane (USB-C)
-
-Pi boots with a **composite USB gadget** (ECM ethernet + ACM serial) under `usb-gadget.service`, independent of the main firmware service. Plug USB-C from Pi into laptop:
-
-- **ECM ethernet** — Pi appears at `10.55.0.1`; `ssh pi@10.55.0.1` works with the sudo password set in Customize card.
-- **ACM serial** — Pi appears as `/dev/cu.usbmodem*`; dashboard's ⋯ → **Serial console** → Pi mode opens an xterm.js terminal. Works even when BLE and WiFi are both dead, because the gadget is a kernel-level service that runs before `pi-robot` and doesn't depend on it.
-
-Requires a USB-C **data** cable (not charge-only). Power-only variants look identical and ship in the box with most chargers. Pi 4's USB-C port is the only gadget-capable port; USB-A on the top edge are hosts and won't work.
+A Raspberry Pi doesn't run workbench firmware — it runs the classroom **hub**
+(MQTT broker + dashboard the rovers talk to). Flash the flash-and-go image from
+[`better-robotics/hub`](https://github.com/better-robotics/hub) and it
+self-provisions: its own `hub-XXXX` Wi-Fi, the dashboard at `hub.local`, and a
+USB-C recovery console. Hub wiring, the recovery plane, and image build all live
+in that repo — workbench itself only drives ESP32 rovers.
 
 ## Board-specific knobs
 

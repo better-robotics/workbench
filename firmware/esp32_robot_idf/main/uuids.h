@@ -12,8 +12,6 @@
 #define OTA_STATUS_CHAR_UUID             "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d97"
 #define FW_INFO_CHAR_UUID                "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d98"
 #define MOTOR_CHAR_UUID                  "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d99"
-#define CAMERA_SIGNAL_CHAR_UUID          "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9a"
-#define CAMERA_STATUS_CHAR_UUID          "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9b"
 #define OPS_CHAR_UUID                    "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9c"
 #define ROBOT_STATUS_CHAR_UUID           "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9d"
 #define OPS_RESPONSE_CHAR_UUID           "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9e"
@@ -22,10 +20,5 @@
 #define SNAPSHOT_DATA_CHAR_UUID          "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da1"
 #define FLASH_CHAR_UUID                  "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da3"
 #define PIN_CONFIG_CHAR_UUID             "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da4"
-#define SIGNAL_CHAR_UUID                 "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da5"
 #define SERVO_CHAR_UUID                  "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da6"
 #define RGB_CHAR_UUID                    "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da7"
-
-// heartbeat_service
-#define HEARTBEAT_SVC_UUID               "b6e8d5f3-2c9d-4bba-ae5e-6f9b8c7d5eb0"
-#define HEARTBEAT_CHAR_UUID              "b6e8d5f3-2c9d-4bba-ae5e-6f9b8c7d5eb1"

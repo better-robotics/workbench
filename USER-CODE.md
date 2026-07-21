@@ -13,7 +13,7 @@ for (const r of robots) {
 
 // Typed ops with responses — same channel Pip uses.
 const cfg = await robot.op("get-config");
-const log = await robot.op("get-log", { lines: 50, unit: "pi-robot" });
+const log = await robot.op("get-log", { lines: 50 });
 
 // Fire-and-forget for ops where the robot drops BLE mid-call.
 await robot.op("reboot", {}, { await: false });
@@ -47,6 +47,6 @@ Firmware enforces motor watchdog + pulse duration cap + ultrasonic dist_cm forwa
 
 ## Deployment model
 
-User code lives in the browser, not on the robot. No upload-to-Pi, no GH Actions push, no `scp`.
+User code lives in the browser, not on the robot. No upload-to-device, no GH Actions push, no `scp`.
 
-If a robot needs to run behavior with the dashboard disconnected for minutes+ (outside the wedge today — see `.claude/CLAUDE.md → Anti-drift guards`), the path forward is the existing OTA pipeline: drop user code into a `/home/pi/user/` slot via BLE OTA, have `pi_robot.py` import it via a typed plugin API. No new sync server needed.
+If a robot needs to run behavior with the dashboard disconnected for minutes+ (outside the wedge today — see `.claude/CLAUDE.md → Anti-drift guards`), the path forward is the existing OTA pipeline: stream user code onto the firmware via BLE OTA and have it load through a typed plugin API. No new sync server needed.

@@ -37,11 +37,9 @@ payload changes here.
 
 - **BLE** — control plane. Low latency, proximity-authenticated, lossy. Anything that sets motor speed, toggles an LED, commits state.
 - **Typed ops over BLE** — structured verbs on a single characteristic (`get-log`, `get-config`, `restart-service`, `wifi-scan`, `wifi-join`). Each verb is a deliberate, reviewable decision instead of a real-shell transport.
-- **WebRTC** — two distinct flows.
-  - *Phone ↔ desktop*: signaled over the hub broker's `pair/#` topics (`pair/broker-signal.js` + `broker-lobby.js`; hub CONTRACT.md § pair) — same-LAN only, no internet rendezvous, no ICE servers (host/mDNS candidates). Accepted losses with the broker migration: cross-network pairing (operator's phone on LTE) *and* pairing from the https deploy (github.io — a https page can't open the broker's plain ws; the pair UI explains and points at the LAN-served IDE via `pairTransportBlocked()`). The pair QR carries roomId + pubkey + hub host. Pair-ceremony authenticated (ECDSA P-256 pubkey + signed pair-request — `pair/peer-key.js`). Carries camera frames, ask-human responses, robot-command relays.
-  - *Robot ↔ desktop* (Pi only — ESP32 has no signal char): signaled over the BLE `SIGNAL` characteristic — no internet rendezvous, no Mixed-Content/PNA gate. BLE pair = signal = auth. Carries OTA bundles, log tail, and PTY shell. ESP32 camera is HTTP MJPEG only (`:81/stream`); the ESP32-side WebRTC peer was removed (`.claude/exploration.md` → "Forks in the road").
-- **Wifi-presence** — Pi exposes `<name>.local:81/health`; dashboard probes it for the "on wifi" badge + service-crash detection. ESP32 presence shows up only when BLE-paired (wifi-status notify). No internet rendezvous for robot presence.
-- **USB-CDC** — recovery plane. Last-resort serial console, runs as its own systemd unit so a `pi-robot.service` crash doesn't take recovery with it. Bounded by physical access.
+- **WebRTC** — *Phone ↔ desktop* only: signaled over the hub broker's `pair/#` topics (`pair/broker-signal.js` + `broker-lobby.js`; hub CONTRACT.md § pair) — same-LAN only, no internet rendezvous, no ICE servers (host/mDNS candidates). Accepted losses with the broker migration: cross-network pairing (operator's phone on LTE) *and* pairing from the https deploy (github.io — a https page can't open the broker's plain ws; the pair UI explains and points at the LAN-served IDE via `pairTransportBlocked()`). The pair QR carries roomId + pubkey + hub host. Pair-ceremony authenticated (ECDSA P-256 pubkey + signed pair-request — `pair/peer-key.js`). Carries camera frames, ask-human responses, robot-command relays. (There is no robot↔desktop WebRTC: the ESP32 has no signal char — its camera is HTTP MJPEG `:81/stream` — and Pi robots were retired to the hub.)
+- **Wifi-presence** — an ESP32 shows up when BLE-paired (its wifi-status notify carries the LAN IP). No internet rendezvous for robot presence.
+- **USB serial** — recovery plane. Last-resort console over the ESP32's USB-UART bridge, driven from the dashboard over Web Serial (`recovery/console.js`). Bounded by physical access.
 
 # Connection-first init
 
@@ -56,7 +54,7 @@ Connection infrastructure (BLE, WiFi, USB-CDC) initializes before capability inf
 
 # Comment discipline
 
-Every line is context cost in an AI-edited codebase. Comments earn their place when they carry WHY: hidden constraints, kernel/API gotchas, workarounds for past bugs, cross-file invariants ("must match `firmware/pi_robot/pi_robot.py`"), schema/wire-format examples. Restatement (module preambles, narration, section banners, labels above obvious code) is the cut.
+Every line is context cost in an AI-edited codebase. Comments earn their place when they carry WHY: hidden constraints, kernel/API gotchas, workarounds for past bugs, cross-file invariants ("must match `firmware/esp32_robot_idf/main/app_main.c`"), schema/wire-format examples. Restatement (module preambles, narration, section banners, labels above obvious code) is the cut.
 
 # Abstractions earn upstream consumers
 
@@ -76,5 +74,4 @@ Before adding a logical layer, registry, wrapper, or routing decision, audit who
 - Pinned tracker (issue #45) — live pilot state: ranked gaps, watch-list. Rationale stays in `.claude/exploration.md`.
 - `.claude/exploration.md` — open architectural directions, design rationale, wired-but-unproven inventory, forks evaluated.
 - `.claude/field.md` — positioning analysis vs adjacent work.
-- `firmware/pi_robot/SYSTEMD.md` — preconditions-belong-in-the-script pattern.
-- `make smoke` — pure-function tests (<1 s); `make install-hooks` wires pre-commit (`make smoke` + gen-uuids/gen-constants drift + sw.js VERSION stamp), bypassable with `--no-verify`, CI is the binding layer. `protocol/constants.json` (`tools/gen-constants.py`) is the uuids.json pattern applied to numeric cross-firmware constants (safety timeouts, BLE chunk sizes) — edit the JSON, not the generated `protocol_constants.h`/`.py`/`docs/protocol-constants.js`.
+- `make smoke` — pure-function tests (<1 s); `make install-hooks` wires pre-commit (`make smoke` + gen-uuids/gen-constants drift + sw.js VERSION stamp), bypassable with `--no-verify`, CI is the binding layer. `protocol/constants.json` (`tools/gen-constants.py`) is the uuids.json pattern applied to numeric cross-firmware constants (safety timeouts, BLE chunk sizes) — edit the JSON, not the generated `protocol_constants.h`/`docs/protocol-constants.js`.

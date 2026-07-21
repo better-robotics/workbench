@@ -18,7 +18,7 @@ Pure-function tests live in `tests/`; run with `make smoke`. Below needs hardwar
 - [ ] Cap headers show state inline ("L: 0 · R: 0", "off", "Not configured").
 - [ ] Primary action visible without expanding (Turn on / Stop / Take photo / Scan).
 - [ ] Chevron only appears on caps with body content (not on LED, not on Snapshot when no image).
-- [ ] Card stripe color matches connection state (green/connected, amber/connecting, red/error, amber/firmware-down).
+- [ ] Card stripe color matches connection state (green/connected, amber/connecting, red/error).
 - [ ] Meta row truncates with ellipsis on long content; CTA stays right-aligned.
 
 ## Capabilities
@@ -33,7 +33,6 @@ Pure-function tests live in `tests/`; run with `make smoke`. Below needs hardwar
 - [ ] **Pip face on attached phone (default):** mount the phone; default is `phoneAttachedMode: "pip-face"` so the screen shows Pip's robot icon (head, antennas, ears, spark) with two morphing eyes inside. Eyes blink at jittered 2–5s intervals when idle. `/demo dance` → eyes shift direction in sync with motor calls. `get_robot_detections` → eyes scan left/right oscillating. `ask_human` → eyes rotate asymmetrically (raised brows). `/demo stopsign` with a stop sign held up → eyes briefly widen (alert, gold), then halted-squint (gray + sleep Z's drift) after the halt.
 - [ ] **WiFi** Scan returns networks (or empty if none); Join succeeds → status shows "WiFi <ip>" in meta.
 - [ ] **Camera (ESP32)** renders when WiFi joined. HTTP MJPEG live view starts without page reload.
-- [ ] **Camera (Pi)** WebRTC stream comes up once `pi-robot-rtc.service` is healthy; ICE survives Pi reboot.
 - [ ] **Snapshot** completes in <5 s; stalls trigger watchdog with retry.
 - [ ] **Reflex watcher**: open the Reflex section on a connected robot with a camera → Start → hold a stop sign to the camera → button flips to Start (fire-once), state shows "saw stop sign at HH:MM", motors halt if a Motors cap is present. Pip variant: `start_robot_watcher` from chat with `classes: ["stop sign"]` does the same.
 - [ ] **OTA** progress smoothly reports per chunk; "100% receiving → committing → done" transitions visible.
@@ -50,10 +49,8 @@ Pure-function tests live in `tests/`; run with `make smoke`. Below needs hardwar
 
 ## Recovery
 
-- [ ] Pi serial console: Pi powered + plugged → Serial console → Pi mode → Connect → bash prompt appears.
-- [ ] ESP32 serial console: Serial console → ESP32 mode → Connect → boot log + serial output streams.
-- [ ] ESP32 flash: Serial console → ESP32 mode → Flash firmware → bins stream, chip reboots.
-- [ ] Heartbeat-only mode: `systemctl stop pi-robot.service` → dashboard shows firmware-down banner with IP + recovery button.
+- [ ] ESP32 serial console: Serial console → Connect → boot log + serial output streams.
+- [ ] ESP32 flash: Serial console → Flash firmware → bins stream, chip reboots.
 
 ## Offline / PWA
 

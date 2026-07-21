@@ -16,7 +16,7 @@ bool wifi_sta_has_ip(void);
 void wifi_sta_scan_start(void);
 
 // Triggered by BLE WRITE on wifi-join. JSON: {"s":"ssid","p":"pass"}.
-// Empty p for open networks. Match firmware/pi_robot/pi_robot.py shape.
+// Empty p for open networks. Shape matches the dashboard's wifi-join payload.
 void wifi_sta_handle_join_write(const uint8_t *json, size_t len);
 
 // JSON snapshots — gatt_svr returns these as char values on READ.

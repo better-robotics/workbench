@@ -67,9 +67,7 @@ export function makeEntry(id, name, fwType = null, { lastConnectedAt = 0, camera
     otaSent: 0,
     // Motors fields (motorsChar, motorsLeft/Right, motorsSending, motorsPending)
     // are assigned by the signed-pair runtime's initEntry() on connect.
-    cameraSignalChar: null, cameraStatusChar: null,
-    cameraPc: null, cameraStream: null,
-    cameraRecvBuf: null, cameraStatus: null,
+    cameraStream: null,
     // A paired phone's camera mounted on this robot (phone-as-eye). Set by
     // phone-helpers.js's "Attach to robot" gesture; consumed by camera-frame +
     // pip-tools so detector tools can reason over multiple cameras at once.

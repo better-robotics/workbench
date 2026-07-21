@@ -95,7 +95,7 @@ const ALL_TOOLS = [
   },
   {
     name: "get_log",
-    description: "Recent journalctl lines from a Pi over BLE. Pi only.",
+    description: "Recent log lines from the robot over BLE.",
     input_schema: {
       type: "object",
       properties: {
@@ -107,7 +107,7 @@ const ALL_TOOLS = [
   },
   {
     name: "get_config",
-    description: "pi-robot.conf as JSON via BLE. Pi only.",
+    description: "The robot's config as JSON via BLE.",
     input_schema: {
       type: "object",
       properties: { id: { type: "string" } },
@@ -116,7 +116,7 @@ const ALL_TOOLS = [
   },
   {
     name: "restart_service",
-    description: "Restart pi-robot.service (user confirms). BLE drops ~5-10s.",
+    description: "Restart the robot's firmware service (user confirms). BLE drops ~5-10s.",
     input_schema: {
       type: "object",
       properties: { id: { type: "string" } },
@@ -480,7 +480,7 @@ async function dispatch(name, input) {
       await getLog(id, lines);
       try {
         const msg = await wait;
-        return { text: msg.text || "", unit: msg.unit || "pi-robot" };
+        return { text: msg.text || "", unit: msg.unit || "" };
       } catch (err) {
         return { error: err.message };
       }

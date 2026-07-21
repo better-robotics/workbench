@@ -19,13 +19,13 @@ Long-horizon shape decisions. Updated when the shape of the system changes.
 { "name": "motors", "char": "…d99", "type": "signed-pair", "range": [-100, 100] }
 { "name": "wifi",   "chars": {...}, "type": "wifi-scan" }
 { "name": "ota",    "chars": {...}, "type": "bundle-ota" }
-{ "name": "camera", "chars": {...}, "type": "webrtc-installable" }
+{ "name": "camera", "type": "mjpeg-stream" }
 { "name": "ops",    "char": "…d9c", "type": "command" }
 ```
 
 **The runtime (browser side).** A per-type constructor `makeXxxCap(schema)` returns `{probe, cleanup, renderSection, wireActions, postRender?}`. Adding a capability of a known type = one schema entry + zero JS code.
 
-**Firmware-side direction (farther out).** Pi and ESP32 firmware have identical ceremony: register char, parse read/write, notify on change, gate on config. A "typed char runtime" on firmware reads the capability declaration and handles generic typed chars with a small driver binding per capability (`{ on_write: fn, on_read: fn }`).
+**Firmware-side direction (farther out).** ESP32 firmware has repetitive ceremony: register char, parse read/write, notify on change, gate on config. A "typed char runtime" on firmware reads the capability declaration and handles generic typed chars with a small driver binding per capability (`{ on_write: fn, on_read: fn }`).
 
 **Where it stands** is readable from the code: `docs/capabilities/runtime/index.js`'s `RUNTIMES` map lists the migrated types; OTA (`docs/capabilities/ota.js`) is the one capability still on the older per-capability pattern.
 
@@ -33,7 +33,7 @@ Long-horizon shape decisions. Updated when the shape of the system changes.
 
 ## 2. AI-maintained documentation
 
-**Claim.** `README.md`, `HARDWARE.md`, `firmware/pi_robot/README.md`, and per-capability comments all describe what `fw-info.caps` + the code already know. They drift. An AI agent watching the schema + commit log can regenerate docs per release.
+**Claim.** `README.md`, `HARDWARE.md`, and per-capability comments all describe what `fw-info.caps` + the code already know. They drift. An AI agent watching the schema + commit log can regenerate docs per release.
 
 **Scope.** ~2 days to wire a pre-commit generator plus a CI check that fails if docs aren't regenerated. Starts small: capability reference page auto-generated from the live schema. Expands to change-log summarization from commit messages.
 
@@ -185,7 +185,7 @@ Adjacent technical paths declined, with the specific change in project direction
 
 **Why removed.** The video path's only payoff over the already-shipped HTTP MJPEG fallback was cross-NAT reachability (STUN/TURN) — never a validated need for a classroom/hobbyist robot on the same LAN as its operator, per `field.md`'s own "not a teleop dashboard" positioning. The four-patch surface was fragile (hand-debugged against libpeer internals, ~215 KB flash) for a benefit nobody asked for. Removing it also meant losing the WebRTC OTA speedup that rode the same PeerConnection — accepted as the simpler, smaller-surface trade; ESP32 OTA is back to BLE-stream only (Lane 1) until the PNA-direct HTTP OTA lane (Lane 2, still "not yet implemented") lands.
 
-**What's unaffected.** The Pi's WebRTC peer (shell, logs, OTA via `pi_robot_rtc.py`/aiortc) and the Pi's separate WebRTC camera capability (`webrtc-installable.js`) are untouched — different implementation (aiortc, spec-compliant, no chip-quirk patches needed), different payoff (an actual remote shell / fast Pi OTA, not a marginal video-transport upgrade).
+**Update (2026-07): the Pi robot was retired to the hub.** The Pi's WebRTC peer (shell, logs, OTA via aiortc) and its separate `webrtc-installable` camera were later removed outright when Pi provisioning moved to `better-robotics/hub` — a Pi now runs the classroom hub, not workbench firmware. Workbench has no robot↔desktop WebRTC path at all anymore; the only WebRTC left is phone↔desktop pairing.
 
 **Revisit trigger.** If a validated cross-NAT camera-viewing use case shows up (not just theoretical), evaluate Espressif's first-party KVS WebRTC SDK ([awslabs/amazon-kinesis-video-streams-webrtc-sdk-c@beta-reference-esp-port](https://github.com/awslabs/amazon-kinesis-video-streams-webrtc-sdk-c/tree/beta-reference-esp-port)) rather than reviving libpeer — it eliminates 3 of the 4 chip-quirk patches at the cost of hardwiring signaling to AWS KVS/`webrtc.espressif.com`, which would need a custom `signaling_client_if` to keep BLE-only signaling. Also carries KVS WebRTC Split Mode (ESP32-C6 signaling + ESP32-P4 streaming, wake-on-signal) — the only battery-powered WebRTC camera architecture in the ecosystem, relevant only if low-power ever becomes a constraint.
 

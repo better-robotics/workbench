@@ -1,9 +1,8 @@
-// Unified serial console. Auto-detects Raspberry Pi (USB-CDC gadget) vs
-// ESP32 (USB-UART bridge) from the picked port's VID *after* connecting,
-// instead of making the user pre-declare which one they have before they
-// even know what's plugged in — connect first, classify what came back.
-// Replaces the old recovery.js (Pi-only) + esp-serial.js's console half;
-// esp-serial.js now owns only the flash/install flow, reused here for the
+// Serial console for ESP32 boards. Classifies the picked port's VID *after*
+// connecting, so the operator doesn't have to pre-declare their bridge chip.
+// An unfiltered "show all ports" escape hatch (behind ⋯) connects to any
+// serial device without a recognized VID — e.g. a hub Pi's USB-CDC recovery
+// gadget. esp-serial.js owns the flash/install flow, reused here for the
 // Flash firmware button.
 import { $, wirePopover } from "../dom.js";
 import { log } from "../log.js";
@@ -22,15 +21,12 @@ let _profile = null;  // detected PROFILES entry for the current connection, or 
 
 const ENCODER = new TextEncoder();
 
-// Recognized device profiles. VIDs are unique across the two lists, so a
-// single lookup classifies any picked port. Pi's is the Linux Foundation
-// gadget VID (usb-gadget-setup.sh's PID varies by firmware version, but
-// VID-only matching catches all of them); ESP32's are the common USB-UART
-// bridges + native USB (see boards.js's ESP_USB_VIDS for the per-board why).
-const PI_VID = 0x1d6b;
+// Recognized device profiles. A VID lookup classifies a picked port; ESP32's
+// are the common USB-UART bridges + native USB (see boards.js's ESP_USB_VIDS
+// for the per-board why). Other serial devices connect via the unfiltered
+// escape hatch below.
 const PROFILES = [
-  { key: "pi",  label: "Raspberry Pi", vids: [PI_VID] },
-  { key: "esp", label: "ESP32",        vids: ESP_USB_VIDS },
+  { key: "esp", label: "ESP32", vids: ESP_USB_VIDS },
 ];
 const ALL_FILTERS = PROFILES.flatMap((p) => p.vids.map((usbVendorId) => ({ usbVendorId })));
 
@@ -128,11 +124,6 @@ async function connect({ unfiltered = false } = {}) {
   setTermVisible(true);
   ({ term: _term, fit: _fit, resizeObs: _resizeObs } = await mountTerminal($("console-term")));
   _term.focus();
-  if (_profile?.key === "pi") {
-    // Clear before any serial buffer flush — a getty session from before
-    // this connect can flush stale lines in as soon as the reader starts.
-    _term.write("\x1b[2J\x1b[H");
-  }
 
   _term.onData(async (data) => {
     if (!_writer) return;
@@ -155,8 +146,8 @@ async function connect({ unfiltered = false } = {}) {
   })();
 
   $("console-connect").textContent = "Disconnect";
-  const label = _profile?.key === "esp" ? portLabel(info.usbVendorId)
-              : _profile?.label || `Unknown device (vid=0x${(info.usbVendorId || 0).toString(16)})`;
+  const label = _profile ? portLabel(info.usbVendorId)
+              : `Unknown device (vid=0x${(info.usbVendorId || 0).toString(16)})`;
   setStatus("connected", label);
 }
 

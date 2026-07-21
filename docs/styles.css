@@ -377,7 +377,6 @@ a.menu-item { text-decoration: none; }
 /* Pulsing amber while a connect is in flight. Same token as Pip's voice so the
    "activity happening" feeling is consistent across the UI. */
 .dot.connecting { background: var(--duke-persimmon); animation: dot-pulse 1.4s ease-in-out infinite; }
-.dot.firmware-down { background: var(--duke-persimmon); }
 @keyframes dot-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) { .dot.connecting { animation: none; } }
 
@@ -409,7 +408,6 @@ a.menu-item { text-decoration: none; }
 .robot.status-connected     { border-left-color: var(--success); }
 .robot.status-connecting    { border-left-color: var(--duke-persimmon); }
 .robot.status-error         { border-left-color: var(--danger); }
-.robot.status-firmware-down { border-left-color: var(--duke-persimmon); }
 
 /* Identity row gets a touch more presence as the card's headline.
    .robot-meta is the secondary line under it (WiFi state, uptime, etc) —
@@ -593,8 +591,7 @@ a.menu-item { text-decoration: none; }
   transition: transform 0.2s ease-out;
 }
 .robot.expanded .disclosure-chevron { transform: rotate(0); }
-/* When the card isn't connected or connecting (disconnected, errored, or
-   firmware-down — firmware-down's own banner takes over inside the body),
+/* When the card isn't connected or connecting (disconnected or errored),
    expanding shows nothing useful. Hide the chevron via visibility:hidden so
    the header layout stays identical, and kill the affordance on the button.
    The real no-op gate lives in app.js's toggleExpand — pointer-events here
@@ -971,22 +968,6 @@ details.tray.has-alert > summary::after {
    appendOutput child mounts. */
 .scripts-output:empty { display: none; }
 
-/* Heartbeat-only connect: pi-robot.service is dead, recovery plane reachable. */
-.firmware-down-banner {
-  margin-top: 10px;
-  padding: 10px 12px;
-  border: 1px solid var(--duke-persimmon);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--duke-persimmon) 8%, transparent);
-}
-.firmware-down-banner code {
-  font-family: "SF Mono", ui-monospace, Menlo, monospace;
-  font-size: 12px;
-  background: color-mix(in srgb, var(--ink) 6%, transparent);
-  padding: 1px 4px;
-  border-radius: 3px;
-}
-
 /* Pinout edit mode — pin inputs + preset controls under the board view. */
 .pinout-edit-input { width: 70px; padding: 4px 8px; }
 .pinout-edit-input.conflict { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 15%, transparent); }
@@ -1188,66 +1169,6 @@ details.tray.has-alert > summary::after {
 @keyframes wifi-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .wifi-spinner { animation: none; } }
 
-.setup-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-@media (max-width: 560px) {
-  .setup-grid { grid-template-columns: 1fr; }
-}
-
-/* Platform picker — two tiles, one per hardware platform. Mark reuses the
-   type-badge treatment from the robot-card list so the dialog visually
-   rhymes with the surface the user came from. */
-.platform-tile {
-  /* Grid template aligns CTAs across tiles without a phantom footnote
-     div. The trailing `1.5em` row reserves the footnote slot at the
-     grid level — Pi has no footnote content but the row still holds
-     its height, so its CTA lines up with ESP32's. Tiles can omit the
-     footnote element entirely; the slot stays. */
-  display: grid;
-  grid-template-rows: auto 1fr auto 1.5em;
-  gap: 12px;
-  padding: 20px;
-  background: var(--surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius);
-}
-.platform-mark {
-  /* justify-self (not align-self) constrains horizontal in grid context.
-     Without this, the mark spans the full grid column and renders as a
-     full-width banner instead of a small inline pill. The earlier
-     `align-self: flex-start` was a flex idiom orphaned when this tile
-     switched from flex to grid. */
-  justify-self: start;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  padding: 3px 8px;
-  border-radius: 4px;
-  background: var(--border-subtle);
-}
-.platform-esp32 .platform-mark { color: var(--link); }
-.platform-pi    .platform-mark { color: var(--success-text); }
-.platform-title { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
-.platform-sub { font-size: 13px; color: var(--ink-muted); line-height: 1.45; }
-.platform-cta { display: flex; align-items: center; }
-.platform-footnote { min-height: 20px; display: flex; align-items: center; }
-
-.help-hint {
-  background: transparent;
-  color: var(--ink-muted);
-  border: none;
-  padding: 0;
-  min-height: unset;
-  font-size: 12px;
-  text-decoration: underline;
-  text-decoration-style: dotted;
-  text-underline-offset: 3px;
-  cursor: help;
-}
-.help-hint:hover { color: var(--ink); }
 .help-popover {
   border: 1px solid var(--border-default);
   border-radius: 10px;
@@ -2042,7 +1963,6 @@ dialog[open]::backdrop { opacity: 1; }
 .label-modal { width: min(400px, calc(100vw - 32px)); }
 .prepare-dialog { width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 64px); }
 .settings-modal { width: min(440px, calc(100vw - 32px)); }
-.setup-dialog { width: min(560px, calc(100vw - 32px)); max-width: 560px; }
 
 /* Pip — bubble / panel / notify / turns / reply / form come from pip (jsdelivr).
    This block only carries the site-specific layer: tool-trace rows, stop button,
@@ -2163,118 +2083,6 @@ dialog[open]::backdrop { opacity: 1; }
 .settings-item input[type="checkbox"] { margin: 2px 0 0 0; }
 .settings-item label { cursor: pointer; }
 .settings-title { font-weight: 500; margin-bottom: 2px; }
-
-/* Stacked layout — avoids narrow-viewport wrapping when the buttons' auto
-   column steals width from the summary value. */
-.settings-item.passwords-row { grid-template-columns: 1fr; gap: 6px; }
-
-/* Disclosure-row pattern — Advanced section uses <details> so one-time
-   setup tasks (passwords) collapse to a one-line summary by default.
-   Summary shows label + current value at a glance; tap reveals the action
-   set. Same iOS-Settings idiom. The grid template on the summary mirrors
-   a normal settings-item row for visual rhythm. */
-.settings-disclosure {
-  display: block;
-  padding: 0;
-}
-.settings-disclosure-summary {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 12px;
-  align-items: center;
-  padding: 10px 0;
-  cursor: pointer;
-  list-style: none;
-}
-.settings-disclosure-summary::-webkit-details-marker { display: none; }
-.settings-disclosure-summary::marker { content: ""; }
-/* Trailing chevron — unified onto the SVG .disclosure-chevron mechanism
-   (see the tray summary comment above); no font-rendering variance across
-   platforms, vs. the generated-glyph approach this replaced. Grid's 3rd
-   "auto" column already places it at the trailing edge. */
-.settings-disclosure[open] .settings-disclosure-summary .disclosure-chevron { transform: rotate(0); }
-.settings-disclosure-summary .meta {
-  text-align: right;
-  word-break: break-all;
-  color: var(--ink-muted);
-  font-size: 12px;
-}
-.settings-disclosure-body {
-  padding: 4px 0 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.pwd-entry {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 0;
-  border-top: 1px solid var(--border-subtle);
-}
-.pwd-entry:first-child { border-top: none; }
-.pwd-info { flex: 1; min-width: 0; }
-.pwd-host { font-weight: 500; }
-.pwd-value { word-break: break-all; }
-.pwd-actions { display: flex; gap: 6px; flex-shrink: 0; }
-
-/* Numbered stepper for the Pi-setup dialog. The digit is a CSS counter, so
-   reordering or inserting a <li> renumbers itself — no hardcoded index to drift.
-   The gutter line connects them into a sequence rather than three lone sections. */
-.prep-steps { list-style: none; counter-reset: prep-step; margin: 0; padding: 0; }
-.prep-steps > li {
-  counter-increment: prep-step;
-  position: relative;
-  padding: 0 0 20px 34px;
-}
-.prep-steps > li:last-child { padding-bottom: 0; }
-.prep-steps > li::before {
-  content: counter(prep-step);
-  position: absolute;
-  left: 0; top: -1px;
-  width: 24px; height: 24px;
-  display: flex; align-items: center; justify-content: center;
-  border-radius: 50%;
-  background: var(--surface);
-  border: 1px solid var(--border-default);
-  color: var(--ink-muted);
-  font-size: 13px; font-weight: 600;
-}
-.prep-steps > li:not(:last-child)::after {
-  content: "";
-  position: absolute;
-  left: 11px; top: 27px; bottom: 6px;
-  width: 1px;
-  background: var(--border-default);
-}
-.prep-step-head { font-weight: 500; margin-bottom: 10px; }
-
-.caps-list { display: flex; flex-direction: column; gap: 8px; }
-.caps-list .cap-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 14px;
-}
-/* width: auto beats the ambient .field input { width: 100% } which would
-   otherwise stretch the checkbox across the whole row. */
-.caps-list .cap-row input[type="checkbox"] { margin: 0; flex: none; width: auto; }
-/* Override .field label's block / muted / margin rules inside a cap-row. */
-.caps-list .cap-row label {
-  display: inline;
-  margin: 0;
-  font-size: 14px;
-  color: var(--ink);
-  cursor: pointer;
-  flex: 1 1 auto;  /* take remaining horizontal space so the pin input floats right */
-}
-.caps-list .cap-row .cap-suffix { color: var(--ink-muted); font-size: 13px; flex: none; }
-.caps-list .cap-row input[type="number"] {
-  width: 56px;
-  padding: 2px 6px;
-  font-size: 13px;
-  flex: none;
-}
 
 .modal-header {
   display: flex;

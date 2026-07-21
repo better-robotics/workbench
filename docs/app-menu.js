@@ -4,9 +4,8 @@
 // page's own wiring.
 
 import { REPO_URL } from "./endpoints.js";
-import { probeNetwork, probeIceReachability } from "./net-probe.js";
+import { probeNetwork } from "./net-probe.js";
 import { getPairDiagnostic } from "./pair/pairing.js";
-import { getRobotWebRTCDiagnostic } from "./webrtc/webrtc-robot.js";
 
 // ── PWA install ────────────────────────────────────────────────────────
 
@@ -349,53 +348,10 @@ export function wireDiagnosticsMenuItem({ getTelemetrySources, onBeforeOpen } = 
       return { supported: true, available, permission };
     })();
 
-    // Per-server ICE reachability — the TURN-enabled config a real pair
-    // would use, broken out per server with first-hit latency. Reveals
-    // "STUN works but TURN unreachable" (the WhiteSky-class fallback gap)
-    // distinct from "all blocked" (full ICE failure).
-    try {
-      const { fetchIceServers } = await import("./webrtc/ice.js");
-      const iceServers = await fetchIceServers();
-      result.iceReachability = await probeIceReachability(iceServers, { timeoutMs: 2500 });
-    } catch (err) {
-      result.iceReachability = { error: err.message || String(err) };
-    }
-
-    // Robot /health reachability — answers "robot is on the LAN" cleanly
-    // separate from "WebRTC data path works." A robot whose /health responds
-    // but whose camera/pair never completes points at WebRTC/ICE, not the
-    // LAN.
-    {
-      const sources = (typeof getTelemetrySources === "function" ? getTelemetrySources() : []) || [];
-      const targets = sources.filter((s) => s && s.wifiStatus?.ip);
-      if (targets.length === 0) {
-        result.robotHealth = { note: "no robots with WiFi IP — connect over BLE first" };
-      } else {
-        result.robotHealth = await Promise.all(targets.map(async (s) => {
-          const ip = s.wifiStatus.ip;
-          const ts = performance.now();
-          try {
-            const r = await fetch(`http://${ip}:81/health`, { signal: AbortSignal.timeout(2000) });
-            const body = r.ok ? await r.json() : null;
-            return { name: s.name || s.id, ip, ok: r.ok, status: r.status, latencyMs: Math.round(performance.now() - ts), body };
-          } catch (err) {
-            return { name: s.name || s.id, ip, ok: false, error: err.name === "TimeoutError" ? "timeout" : (err.message || String(err)) };
-          }
-        }));
-      }
-    }
-
     try {
       const snap = await getPairDiagnostic();
       result.phonePair = snap.role ? snap : { note: "no phone-pair attempt yet this session" };
     } catch (err) { result.phonePair = { error: err.message || String(err) }; }
-
-    try {
-      const peers = await getRobotWebRTCDiagnostic();
-      result.robotWebRTC = peers.length
-        ? peers
-        : { note: "no robot WebRTC peer open — start camera first" };
-    } catch (err) { result.robotWebRTC = { error: err.message || String(err) }; }
 
     const sources = (typeof getTelemetrySources === "function" ? getTelemetrySources() : []) || [];
     const populated = sources.filter((s) => s && s.telemetry);

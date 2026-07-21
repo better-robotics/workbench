@@ -5,7 +5,6 @@
 Source: protocol/uuids.json
 Outputs:
     firmware/esp32_robot_idf/main/uuids.h    — `#define X "uuid"`
-    firmware/pi_robot/uuids.py      — `X = "uuid"`
     docs/ble/uuids.js               — `export const X = "uuid";`
 
 The generated files include a banner that says they're generated; editing
@@ -70,8 +69,6 @@ def main():
     targets = [
         ("firmware/esp32_robot_idf/main/uuids.h",
          "//", "#pragma once\n\n", lambda n, u: f'#define {n:32} "{u}"\n'),
-        ("firmware/pi_robot/uuids.py",
-         "#",  "\n",               lambda n, u: f'{n} = "{u}"\n'),
         ("docs/ble/uuids.js",
          "//", "\n",               lambda n, u: f'export const {n} = "{u}";\n'),
     ]

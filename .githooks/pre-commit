@@ -14,7 +14,7 @@ cd "$REPO_ROOT"
 # casual commits on unrelated files don't pay for the regen.
 if git diff --cached --name-only | grep -q '^protocol/uuids\.json$'; then
     python3 tools/gen-uuids.py >/dev/null
-    GEN="firmware/esp32_robot_idf/main/uuids.h firmware/pi_robot/uuids.py docs/uuids.js"
+    GEN="firmware/esp32_robot_idf/main/uuids.h docs/ble/uuids.js"
     if ! git diff --quiet -- $GEN; then
         echo "pre-commit: generated UUID files are out of sync with protocol/uuids.json"
         echo "  fix: make gen-uuids && git add $GEN"
@@ -26,7 +26,7 @@ fi
 # (safety timeouts, BLE chunk sizes shared across firmwares).
 if git diff --cached --name-only | grep -q '^protocol/constants\.json$'; then
     python3 tools/gen-constants.py >/dev/null
-    GEN="firmware/esp32_robot_idf/main/protocol_constants.h firmware/pi_robot/protocol_constants.py docs/protocol-constants.js"
+    GEN="firmware/esp32_robot_idf/main/protocol_constants.h docs/protocol-constants.js"
     if ! git diff --quiet -- $GEN; then
         echo "pre-commit: generated constant files are out of sync with protocol/constants.json"
         echo "  fix: make gen-constants && git add $GEN"

@@ -8,7 +8,6 @@
 
 // ble_chunking
 #define CHUNK_BYTES              180
-#define SIGNAL_CHUNK_BYTES       100
 
 // chunked_transfer
 #define OTA_OP_ABORT             0

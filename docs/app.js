@@ -14,10 +14,9 @@ import { updateFirmware, updateFromFile } from "./capabilities/ota.js";
 import { restartService, rebootRobot } from "./capabilities/runtime/command.js";
 import { initGamepad } from "./input/gamepad.js";
 import { initMotorsKeyboard } from "./capabilities/runtime/signed-pair.js";
-// prepare.js / pinout.js / recovery.js are lazy-loaded on first use (~750 LOC
-// combined, none of it needed for first paint). See the dynamic import()
-// calls in the DOMContentLoaded wiring below.
-import { initPasswordsUI } from "./passwords.js";
+// pinout.js / scripts.js are lazy-loaded on first use (none of it needed for
+// first paint). See the dynamic import() calls in the DOMContentLoaded wiring
+// below.
 import { initAssistant } from "./pip/assistant.js";
 import { initPhones, listPhones } from "./pair/phones.js";
 import { initPhoneScreenModePlugin } from "./pair/phone-screen-mode-plugin.js";
@@ -31,7 +30,6 @@ import {
   wireHardRefresh, wireDiagnosticsMenuItem, setReportIssueLink, readSwVersion,
 } from "./app-menu.js";
 import { REPO_URL } from "./endpoints.js";
-import { initRobotPresence } from "./wifi-presence.js";
 import { wireLogDialog } from "./recovery/log-dialog.js";
 
 setCapabilityRenderer((entry) => renderEntry(entry));
@@ -63,7 +61,7 @@ function attachedCameraHtml(entry) {
 // the expanded card body, not here. Only "abnormal reset" stays because
 // it's a discoverability signal you want to see without expanding.
 function metaText(entry) {
-  const connected = entry.status === "connected" || entry.status === "firmware-down";
+  const connected = entry.status === "connected";
   if (!connected) return "";
   const t = entry.telemetry;
   const parts = [
@@ -79,7 +77,7 @@ function metaText(entry) {
 // me more" gesture, so this line has all the precise numbers the primary
 // row deliberately omits.
 function systemLine(entry) {
-  const connected = entry.status === "connected" || entry.status === "firmware-down";
+  const connected = entry.status === "connected";
   if (!connected) return "";
   const t = entry.telemetry;
   const w = entry.wifiStatus;
@@ -97,7 +95,7 @@ function systemLine(entry) {
 // degraded enough that the user should notice at a glance. Empty when
 // everything is healthy, so the row stays visually quiet.
 function warningChips(entry) {
-  const connected = entry.status === "connected" || entry.status === "firmware-down";
+  const connected = entry.status === "connected";
   if (!connected) return "";
   const t = entry.telemetry;
   const chips = [];
@@ -105,18 +103,6 @@ function warningChips(entry) {
   if (tempSev) chips.push({ sev: tempSev, text: `${t.temp_c.toFixed(1)}°C` });
   const rssiSev = rssiSeverity(t?.rssi_dbm);
   if (rssiSev) chips.push({ sev: rssiSev, text: `${t.rssi_dbm} dBm` });
-  // Recovery-plane chips — only Pi advertises these (heartbeat.py keys).
-  // "weak" sev (yellow), not "bad" (red): BLE is alive when we're reading
-  // this, so a degraded recovery plane is forward-looking ("if this
-  // connection drops you may not be able to recover"), not an active
-  // failure that justifies a red chip on a working card.
-  const hb = entry.heartbeat;
-  if (hb?.usb_gadget && hb.usb_gadget !== "active") {
-    chips.push({ sev: "weak", text: `USB recovery: ${hb.usb_gadget}` });
-  }
-  if (hb?.ssh && hb.ssh !== "active") {
-    chips.push({ sev: "weak", text: `SSH: ${hb.ssh}` });
-  }
   if (!chips.length) return "";
   return `<div class="robot-warnings">${chips.map(c =>
     `<span class="alert-chip pill ${c.sev === "bad" ? "danger" : "warn"}">${escapeHtml(c.text)}</span>`,
@@ -278,24 +264,19 @@ function renderEntry(entry) {
   const savedEnd   = savedAction && active.selectionEnd != null ? active.selectionEnd : null;
   const { id, status } = entry;
   const name = entry.name;
-  const firmwareDown = status === "firmware-down";
-  // GATT IS connected when firmwareDown — only the main service is missing.
-  // Treat as connected for button purposes so the user gets Disconnect.
-  const connected = status === "connected" || firmwareDown;
+  const connected = status === "connected";
   const connecting = status === "connecting";
   const statusText = status === "error"
     ? (/no longer in range|not found/i.test(entry.lastConnectError || "") ? "Out of range" : "Error")
-    : firmwareDown ? "Firmware down"
     : "";
   // Card-style status hint via a colored left edge stripe (see
   // .robot.connected etc. in styles.css).
   entry.node.classList.toggle("status-connected",     status === "connected");
   entry.node.classList.toggle("status-connecting",    connecting);
   entry.node.classList.toggle("status-error",         status === "error");
-  entry.node.classList.toggle("status-firmware-down", firmwareDown);
 
   // Canonical capability order across robot types so the eye lands on the same
-  // control in the same place on both Pi and ESP32 cards. Unknown names fall
+  // control in the same place on every card. Unknown names fall
   // to the end in schema order.
   // OTA renders at the top of the body when active — it's a transient
   // operation that demands attention, not a parked control. Other caps
@@ -362,7 +343,7 @@ function renderEntry(entry) {
   // Active-ops chips: at-a-glance "what's happening right now" without
   // having to expand each capability section.
   const activeOps = [];
-  if (status === "connected" || firmwareDown) {
+  if (status === "connected") {
     if (entry.cameraRunning || entry.cameraStream) {
       activeOps.push({ text: "streaming" });
     }
@@ -430,17 +411,7 @@ function renderEntry(entry) {
       ${opsRow}
     </div>
     ${stateHtml}
-    ${firmwareDown ? `
-      <div class="firmware-down-banner">
-        <div class="label">pi-robot.service: ${escapeHtml(entry.heartbeat?.pi_robot || "down")}</div>
-        <div class="meta">Only the heartbeat plane is responding — capabilities (LED, motors, WiFi, OTA) are unavailable until the firmware comes back.</div>
-        ${entry.heartbeat?.ip ? `<div class="meta">SSH: <code>ssh robot@${escapeHtml(entry.heartbeat.ip)}</code></div>` : `<div class="meta">No IP — robot isn't on WiFi. Use the USB-C serial console.</div>`}
-        <div class="row" style="margin-top:8px;">
-          <button class="secondary sm" data-action="open-recovery">Open serial console</button>
-        </div>
-      </div>
-    ` : ""}
-    ${expanded && !firmwareDown ? `
+    ${expanded ? `
       <div class="robot-body">
         ${sysRow}
         ${sections}
@@ -499,8 +470,6 @@ function renderEntry(entry) {
   if (connectBtn) connectBtn.addEventListener("click", () => connect(id));
   const disconnectBtn = entry.node.querySelector('[data-action="disconnect"]');
   if (disconnectBtn) disconnectBtn.addEventListener("click", () => disconnect(id));
-  const recoveryBtn = entry.node.querySelector('[data-action="open-recovery"]');
-  if (recoveryBtn) recoveryBtn.addEventListener("click", () => openConsole());
   const menuBtn = entry.node.querySelector('[data-action="menu"]');
   if (menuBtn) menuBtn.addEventListener("click", () => openMenu(menuBtn, id));
   const toggleExpand = () => {
@@ -566,12 +535,9 @@ function openMenu(triggerBtn, id) {
   $("menu-restart").hidden = !entry?.opsChar;
   $("menu-reboot").hidden  = !entry?.opsChar;
   $("menu-log").hidden     = !entry?.opsChar;
-  // Shell is Pi-only (no shell on ESP32). pi-robot-rtc.service must be
-  // installed; if it's not, the connect button surfaces a clear error.
-  $("menu-shell").hidden   = !(entry?.fwType === "pi" && entry?.status === "connected");
   $("menu-pinout").hidden  = !(entry?.status === "connected" && entry?.fwInfo);
   $("menu-update").hidden       = !entry?.otaDataChar;
-  $("menu-disconnect").hidden = !(entry?.status === "connected" || entry?.status === "firmware-down");
+  $("menu-disconnect").hidden = !(entry?.status === "connected");
   // Phone-attach group: one button per connected phone, labelled
   // "Attach <phone> camera" or "Detach <phone> camera" depending on
   // whether that phone is already mounted on THIS robot. Generated each
@@ -796,11 +762,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const dialog = $("update-fw-dialog");
     const sourceEl = $("update-fw-source");
     const latestBtn = $("update-fw-latest");
-    // Mirror the source-resolution logic in updateFirmware: Pi falls back to
-    // the default manifest path when fwInfo is partial; ESP32 uses fwInfo.url.
-    const bundleUrl = entry.fwInfo?.bundle_url
-      || (entry.otaDataChar && !entry.fwInfo?.url ? "firmware/pi_robot/ota-manifest.json" : null);
-    const url = bundleUrl || entry.fwInfo?.url;
+    // Mirror the source-resolution logic in updateFirmware: ESP32 uses fwInfo.url.
+    const url = entry.fwInfo?.url;
     if (url) {
       sourceEl.textContent = url;
       sourceEl.hidden = false;
@@ -837,14 +800,6 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   // Shell — lazy-import so xterm.js + WebRTC plumbing only load when the
   // user actually opens a terminal session. Pi-only.
-  $("menu-shell").addEventListener("click", async () => {
-    const id = menuTargetId;
-    closeMenu();
-    const entry = state.devices.get(id);
-    if (!entry || entry.fwType !== "pi" || entry.status !== "connected") return;
-    const mod = await import("./recovery/shell.js");
-    mod.openShellDialog(id);
-  });
   $("serial-console-btn").addEventListener("click", () => {
     openConsole();
   });
@@ -882,7 +837,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const id = menuTargetId;
     closeMenu();
     const m = state.devices.get(id);
-    if (m && (m.status === "connected" || m.status === "firmware-down")) disconnect(id);
+    if (m && m.status === "connected") disconnect(id);
   });
   $("menu-forget").addEventListener("click", () => {
     const id = menuTargetId;
@@ -967,37 +922,25 @@ document.addEventListener("DOMContentLoaded", () => {
 
   $("settings-close").addEventListener("click", () => $("settings-modal").close());
 
-  const openSetup = () => $("setup-dialog").showModal();
-  $("add-robot-btn").addEventListener("click", openSetup);
-  $("empty-add-robot-btn").addEventListener("click", openSetup);
-  $("setup-close").addEventListener("click", () => $("setup-dialog").close());
-
-  // Setup card's Flash button → canonical install flow in esp-serial.js.
-  // The "Web Serial required" hint replaces the button when the browser
-  // can't support it.
-  const setupInstallBtn = document.getElementById("setup-esp-install");
-  if (setupInstallBtn) {
+  // "Set up a robot" goes straight to the ESP32 Web-Serial flash — the only
+  // hardware workbench sets up (a Raspberry Pi runs the classroom hub,
+  // provisioned from better-robotics/hub, not here). One platform, so there's
+  // no chooser: the button opens the native serial picker directly.
+  const startEspInstall = async () => {
     if (!("serial" in navigator)) {
-      setupInstallBtn.disabled = true;
-      document.getElementById("setup-esp-unsupported").hidden = false;
-    } else {
-      setupInstallBtn.addEventListener("click", async () => {
-        // Close the setup chooser — install dialog takes over from here.
-        // Two stacked modals split focus and make "which X dismisses what"
-        // ambiguous (HIG: avoid competing modals). Setup card has done
-        // its job by routing us into installEsp32.
-        $("setup-dialog").close();
-        // Release any console-held port before installEsp32 picks a new one.
-        await import("./recovery/console.js").then(m => m.releasePort?.()).catch(() => {});
-        const { installEsp32 } = await import("./recovery/esp-serial.js");
-        await installEsp32();
-      });
+      log("Web Serial required to flash — use Chrome or Edge on desktop.");
+      return;
     }
-  }
+    // Release any console-held port before installEsp32 picks a new one.
+    await import("./recovery/console.js").then(m => m.releasePort?.()).catch(() => {});
+    const { installEsp32 } = await import("./recovery/esp-serial.js");
+    await installEsp32();
+  };
+  $("add-robot-btn").addEventListener("click", startEspInstall);
+  $("empty-add-robot-btn").addEventListener("click", startEspInstall);
 
   initGamepad();
   initMotorsKeyboard();
-  initPasswordsUI();
   // Pip is additive; if it can't init (CDN failure, regression in pip-core,
   // bad cached SW), the rest of the dashboard must keep working. Fence the
   // call so a Pip throw doesn't take down BLE / phones / robot presence.
@@ -1006,23 +949,11 @@ document.addEventListener("DOMContentLoaded", () => {
   // let the rest of init continue synchronously.
   initAssistant().catch(err => console.error("[pip] init failed:", err));
   initPhones();
-  initRobotPresence();
   // Phone-on-robot rendering: phone.attached/phone.detached resolve
   // into a screen mode and the desktop sends it over WebRTC. Off-
   // switch: delete this line.
   initPhoneScreenModePlugin();
 
-  // Lazy-load prepare.js on first click — it's ~230 LOC and touches the File
-  // System Access API; no reason to pull it into first-paint. prepare.js's
-  // openDialog() runs its own initOnce() internally so one-time setup still
-  // happens. ?prepare URL param keeps working via the same path.
-  $("prepare-open-btn").addEventListener("click", async () => {
-    const mod = await import("./recovery/prepare.js");
-    await mod.openDialog();
-  });
-  if (new URLSearchParams(location.search).get("prepare") !== null) {
-    import("./recovery/prepare.js").then(m => m.openDialog());
-  }
   // Classroom-hub transport (MQTT-over-WebSockets): ?hub=<host> surfaces the
   // hub's rovers as robot cards. Lazy — costs nothing without the flag.
   // http-served pages only (a https page can't open ws://); see DEV.md.

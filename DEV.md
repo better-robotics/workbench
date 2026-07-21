@@ -5,7 +5,6 @@ Diagnostic flags, console handles, debug paths. User-facing → `README.md`. Age
 ## URL flags
 
 ### Dashboard (`index.html`)
-- `?prepare` — opens the Customize-card SD-prep dialog on load. Implementation: `app.js`.
 - `?robot=<name>` — pre-selects a robot by name (useful for direct-link workflows). Implementation: `app.js`.
 - `?hub=<host>[&hubuser=<team>&hubpass=<code>]` — connects to a classroom hub's
   MQTT broker over WebSockets (`ws://<host>:9001`, `better-robotics/hub`
@@ -15,8 +14,8 @@ Diagnostic flags, console handles, debug paths. User-facing → `README.md`. Age
   `hubuser`) is the broker-ACL read-only fleet view — cards appear, drive
   publishes are silently dropped. **http-served pages only**: a https page
   (github.io) can't open `ws://` (mixed content), so use a local dev server
-  or a hub-served copy. Covered: motors, led, telemetry. Not covered (BLE/
-  WebRTC-only): camera, OTA, ops, wifi provisioning. The same host also
+  or a hub-served copy. Covered: motors, led, telemetry. Not covered (BLE-
+  only): camera, OTA, ops, wifi provisioning. The same host also
   carries phone↔desktop pairing signaling (`pair/#` — see phone.html flags);
   without `?hub=`, pairing signaling falls back to `hub.local`. Card
   gotcha: Disconnect
@@ -72,25 +71,13 @@ Live on both desktop and phone while `pairing.js` is loaded.
 - `window.probeNetwork({ timeoutMs })` — runs a unilateral STUN probe on demand and returns `{stunReachable, candidateTypes, publicIp, mdnsObfuscated, candidates, durationMs}`. Stashes the result in `window.lastNetProbe()`.
 - `window.lastNetProbe()` — last `probeNetwork()` result, or `null` if never run.
 - `window.hub` — `{ client, disconnect() }`, present only when `?hub=` is active. `client.publish(topic, json)` / `client.subscribe(filter)` for raw contract-topic poking; `disconnect()` closes the broker session (the per-card Disconnect button can't — see URL flags).
-- `window.probeIceReachability(iceServers, { timeoutMs })` — per-server reachability + first-hit latency. Returns `[{urls, reachable, latencyMs, types}]`. Pass the array `fetchIceServers()` returns to test the TURN-enabled config a real pair uses.
-
-## Robot endpoints
-
-- `:81/health` (per-Pi HTTP) — wifi-presence probe. JSON `{ok, type, robotId, ip, uptime_s, pi_robot_service}`. Implementation: `firmware/pi_robot/pi_robot_health.py`. PNA preflight supported.
-- **WebRTC peer** (per-Pi; ESP32 has no signal char and no WebRTC peer). The dashboard writes a chunked SDP offer to the BLE `SIGNAL` characteristic; `pi_robot.py` (root) reassembles and forwards to a local aiortc daemon (`pi_robot_rtc.py`, non-root) over `/run/pi-robot-rtc.sock`. The daemon answers non-trickle (all candidates inline); pi_robot.py chunks the answer back via BLE notify. Used by `docs/webrtc/webrtc-robot.js` for the Shell dialog, OTA bundle staging, and log tail. No internet rendezvous — BLE pair is the signal substrate.
-
-## Pi serial console
-
-When BLE pairing won't go through and SSH isn't reachable (firmware crash-looping, no WiFi joined, fresh prepare not yet booted), the USB-C cable to the Pi exposes a CDC-ACM serial console with autologin.
-
-- `tools/pi-serial.py "<cmd>"` — runs a single shell command on the Pi over USB-CDC and prints the response. Auto-detects `/dev/cu.usbmodem*` (macOS) or `/dev/ttyACM*` (Linux); override with `--dev` or `BR_PI_SERIAL`. Auto-escapes the `[Mac]>` wrapper REPL (dotfiles lander) into bash. Use for service status, journal reads, in-place edits when OTA is dead.
-- For longer-running commands pass `--wait 12` (default 6 s) so the end-of-output marker has time to print.
+- `window.probeIceReachability(iceServers, { timeoutMs })` — per-server reachability + first-hit latency for any ICE-server array. Returns `[{urls, reachable, latencyMs, types}]`. (The LAN pair path uses no ICE servers; this is a generic reachability probe.)
 
 ## Chrome internal pages
 
 State the page can't see:
 
-- `chrome://webrtc-internals/` — every active RTCPeerConnection, ICE candidate pair tried, which got disqualified and why, DTLS/SCTP state, getStats output. **First stop** when WebRTC video or pair signaling fails. Auto-records on connection start; "candidate-pair selected" vs "channel open" timing is usually what you want.
+- `chrome://webrtc-internals/` — every active RTCPeerConnection, ICE candidate pair tried, which got disqualified and why, DTLS/SCTP state, getStats output. **First stop** when phone-pair signaling fails. Auto-records on connection start; "candidate-pair selected" vs "channel open" timing is usually what you want.
 - `chrome://bluetooth-internals/` — Web Bluetooth devices Chrome knows, services discovered, last scan results. Useful when a robot doesn't appear in the chooser or GATT operations stall. "Adapter" section surfaces OS-level state (powered, discoverable, paired).
 - `chrome://device-log/` — per-event log for BLE, USB, serial. Captures errors the page never sees (e.g. "GATT operation already in progress").
 - `chrome://inspect/#devices` — remote DevTools for Chrome on USB-connected Android. Full console + Sources + Network on the phone's tab.

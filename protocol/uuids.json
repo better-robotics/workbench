@@ -1,5 +1,5 @@
 {
-  "_comment": "Single source of truth for all BLE UUIDs. Keys are UPPER_SNAKE_CASE so codegen can drop them straight into C #defines, Python module-level constants, and JS named exports without any case translation. Edit this file, then run `make gen-uuids` (also runs automatically on `make compile` / `make publish-pi-firmware`). Do NOT edit the generated files directly — `tools/gen-uuids.py` will overwrite them.",
+  "_comment": "Single source of truth for all BLE UUIDs. Keys are UPPER_SNAKE_CASE so codegen can drop them straight into C #defines and JS named exports without any case translation. Edit this file, then run `make gen-uuids` (also runs automatically on `make compile`). Do NOT edit the generated files directly — `tools/gen-uuids.py` will overwrite them.",
   "_hub_contract": "Cross-project channel mapping (MOTOR<->pwm with the +-100-percent vs +-255-duty scale conversion, LED+RGB<->set_led, TELEMETRY<->sys) is canonical in better-robotics/hub CONTRACT.md, 'The BLE transport (workbench)'. Keep that section in sync when a mapped char's payload changes.",
   "main_service": {
     "SERVICE_UUID":               "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d91",
@@ -11,8 +11,6 @@
     "OTA_STATUS_CHAR_UUID":       "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d97",
     "FW_INFO_CHAR_UUID":          "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d98",
     "MOTOR_CHAR_UUID":            "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d99",
-    "CAMERA_SIGNAL_CHAR_UUID":    "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9a",
-    "CAMERA_STATUS_CHAR_UUID":    "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9b",
     "OPS_CHAR_UUID":              "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9c",
     "ROBOT_STATUS_CHAR_UUID":     "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9d",
     "OPS_RESPONSE_CHAR_UUID":     "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d9e",
@@ -21,12 +19,7 @@
     "SNAPSHOT_DATA_CHAR_UUID":    "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da1",
     "FLASH_CHAR_UUID":            "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da3",
     "PIN_CONFIG_CHAR_UUID":       "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da4",
-    "SIGNAL_CHAR_UUID":           "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da5",
     "SERVO_CHAR_UUID":            "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da6",
     "RGB_CHAR_UUID":              "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4da7"
-  },
-  "heartbeat_service": {
-    "HEARTBEAT_SVC_UUID":  "b6e8d5f3-2c9d-4bba-ae5e-6f9b8c7d5eb0",
-    "HEARTBEAT_CHAR_UUID": "b6e8d5f3-2c9d-4bba-ae5e-6f9b8c7d5eb1"
   }
 }

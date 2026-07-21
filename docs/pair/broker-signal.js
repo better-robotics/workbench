@@ -15,9 +15,8 @@
 // &hub= carries WHICH hub, never the scheme.
 //
 // A rendezvous is a phone book, not a data path — SDP and ICE, nothing else.
-// The pair path still has no ICE servers (webrtc/ice.js owns TURN for the
-// robot↔desktop paths), so media rides host/mDNS candidates and both devices
-// must share a network. Internet signaling does NOT bring back the phone-on-
+// The pair path has no ICE servers, so media rides host/mDNS candidates and
+// both devices must share a network. Internet signaling does NOT bring back the phone-on-
 // LTE case; it brings back pairing from a https page for two devices on one
 // wifi.
 //

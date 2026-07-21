@@ -6,7 +6,7 @@
 #include "esp_err.h"
 
 // Wire protocol for the BLE ota-data char (opcodes from protocol_constants.h,
-// shared with firmware/pi_robot/pi_robot.py):
+// generated from protocol/constants.json):
 //   OTA_OP_ABORT                abort
 //   OP_BEGIN [size:u32 BE]      begin-stream — reset, expect `size` bytes over BLE
 //   OP_CHUNK [payload]          chunk — append to flash

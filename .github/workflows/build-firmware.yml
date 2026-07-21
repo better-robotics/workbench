@@ -33,9 +33,9 @@ jobs:
           fetch-depth: 0
 
       - name: Detect what changed
-        # Decide whether the ESP build matrix needs to run at all. A pure
-        # Pi-side commit (firmware/pi_robot/**) shouldn't pay 5+ minutes
-        # of IDF compile time per board (×4 = ~20 min).
+        # Decide whether the ESP build matrix needs to run at all. A commit
+        # touching no ESP firmware (docs, tooling) shouldn't pay 5+ minutes
+        # of IDF compile time per board (×3 = ~15 min).
         #
         # Push events: compare against github.event.before — the commit
         # the branch was at before the push. HEAD~1 is wrong when the
@@ -153,9 +153,8 @@ jobs:
 
   publish:
     needs: [detect, build]
-    # Always run publish — pi-side artifacts publish regardless of whether
-    # ESP cells ran. `always()` lets us reach this even if `build` was
-    # skipped (no ESP changes) or a single cell flaked (fail-fast=false).
+    # Reach publish even if `build` was skipped (no ESP changes) or a single
+    # cell flaked (fail-fast=false) — `always()` covers both.
     if: always() && needs.detect.result == 'success'
     runs-on: ubuntu-latest
     permissions:
@@ -199,9 +198,6 @@ jobs:
             mv "$d" "$target"
           done
           ls -la
-
-      - name: Publish Pi firmware + wheels
-        run: make publish-pi-firmware
 
       - name: Commit + push published artifacts
         run: |

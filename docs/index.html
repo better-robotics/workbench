@@ -111,11 +111,6 @@
 </main>
 </div><!-- .app -->
 
-<div id="esp32-drivers" class="help-popover" popover>
-  <strong>ESP32-S3:</strong> no driver — native USB.<br>
-  <strong>CAM-MB with CP2102:</strong> install the <a href="https://www.silabs.com/developers/usb-to-uart-bridge-vcp-drivers">Silicon Labs driver</a> once, then allow it in System Settings → Privacy &amp; Security.
-</div>
-
 <div id="avatar-menu" class="menu" popover="manual">
   <div class="menu-header" id="avatar-menu-name">Not set</div>
   <button class="menu-item" id="menu-settings"><svg class="icon-svg"><use href="icons.svg#icon-settings"/></svg>Settings</button>
@@ -216,7 +211,6 @@
     <button class="menu-item" id="menu-log"><svg class="icon-svg"><use href="icons.svg#icon-scroll-text"/></svg>View log</button>
     <button class="menu-item" id="menu-restart"><svg class="icon-svg"><use href="icons.svg#icon-refresh-cw"/></svg>Restart service</button>
     <button class="menu-item" id="menu-reboot"><svg class="icon-svg"><use href="icons.svg#icon-power"/></svg>Reboot robot</button>
-    <button class="menu-item" id="menu-shell" hidden><svg class="icon-svg"><use href="icons.svg#icon-terminal"/></svg>Shell</button>
   </div>
   <div class="menu-group">
     <button class="menu-item" id="menu-update"><svg class="icon-svg"><use href="icons.svg#icon-download-cloud"/></svg>Update firmware…</button>
@@ -265,25 +259,7 @@
        all live in Pip itself via slash commands (/model, /vision).
        /model is contextual: it switches the backend AND prompts for a
        key inline if the chosen one needs one. Settings keeps only what
-       slash can't carry: identity (name) + advanced one-time setup
-       (robot passwords). -->
-
-  <!-- Advanced (was "Security"). One-time setup; collapsed by default to
-       keep the daily-use Pip + Experimental rows scannable above. The
-       row's summary shows the current value at a glance; tapping reveals
-       the action set + the explanatory help. -->
-  <div class="settings-group-header">Advanced</div>
-  <details class="settings-item settings-disclosure passwords-row">
-    <summary class="settings-disclosure-summary">
-      <div class="settings-title">Robot passwords</div>
-      <div class="meta" id="passwords-summary">—</div>
-      <svg class="icon-svg disclosure-chevron" aria-hidden="true"><use href="icons.svg#icon-chevron-down"/></svg>
-    </summary>
-    <div class="settings-disclosure-body">
-      <div class="hint">Generated during Pi setup when you leave the password blank. Used for sudo, the recovery console, and SSH.</div>
-      <div id="passwords-list"></div>
-    </div>
-  </details>
+       slash can't carry: identity (name). -->
 </dialog>
 
 <dialog id="pinout-modal" class="prepare-dialog">
@@ -390,18 +366,6 @@
   </div>
 </dialog>
 
-<dialog id="shell-modal" class="prepare-dialog">
-  <div class="modal-header">
-    <div class="label"><svg class="icon-svg modal-title-icon" id="shell-transport-icon"><use href="icons.svg#icon-wifi"/></svg>Shell<span class="modal-subtitle" id="shell-subtitle"></span></div>
-    <button class="icon" id="shell-close" aria-label="Close"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
-  </div>
-  <div class="row" style="margin: 0 0 12px;">
-    <button class="secondary sm" id="shell-connect">Connect</button>
-    <span class="status-row"><span class="dot" id="shell-status-dot"></span><span class="meta" id="shell-status"></span></span>
-  </div>
-  <div id="shell-term" class="recovery-term"></div>
-</dialog>
-
 <dialog id="label-modal" class="label-modal">
   <div class="modal-header">
     <div class="modal-title-stack">
@@ -414,94 +378,6 @@
   <div class="label-url" id="label-url" role="button" tabindex="0" aria-label="Copy URL — click to copy"></div>
   <div class="modal-footer">
     <button class="secondary sm" id="label-print">Print</button>
-  </div>
-</dialog>
-
-<dialog id="prepare-dialog" class="prepare-dialog">
-  <div class="modal-header">
-    <div class="label">Set up a Pi robot</div>
-    <button class="icon" id="prepare-close" aria-label="Close"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
-  </div>
-  <div id="prep-unsupported" class="unsupported" hidden>
-    File System Access API required — use Chrome or Edge on desktop.
-  </div>
-  <ol class="prep-steps">
-    <li>
-      <div class="prep-step-head">Pick the SD card</div>
-      <div class="row">
-        <button id="prep-pick-btn" class="secondary sm">Choose directory</button>
-        <span class="hint" id="prep-pick-meta">Image with Raspberry Pi Imager first</span>
-      </div>
-    </li>
-    <li>
-      <div class="prep-step-head">Name &amp; password</div>
-      <div class="field">
-        <label for="prep-username">Username</label>
-        <input id="prep-username" value="pi">
-      </div>
-      <div class="field">
-        <label for="prep-password">Sudo password</label>
-        <input id="prep-password" type="password" autocomplete="new-password">
-        <div class="hint" style="margin-top: 4px;">Blank generates one — Settings → Robot passwords.</div>
-      </div>
-    </li>
-    <li>
-      <div class="prep-step-head">Capabilities</div>
-      <div class="caps-list">
-        <div class="cap-row">
-          <input type="checkbox" id="prep-cap-led">
-          <label for="prep-cap-led">LED</label>
-          <span class="cap-suffix">GPIO</span>
-          <input type="number" id="prep-cap-led-pin" value="17" min="0" max="40">
-        </div>
-        <div class="cap-row">
-          <input type="checkbox" id="prep-cap-motors" checked>
-          <label for="prep-cap-motors">Motors (H-bridge / PWM)</label>
-        </div>
-        <div class="cap-row">
-          <input type="checkbox" id="prep-cap-camera" checked>
-          <label for="prep-cap-camera">Camera (auto-detect, needs picamera2 + aiortc)</label>
-        </div>
-      </div>
-    </li>
-  </ol>
-  <div class="modal-footer">
-    <button class="secondary sm" id="prep-cancel-btn">Cancel</button>
-    <button id="prep-go-btn" disabled>Prepare card</button>
-  </div>
-  <div class="progress-log" id="prep-progress" hidden style="margin-top: 16px;"></div>
-</dialog>
-
-<dialog id="setup-dialog" class="prepare-dialog setup-dialog">
-  <div class="modal-header">
-    <div class="label">Set up a robot</div>
-    <button class="icon" id="setup-close" aria-label="Close"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
-  </div>
-  <div class="setup-grid">
-    <section class="platform-tile platform-esp32">
-      <span class="platform-mark">ESP32</span>
-      <div class="platform-body">
-        <div class="platform-title">ESP32</div>
-        <div class="platform-sub">Flash firmware over USB. ~30 seconds. Basic camera, no Linux.</div>
-      </div>
-      <div class="platform-cta">
-        <button id="setup-esp-install">Flash firmware</button>
-        <span class="platform-sub" id="setup-esp-unsupported" hidden>Web Serial required (Chrome or Edge desktop).</span>
-      </div>
-      <div class="platform-footnote">
-        <button type="button" class="help-hint" popovertarget="esp32-drivers">Do I need a driver?</button>
-      </div>
-    </section>
-    <section class="platform-tile platform-pi">
-      <span class="platform-mark">PI</span>
-      <div class="platform-body">
-        <div class="platform-title">Raspberry Pi</div>
-        <div class="platform-sub">Prepare an SD card. HD camera, onboard Linux.</div>
-      </div>
-      <div class="platform-cta">
-        <button type="button" id="prepare-open-btn">Set up SD card</button>
-      </div>
-    </section>
   </div>
 </dialog>
 

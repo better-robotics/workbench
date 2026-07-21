@@ -1,6 +1,6 @@
 // Schema: { name: "camera", type: "mjpeg-stream" }
 // ESP32 path streams HTTP MJPEG on :81/stream — the only camera video
-// transport. Pi path forwards its own MJPEG source via mjpeg-restream.js.
+// transport. A non-ESP32 source is forwarded generically via mjpeg-restream.js.
 import { logFor } from "../../log.js";
 import { capSection } from "./cap-section.js";
 import { startMjpegForward, stopMjpegForward } from "./mjpeg-restream.js";
@@ -95,8 +95,7 @@ export function makeMjpegStreamCap(schema) {
       // sign gate is live the moment frames flow. Skipped if pre-armed
       // (operator custom config) or the active detector failed.
       // _watcherAutoArmed tracks the inverse on stop so a manually-armed
-      // watcher survives a camera restart. Symmetric with
-      // webrtc-installable.js.
+      // watcher survives a camera restart.
       const armWatcherIfAuto = () => {
         if (entry.watcher?.enabled) return;
         if (isDetectorFailed()) return;

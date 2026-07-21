@@ -1,10 +1,3 @@
-// TURN-credential proxy (Cloudflare Realtime), used ONLY by the
-// robot<->desktop WebRTC paths (webrtc/ice.js) — the flows that can cross
-// NAT-hostile LANs. Phone<->desktop pairing is LAN-only over the hub broker
-// (pair/broker-signal.js) and uses no external service. Single source of
-// truth so a host move is one diff.
-export const TURN_URL   = "https://proxy.neevs.io/cloudflare/turn";
-
 // GitHub repo behind this Pages site — derived from location (org project
 // pages serve at <owner>.github.io/<repo>/) so a repo rename can't strand
 // links. The literal is only the local-dev fallback; the canonical URL

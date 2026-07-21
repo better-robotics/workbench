@@ -55,21 +55,17 @@ const PIP_SYSTEM = [
 // Per-turn context. Collapses the "you must call list_robots first" round
 // trip when the id is already unambiguous from current state.
 function currentRobotsLine() {
-  const usable = [...state.devices.values()].filter(e =>
-    e.status === "connected" || e.status === "firmware-down"
-  );
+  const usable = [...state.devices.values()].filter(e => e.status === "connected");
   if (usable.length === 0) {
     return "No robots are connected. Tools requiring an id will return errors until the user pairs and connects one.";
   }
   if (usable.length === 1) {
     const r = usable[0];
-    const note = r.status === "firmware-down" ? " (firmware down — only recovery ops work)" : "";
-    return `Connected robot: id="${r.id}" name="${r.name}" type=${r.fwType || "unknown"}${note}. Use this id directly; list_robots is unnecessary.`;
+    return `Connected robot: id="${r.id}" name="${r.name}" type=${r.fwType || "unknown"}. Use this id directly; list_robots is unnecessary.`;
   }
-  const lines = usable.map(r => {
-    const note = r.status === "firmware-down" ? " [firmware down]" : "";
-    return `- id="${r.id}" name="${r.name}" type=${r.fwType || "unknown"}${note}`;
-  }).join("\n");
+  const lines = usable.map(r =>
+    `- id="${r.id}" name="${r.name}" type=${r.fwType || "unknown"}`
+  ).join("\n");
   return `${usable.length} connected robots (use these ids directly; list_robots only to refresh status):\n${lines}`;
 }
 

@@ -7,12 +7,12 @@
 
 // L298N H-bridge driver. PWM rides the IN pins (ENA/ENB jumpered ON).
 // Each motor has two direction pins (named `forward` / `backward` in
-// the dashboard schema, matching gpiozero's Motor() on the Pi side):
+// the dashboard schema, matching gpiozero's Motor() vocabulary):
 // forward = fwd-pin PWM, bwd-pin LOW; backward = fwd-pin LOW, bwd-pin PWM.
 // signedSpeed range is [-100, 100]; magnitude > 100 clamps to 100.
 //
-// Safety rungs (watchdog + pulse match firmware/pi_robot/pi_robot.py;
-// the stall rung is ESP32-only — Pi has no encoder path yet):
+// Safety rungs (watchdog + pulse enforce the protocol/constants.json caps;
+// the stall rung uses the encoder path):
 //   - Watchdog: any non-zero apply arms a 500ms one-shot. Re-armed on
 //     each apply; fires if the operator stops sending updates (BLE drop,
 //     dashboard tab closed, etc.).
