@@ -10,10 +10,11 @@ import { loadMonaco } from "./monaco.js";
 import { TEMPLATES } from "./script-runtime.js";
 import { runOnRobot, runOnFleet, pyCapable } from "./script-runner.js";
 import {
-  fsAvailable, listFiles, readFileText, writeFile, deleteFile,
+  fsAvailable, listFiles, readFileText, writeFile, deleteFile, fsInfo,
 } from "../fs/fs-client.js";
 import { updateFirmware, updateFromFile } from "../capabilities/ota.js";
 import { FLASH_MAP } from "./flash-map.js";
+import { formatUptime, formatRssi, formatResetReason } from "../format.js";
 
 // Local drafts: a name→body map, so the offline path survives with no robot.
 // One-doc predecessor (the old scripts dialog) migrates in as draft.js.
@@ -74,14 +75,25 @@ function connectedRobots() {
 let _view = "explorer";
 function setView(name) {
   _view = name;
-  const tree = $("ide-tree"), flash = $("ide-flash"), title = $("ide-sidebar-title");
-  if (tree) tree.hidden = name !== "explorer";
-  if (flash) flash.hidden = name !== "flash";
-  if (title) title.textContent = name === "flash" ? "Flash" : "Explorer";
+  // Monitor is a full-width dashboard — it swaps out the sidebar + editor.
+  const isMon = name === "monitor";
+  const sidebar = document.querySelector(".ide-sidebar");
+  const main = document.querySelector(".ide-main");
+  if (sidebar) sidebar.hidden = isMon;
+  if (main) main.hidden = isMon;
+  const mon = $("ide-monitor");
+  if (mon) mon.hidden = !isMon;
+  if (!isMon) {
+    const tree = $("ide-tree"), flash = $("ide-flash"), title = $("ide-sidebar-title");
+    if (tree) tree.hidden = name !== "explorer";
+    if (flash) flash.hidden = name !== "flash";
+    if (title) title.textContent = name === "flash" ? "Flash" : "Explorer";
+  }
   for (const btn of document.querySelectorAll(".ide-act")) {
     btn.classList.toggle("active", btn.dataset.view === name);
   }
   if (name === "flash") renderFlash();
+  if (isMon) startMonitor(); else stopMonitor();
 }
 
 // Flash view: the firmware panel per connected robot (flash map + OTA). Its
@@ -105,6 +117,214 @@ function renderFlash() {
     host.appendChild(name);
     host.appendChild(firmwareSection(entry));
   }
+}
+
+// ---- Monitor view — a device dashboard from real telemetry --------------
+
+let _monTimer = null;
+const _monHistory = new Map(); // robotId -> [{ temp, heap(KB) }] chart samples
+const _monStamp = new Map();   // robotId -> last telemetry stamp sampled
+
+function startMonitor() {
+  // /fs usage (used/total) is a one-shot BLE call; fetch once for the bar.
+  for (const entry of connectedRobots()) {
+    if (fsAvailable(entry) && !entry._monFs) {
+      fsInfo(entry).then((i) => { entry._monFs = i; if (_view === "monitor") renderMonitor(); }).catch(() => {});
+    }
+  }
+  renderMonitor();
+  if (_monTimer) clearInterval(_monTimer);
+  _monTimer = setInterval(monitorTick, 2000);
+}
+function stopMonitor() {
+  if (_monTimer) { clearInterval(_monTimer); _monTimer = null; }
+}
+
+// Push a chart sample when fresh telemetry arrived (~every 10s; telemetry
+// flows into entry.telemetry via the BLE notify handler), then repaint.
+function monitorTick() {
+  for (const entry of connectedRobots()) {
+    const stamp = entry.telemetryUpdatedAt || 0;
+    if (_monStamp.get(entry.id) === stamp) continue;
+    _monStamp.set(entry.id, stamp);
+    const t = entry.telemetry || {};
+    const hist = _monHistory.get(entry.id) || [];
+    hist.push({ temp: t.temp_c ?? null, heap: t.free_heap != null ? t.free_heap / 1024 : null });
+    if (hist.length > 180) hist.shift();
+    _monHistory.set(entry.id, hist);
+  }
+  renderMonitor();
+}
+
+function renderMonitor() {
+  const host = $("ide-monitor");
+  if (!host) return;
+  const scroll = host.scrollTop;
+  host.innerHTML = "";
+  const robots = connectedRobots();
+  if (robots.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "ide-mon-empty";
+    empty.textContent = "No robot connected. Pair one to see its telemetry here.";
+    host.appendChild(empty);
+    return;
+  }
+  for (const entry of robots) host.appendChild(monitorPanel(entry));
+  host.scrollTop = scroll;
+  // Charts draw after layout (need clientWidth).
+  requestAnimationFrame(() => {
+    for (const cv of host.querySelectorAll("canvas.ide-mon-chart")) {
+      drawMonitorChart(cv, _monHistory.get(cv.dataset.robot) || []);
+    }
+  });
+}
+
+const fmtKB = (b) => (b == null ? "—" : `${Math.round(b / 1024)} KB`);
+const fmtMB = (b) => (b == null ? "—" : `${(b / 1048576).toFixed(1)} MB`);
+const tempSub = (c) => (c < 60 ? "normal" : c < 80 ? "warm" : "hot");
+const tempCls = (c) => (c < 60 ? "ok" : c < 80 ? "warn" : "danger");
+
+function monTile(label, value, sub, subCls) {
+  const el = document.createElement("div");
+  el.className = "ide-mon-tile";
+  const l = document.createElement("div"); l.className = "ide-mon-tile-label"; l.textContent = label;
+  const v = document.createElement("div"); v.className = "ide-mon-tile-value"; v.textContent = value;
+  el.append(l, v);
+  if (sub) { const s = document.createElement("div"); s.className = "ide-mon-tile-sub" + (subCls ? " " + subCls : ""); s.textContent = sub; el.appendChild(s); }
+  return el;
+}
+
+function monitorPanel(entry) {
+  const t = entry.telemetry || {};
+  const info = entry.fwInfo || {};
+  const panel = document.createElement("div");
+  panel.className = "ide-mon-panel";
+
+  const head = document.createElement("div");
+  head.className = "ide-mon-head";
+  const hl = document.createElement("div"); hl.className = "ide-mon-head-left";
+  const title = document.createElement("div"); title.className = "ide-mon-title"; title.textContent = entry.name;
+  const meta = document.createElement("div"); meta.className = "ide-mon-meta"; meta.textContent = `${info.chip || "esp32"} · ${t.sha || info.version || "?"}`;
+  hl.append(title, meta);
+  const hr = document.createElement("div"); hr.className = "ide-mon-head-right";
+  hr.innerHTML = `<span class="ide-mon-online"><span class="ide-mon-dot"></span>Online</span><span class="ide-mon-refresh">refresh 10s</span>`;
+  head.append(hl, hr);
+  panel.appendChild(head);
+
+  const tiles = document.createElement("div");
+  tiles.className = "ide-mon-tiles";
+  if (t.temp_c != null) tiles.appendChild(monTile("Chip temp", `${t.temp_c.toFixed(1)}°C`, tempSub(t.temp_c), tempCls(t.temp_c)));
+  tiles.appendChild(monTile("Free heap", fmtKB(t.free_heap), t.min_free_heap != null ? `min ever ${fmtKB(t.min_free_heap)}` : ""));
+  if (t.free_psram != null) tiles.appendChild(monTile("PSRAM free", fmtMB(t.free_psram), ""));
+  tiles.appendChild(monTile("Wi-Fi RSSI", formatRssi(t.rssi_dbm) || "—", ""));
+  tiles.appendChild(monTile("Uptime", formatUptime(t) || "—", t.reset_reason ? `reset: ${formatResetReason(t.reset_reason) || t.reset_reason}` : ""));
+  if (t.tasks != null) tiles.appendChild(monTile("Tasks", String(t.tasks), ""));
+  panel.appendChild(tiles);
+
+  const chartWrap = document.createElement("div");
+  chartWrap.className = "ide-mon-chartwrap";
+  chartWrap.innerHTML = `<div class="ide-mon-legend"><span><i style="background:#f0883e"></i>Chip temp</span><span><i style="background:#4c9be8"></i>Free heap</span></div>`;
+  const canvas = document.createElement("canvas");
+  canvas.className = "ide-mon-chart";
+  canvas.dataset.robot = entry.id;
+  chartWrap.appendChild(canvas);
+  panel.appendChild(chartWrap);
+
+  const bottom = document.createElement("div");
+  bottom.className = "ide-mon-bottom";
+  bottom.append(monFlashCard(entry), monSystemCard(t, info));
+  panel.appendChild(bottom);
+  return panel;
+}
+
+function monFlashCard(entry) {
+  const card = document.createElement("div");
+  card.className = "ide-mon-card";
+  const h = document.createElement("div"); h.className = "ide-mon-card-title"; h.textContent = "Flash partitions"; card.appendChild(h);
+  for (const p of FLASH_MAP) {
+    const row = document.createElement("div"); row.className = "ide-mon-part";
+    const top = document.createElement("div"); top.className = "ide-mon-part-top";
+    const label = document.createElement("span"); label.className = "ide-mon-part-label"; label.textContent = `${p.label}  ${partNote(p)}`;
+    const amt = document.createElement("span"); amt.className = "ide-mon-part-amt";
+    let pct = null;
+    if (p.label === "storage" && entry._monFs) {
+      amt.textContent = `${fmtKB(entry._monFs.used)} / ${fmtKB(entry._monFs.total)}`;
+      pct = entry._monFs.total ? entry._monFs.used / entry._monFs.total : 0;
+    } else {
+      amt.textContent = fmtBytes(p.size);
+    }
+    top.append(label, amt); row.appendChild(top);
+    if (pct != null) {
+      const bar = document.createElement("div"); bar.className = "ide-mon-bar";
+      const fill = document.createElement("div"); fill.className = "ide-mon-bar-fill"; fill.style.width = `${Math.round(pct * 100)}%`;
+      bar.appendChild(fill); row.appendChild(bar);
+    }
+    card.appendChild(row);
+  }
+  return card;
+}
+
+function monSystemCard(t, info) {
+  const card = document.createElement("div");
+  card.className = "ide-mon-card";
+  const h = document.createElement("div"); h.className = "ide-mon-card-title"; h.textContent = "System"; card.appendChild(h);
+  const rows = [
+    ["Firmware", t.sha || info.version || "—"],
+    ["IDF", info.idf || "—"],
+    ["PSRAM free", fmtMB(t.free_psram)],
+    ["IP", t.ip || "—"],
+    ["Reset", t.reset_reason ? (formatResetReason(t.reset_reason) || t.reset_reason) : "—"],
+    ["Tasks", t.tasks != null ? String(t.tasks) : "—"],
+    ["Uptime", formatUptime(t) || "—"],
+  ];
+  const table = document.createElement("table"); table.className = "ide-mon-table";
+  for (const [k, v] of rows) {
+    const tr = document.createElement("tr");
+    const kc = document.createElement("td"); kc.className = "ide-mon-k"; kc.textContent = k;
+    const vc = document.createElement("td"); vc.className = "ide-mon-v"; vc.textContent = v;
+    tr.append(kc, vc); table.appendChild(tr);
+  }
+  card.appendChild(table);
+  return card;
+}
+
+// Hand-rolled canvas line chart — two auto-scaled series (temp + heap) over the
+// session. No dependency; each series normalized to its own range (sparkline
+// style), precise values live in the tiles.
+function drawMonitorChart(canvas, history) {
+  const ctx = canvas.getContext("2d");
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth || 600, h = canvas.clientHeight || 170;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  const pad = 10;
+  ctx.strokeStyle = "rgba(255,255,255,0.06)"; ctx.lineWidth = 1;
+  for (let i = 0; i <= 3; i++) {
+    const y = pad + (h - 2 * pad) * i / 3;
+    ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(w - pad, y); ctx.stroke();
+  }
+  if (history.length < 2) {
+    ctx.fillStyle = "rgba(255,255,255,0.35)"; ctx.font = "12px system-ui"; ctx.textAlign = "center";
+    ctx.fillText("collecting telemetry…", w / 2, h / 2);
+    return;
+  }
+  const series = (key, color, dash) => {
+    const vals = history.map((s) => s[key]).filter((v) => v != null);
+    if (vals.length < 2) return;
+    const min = Math.min(...vals), max = Math.max(...vals), range = (max - min) || 1;
+    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.setLineDash(dash || []); ctx.beginPath();
+    let started = false;
+    history.forEach((s, i) => {
+      if (s[key] == null) return;
+      const x = pad + (w - 2 * pad) * i / (history.length - 1);
+      const y = (h - pad) - (h - 2 * pad) * (s[key] - min) / range;
+      if (started) ctx.lineTo(x, y); else { ctx.moveTo(x, y); started = true; }
+    });
+    ctx.stroke(); ctx.setLineDash([]);
+  };
+  series("temp", "#f0883e");
+  series("heap", "#4c9be8", [5, 3]);
 }
 
 // ---- output pane ---------------------------------------------------------

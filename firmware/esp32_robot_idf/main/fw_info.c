@@ -4,6 +4,7 @@
 
 #include "sdkconfig.h"
 #include "esp_app_desc.h"
+#include "esp_idf_version.h"
 #include "esp_log.h"
 
 #include "camera.h"
@@ -172,6 +173,9 @@ void fw_info_init(const pin_config_t *pins) {
             ",{\"name\":\"snapshot\",\"type\":\"ble-snapshot\"}");
     }
     o += snprintf(s_buf + o, FW_INFO_BUF_SIZE - o, "]");
+    // Small static field for the Monitor view's System table. (Big/dynamic
+    // fields belong in telemetry — keep fw_info's single BLE read lean.)
+    o += snprintf(s_buf + o, FW_INFO_BUF_SIZE - o, ",\"idf\":\"%s\"", esp_get_idf_version());
     if (!camera_present() && camera_init_error() != 0) {
         o += snprintf(s_buf + o, FW_INFO_BUF_SIZE - o,
             ",\"camera_err\":%d", camera_init_error());

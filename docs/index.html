@@ -299,6 +299,9 @@
       <button class="ide-act" id="ide-act-flash" data-view="flash" aria-label="Flash &amp; firmware" title="Flash &amp; firmware">
         <svg class="icon-svg"><use href="icons.svg#icon-cpu"/></svg>
       </button>
+      <button class="ide-act" id="ide-act-monitor" data-view="monitor" aria-label="Monitor" title="Monitor">
+        <svg class="icon-svg"><use href="icons.svg#icon-monitor"/></svg>
+      </button>
     </nav>
     <aside class="ide-sidebar">
       <div class="ide-sidebar-head" id="ide-sidebar-title">Explorer</div>
@@ -310,6 +313,9 @@
       <div class="ide-editor" id="ide-editor"></div>
       <div class="ide-output" id="ide-output" aria-live="polite" hidden></div>
     </div>
+    <!-- Monitor activity — a full-width device dashboard (real telemetry only),
+         swapped in for the sidebar+editor when the Monitor icon is active. -->
+    <div class="ide-monitor" id="ide-monitor" hidden></div>
   </div>
   <div class="ide-statusbar">
     <div class="ide-status-left" id="ide-status-file"></div>
