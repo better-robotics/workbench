@@ -1,8 +1,8 @@
 {
   "board": "c3_supermini",
   "chip": "esp32c3",
-  "version": "e55eeb3-dirty",
-  "built_at": "2026-07-22T11:11:53Z",
+  "version": "ac9e791-dirty",
+  "built_at": "2026-07-22T11:44:39Z",
   "files": [
     {
       "path": "bootloader.bin",
