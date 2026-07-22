@@ -13,6 +13,7 @@ import {
   fsAvailable, listFiles, readFileText, writeFile, deleteFile,
 } from "../fs/fs-client.js";
 import { updateFirmware, updateFromFile } from "../capabilities/ota.js";
+import { FLASH_MAP } from "./flash-map.js";
 
 // Local drafts: a name→body map, so the offline path survives with no robot.
 // One-doc predecessor (the old scripts dialog) migrates in as draft.js.
@@ -565,17 +566,16 @@ function fmtBytes(n) {
   return `${(n / (1024 * 1024)).toFixed(2)} MB`;
 }
 
-// Flash layout — fixed by partitions.csv (shared across boards), so it's a
-// client-side constant rather than a fw_info field (that payload is read over
-// BLE in one shot and must stay small). The compiled firmware lives in the two
-// app slots as raw images; storage is the LittleFS /fs drive.
-const FLASH_MAP = [
-  { label: "nvs",     size: 0x5000,   note: "config" },
-  { label: "otadata", size: 0x2000 },
-  { label: "ota_0",   size: 0x1E0000, note: "app" },
-  { label: "ota_1",   size: 0x1E0000, note: "app" },
-  { label: "storage", size: 0x30000,  note: "/fs" },
-];
+// FLASH_MAP is generated from firmware/esp32_robot_idf/partitions.csv by
+// tools/gen-partitions.py (the pre-commit hook fails if it drifts) — the
+// layout is the same across every board's platformio env. Shown here rather
+// than shipped over BLE in fw_info, which overflowed the single read.
+function partNote(p) {
+  if (p.type === "app") return "app";
+  if (p.subtype === "spiffs" || p.label === "storage") return "/fs";
+  if (p.label === "nvs") return "config";
+  return "";
+}
 
 // Firmware section: the flash map (what's on the robot beyond /fs) + the
 // existing OTA path surfaced in the IDE. The compiled firmware lives in the
@@ -603,7 +603,8 @@ function firmwareSection(entry) {
     li.className = "ide-fw-part";
     const label = document.createElement("span");
     label.className = "ide-fw-part-label";
-    label.textContent = p.label + (p.note ? `  ${p.note}` : "");
+    const note = partNote(p);
+    label.textContent = p.label + (note ? `  ${note}` : "");
     const size = document.createElement("span");
     size.className = "ide-fw-part-size";
     size.textContent = fmtBytes(p.size);

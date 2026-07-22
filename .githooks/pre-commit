@@ -34,6 +34,18 @@ if git diff --cached --name-only | grep -q '^protocol/constants\.json$'; then
     fi
 fi
 
+# 1c. Generated flash-map drift. Same pattern, for the firmware partition
+# table (the dashboard's Firmware panel renders it).
+if git diff --cached --name-only | grep -q '^firmware/esp32_robot_idf/partitions\.csv$'; then
+    python3 tools/gen-partitions.py >/dev/null
+    GEN="docs/ide/flash-map.js"
+    if ! git diff --quiet -- $GEN; then
+        echo "pre-commit: docs/ide/flash-map.js is out of sync with partitions.csv"
+        echo "  fix: make gen-partitions && git add $GEN"
+        exit 1
+    fi
+fi
+
 # 2. SW version stamp. Hashes the dashboard asset surface and rewrites
 # docs/sw.js's VERSION when the hash changes. Bumping VERSION is what
 # makes the browser see a new service worker and surface the "Reload to

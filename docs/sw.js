@@ -26,7 +26,7 @@
 //   commit. For an intentional bump unrelated to assets (e.g. server-side
 //   change in an API contract), edit any cached asset (a comment will do)
 //   and the hook will pick up a new hash.
-const VERSION = "bf0889dc";
+const VERSION = "2f7b2b41";
 const CACHE = `dashboard-${VERSION}`;
 
 // Cached at install time so the dashboard can cold-boot offline AND
@@ -50,7 +50,8 @@ const BOOTSTRAP = [
   // The IDE view (Scripts) dynamic-import graph — its static members. The
   // Monaco bundle itself is a cross-origin jsdelivr fetch, cached separately.
   "./ide/ide.js", "./ide/monaco.js", "./ide/script-runtime.js", "./ide/python-api.js",
-  "./ide/script-runner.js", "./ide/script-output.js", "./fs/fs-client.js",
+  "./ide/script-runner.js", "./ide/script-output.js", "./ide/flash-map.js",
+  "./fs/fs-client.js",
   "./recovery/console.js",
   "./recovery/pinout.js", "./recovery/esp-serial.js",
   // pinout.js statically imports these — precache so the dynamic-import

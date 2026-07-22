@@ -7,7 +7,7 @@ PUBLISH_DIR := docs/firmware/bins
 # publish-firmware builds + stages all of them.
 BOARDS      := aithinker_cam devkit s3_cam c3_supermini
 
-.PHONY: help setup compile flash flash-all monitor monitor-noreset flash-monitor preview publish publish-firmware smoke gen-uuids gen-constants install-hooks push
+.PHONY: help setup compile flash flash-all monitor monitor-noreset flash-monitor preview publish publish-firmware smoke gen-uuids gen-constants gen-partitions install-hooks push
 
 help:
 	@echo ""
@@ -57,8 +57,14 @@ gen-constants:
 	@# the motor watchdog / LLM pulse-duration caps.
 	@python3 tools/gen-constants.py
 
+gen-partitions:
+	@# Dashboard flash map (docs/ide/flash-map.js) generated from the firmware
+	@# partition table so they can't drift — same pattern as gen-uuids. Edit
+	@# partitions.csv, not the generated JS.
+	@python3 tools/gen-partitions.py
+
 # pio run builds every env in platformio.ini; scope to one with BOARD=.
-compile: gen-uuids gen-constants
+compile: gen-uuids gen-constants gen-partitions
 	cd $(IDF_DIR) && pio run $(if $(BOARD),-e $(BOARD),)
 
 flash: gen-uuids gen-constants
