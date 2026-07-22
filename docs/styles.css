@@ -863,46 +863,50 @@ details.tray.has-alert > summary::after {
 @media (prefers-reduced-motion: reduce) { .robot-state::before { animation: none; } }
 
 
-/* User-script editor: see USER-CODE.md. Browser-resident, no Pi upload.
-   Workspace-shaped dialog (vs one-shot task dialog): tighter chrome, bigger
-   default footprint, native corner-resize. The base .prepare-dialog padding
-   (24px) is too generous for an editor surface — overridden below. */
-.scripts-modal {
-  width: calc(100vw - 32px);
-  height: min(880px, calc(100vh - 64px));
-  padding: 12px 16px 16px;
+/* IDE view (ide/ide.js): see USER-CODE.md. A full-viewport surface, not a
+   modal — the toolbar stands in for the app header (same pattern + reasoning
+   as the serial console's [open]-scoped full-bleed rule above). */
+#ide-modal[open] {
+  position: fixed;
+  inset: 0;
+  margin: 0;
+  width: 100vw;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border-radius: 0;
+  box-shadow: none;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  resize: both;
-  /* overflow: hidden lets the editor's own scrollbar handle horizontal
-     overflow without the dialog also growing its own outer scrollbar.
-     `resize` still works at hidden in modern browsers. */
   overflow: hidden;
-  min-width: 640px;
-  min-height: 400px;
 }
-.scripts-modal .scripts-header {
-  margin-bottom: 0;
-  flex-wrap: nowrap;
+#ide-modal::backdrop { background: transparent; }
+
+.ide-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: var(--topbar-height);
+  padding: 0 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  flex: none;
 }
-.scripts-modal .scripts-header .label { margin-right: 4px; flex-shrink: 0; }
-.scripts-modal .scripts-header-spacer { flex: 1; min-width: 12px; }
-/* Children in the toolbar must shrink, not push the dialog wider than itself.
-   Without `min-width: 0` flex items default to their content size as a
-   minimum, which makes long template names overflow the dialog. */
-.scripts-modal .scripts-template-select {
-  min-width: 0;
-  max-width: 320px;
+.ide-toolbar-left, .ide-toolbar-right { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ide-toolbar-left .label { flex: none; }
+.ide-active-file {
+  font-size: 12px;
+  color: var(--ink-muted);
+  overflow: hidden;
   text-overflow: ellipsis;
-  overflow: hidden;
+  white-space: nowrap;
 }
-.scripts-modal #scripts-run,
-.scripts-modal #scripts-close,
-.scripts-modal #scripts-help-btn { flex-shrink: 0; }
-.scripts-modal #scripts-run { white-space: nowrap; }
+.ide-toolbar-right #ide-run { white-space: nowrap; flex: none; }
 /* Inline keyboard hint inside the Run button — slightly demoted vs the label. */
-.scripts-modal .kbd-hint {
+.kbd-hint {
   margin-left: 6px;
   padding: 1px 5px;
   border-radius: 4px;
@@ -913,8 +917,7 @@ details.tray.has-alert > summary::after {
   opacity: 0.85;
 }
 /* Native <select> defaults to OS chrome that doesn't respect the dark theme.
-   appearance:none strips it; the SVG chevron is inlined as background-image so
-   we don't need to wire a separate icon mount. */
+   appearance:none strips it; the SVG chevron is inlined as background-image. */
 .scripts-template-select {
   appearance: none;
   -webkit-appearance: none;
@@ -922,51 +925,137 @@ details.tray.has-alert > summary::after {
   font-size: 13px;
   color: var(--ink);
   background: color-mix(in srgb, var(--ink) 4%, transparent);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-default);
   border-radius: 6px;
   padding: 6px 30px 6px 10px;
   cursor: pointer;
+  min-width: 0;
+  max-width: 220px;
+  text-overflow: ellipsis;
+  overflow: hidden;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%23999' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
   background-repeat: no-repeat;
   background-position: right 10px center;
 }
 .scripts-template-select:focus { outline: 2px solid var(--focus); outline-offset: 1px; }
-/* Host for the CodeMirror 6 EditorView mount (see scripts.js). CM owns its
-   own borders + scrollbars internally; the wrapper just establishes height
-   and the rounded outer corner. The .cm-editor selectors below match CM6's
-   stable DOM structure (`.cm-editor` > `.cm-scroller` > `.cm-content`). */
-.scripts-editor {
-  width: 100%;
-  flex: 1;
-  min-height: 200px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  overflow: hidden;
+
+/* Body: file tree | editor+tabs+output. */
+.ide-body { display: flex; flex: 1; min-height: 0; }
+.ide-sidebar {
+  width: 220px;
+  flex: none;
+  border-right: 1px solid var(--border-subtle);
+  overflow-y: auto;
+  padding: 6px 0;
+  background: color-mix(in srgb, var(--ink) 2%, transparent);
 }
-.scripts-editor .cm-editor {
-  height: 100%;
-  font-family: "SF Mono", ui-monospace, Menlo, monospace;
-  font-size: 13px;
+.ide-main { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
+
+/* Tabs strip. */
+.ide-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 1px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border-subtle);
+  flex: none;
+  min-height: 34px;
 }
-.scripts-editor .cm-editor.cm-focused { outline: none; }
-.scripts-editor .cm-scroller { line-height: 1.45; }
-.scripts-output {
+.ide-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 0 12px;
+  font-size: 12px;
+  color: var(--ink-muted);
+  cursor: pointer;
+  border-right: 1px solid var(--border-subtle);
+  white-space: nowrap;
+}
+.ide-tab.active { color: var(--ink); background: var(--bg); box-shadow: inset 0 -2px 0 var(--accent-ink); }
+.ide-tab-label { overflow: hidden; text-overflow: ellipsis; max-width: 22ch; }
+.ide-tab-close {
+  border: none; background: none; cursor: pointer;
+  color: var(--ink-muted); font-size: 15px; line-height: 1;
+  padding: 2px 3px; border-radius: 4px;
+}
+.ide-tab-close:hover { background: color-mix(in srgb, var(--ink) 12%, transparent); color: var(--ink); }
+
+/* Monaco host fills the remaining column. */
+.ide-editor { flex: 1; min-height: 0; }
+
+.ide-output {
   font-family: "SF Mono", ui-monospace, Menlo, monospace;
   font-size: 12px;
-  max-height: 200px;
+  max-height: 30vh;
   overflow-y: auto;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border-subtle);
   background: color-mix(in srgb, var(--ink) 3%, transparent);
   white-space: pre-wrap;
   color: var(--ink-muted);
+  flex: none;
 }
-.scripts-output > div { padding: 1px 0; }
-/* Hide the box itself when nothing has been logged yet — empty bordered
-   strip below Run carries no information. Reappears the instant the first
-   appendOutput child mounts. */
-.scripts-output:empty { display: none; }
+.ide-output[hidden] { display: none; }
+.ide-output > div { padding: 1px 0; }
+.ide-out-error { color: var(--danger); }
+.ide-out-note { color: var(--ink-muted); opacity: 0.75; }
+
+/* File tree. */
+.ide-tree-section {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px 4px;
+}
+.ide-tree-title {
+  flex: 1;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ide-tree-meta { font-size: 10px; color: var(--ink-muted); opacity: 0.7; }
+.ide-tree-add {
+  border: none; background: none; cursor: pointer;
+  color: var(--ink-muted); font-size: 16px; line-height: 1;
+  padding: 0 4px; border-radius: 4px; flex: none;
+}
+.ide-tree-add:hover { background: color-mix(in srgb, var(--ink) 12%, transparent); color: var(--ink); }
+.ide-tree-list { list-style: none; margin: 0 0 8px; padding: 0; }
+.ide-tree-loading, .ide-tree-empty {
+  padding: 4px 12px; font-size: 12px; color: var(--ink-muted); opacity: 0.7;
+}
+.ide-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px 0 12px;
+}
+.ide-tree-row:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); }
+.ide-tree-file {
+  flex: 1;
+  text-align: left;
+  border: none; background: none; cursor: pointer;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 5px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ide-tree-size { font-size: 10px; color: var(--ink-muted); opacity: 0.7; flex: none; }
+.ide-tree-del {
+  border: none; background: none; cursor: pointer;
+  font-size: 11px; opacity: 0; flex: none;
+  padding: 2px 3px; border-radius: 4px;
+}
+.ide-tree-row:hover .ide-tree-del { opacity: 0.6; }
+.ide-tree-del:hover { opacity: 1; background: color-mix(in srgb, var(--danger) 18%, transparent); }
 
 /* Pinout edit mode — pin inputs + preset controls under the board view. */
 .pinout-edit-input { width: 70px; padding: 4px 8px; }

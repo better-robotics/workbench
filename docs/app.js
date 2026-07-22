@@ -14,7 +14,7 @@ import { updateFirmware, updateFromFile } from "./capabilities/ota.js";
 import { restartService, rebootRobot } from "./capabilities/runtime/command.js";
 import { initGamepad } from "./input/gamepad.js";
 import { initMotorsKeyboard } from "./capabilities/runtime/signed-pair.js";
-// pinout.js / scripts.js are lazy-loaded on first use (none of it needed for
+// pinout.js / ide/ide.js are lazy-loaded on first use (none of it needed for
 // first paint). See the dynamic import() calls in the DOMContentLoaded wiring
 // below.
 import { initAssistant } from "./pip/assistant.js";
@@ -666,6 +666,15 @@ document.addEventListener("keydown", (e) => {
   if ($("console-menu")?.matches(":popover-open")) return;
   $("console-modal").close();
 });
+// Same manual-Escape wiring for the IDE view (also .show(), also full-bleed
+// so Pip stays clickable). Yields when Monaco already handled the Escape —
+// closing its autocomplete/find widget calls preventDefault, so a defaulty
+// Escape shouldn't also tear down the whole editor.
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || !$("ide-modal")?.open) return;
+  if (e.defaultPrevented) return;
+  $("ide-modal").close();
+});
 
 // Recovery menu (BetterRobotics dropdown) — wired FIRST in DOMContentLoaded
 // inside try/catch so a failure later in init can never strand the user
@@ -685,7 +694,6 @@ function wireRecoveryMenu() {
   readSwVersion().then(version => {
     const v = $("app-menu-version"); if (v) v.textContent = version;
     const r = $("menu-report-issue"); if (r) setReportIssueLink(r, version);
-    const uc = $("link-user-code"); if (uc) uc.href = `${REPO_URL}/blob/main/USER-CODE.md`;
   }).catch(() => {});
   wireInstallMenuItem({
     btnId: "menu-install",
@@ -805,9 +813,8 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   $("menu-scripts").addEventListener("click", async () => {
     $("avatar-menu").hidePopover();
-    const mod = await import("./scripts.js");
-    mod.init();
-    mod.openScriptsDialog();
+    const mod = await import("./ide/ide.js");
+    mod.openIde();
   });
   // (BetterRobotics dropdown wiring moved to wireRecoveryMenu(), called
   // first in this DOMContentLoaded inside try/catch — see top of file.)

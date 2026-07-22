@@ -26,7 +26,7 @@
 //   commit. For an intentional bump unrelated to assets (e.g. server-side
 //   change in an API contract), edit any cached asset (a comment will do)
 //   and the hook will pick up a new hash.
-const VERSION = "7793659b";
+const VERSION = "4a3a5515";
 const CACHE = `dashboard-${VERSION}`;
 
 // Cached at install time so the dashboard can cold-boot offline AND
@@ -42,12 +42,16 @@ const BOOTSTRAP = [
   // scope-root start_url when installed from /phone.html.
   "./phone.html", "./mobile.js",
   // Dynamic-imported by app.js. Precache so first open of the console /
-  // Scripts / Pinout loads from cache, and works offline. These
-  // (bar scripts.js) live under recovery/ — cache.addAll is atomic, so a
-  // wrong relative path here silently no-ops the *entire* BOOTSTRAP list,
-  // not just these entries (caught 2026-07: had been "./recovery.js" etc.
-  // with no "recovery/" prefix since these files moved into that folder).
-  "./scripts.js", "./recovery/console.js",
+  // Scripts / Pinout loads from cache, and works offline. cache.addAll is
+  // atomic, so a wrong relative path here silently no-ops the *entire*
+  // BOOTSTRAP list, not just these entries (caught 2026-07: had been
+  // "./recovery.js" etc. with no "recovery/" prefix since these files moved
+  // into that folder).
+  // The IDE view (Scripts) dynamic-import graph — its static members. The
+  // Monaco bundle itself is a cross-origin jsdelivr fetch, cached separately.
+  "./ide/ide.js", "./ide/monaco.js", "./ide/script-runtime.js", "./ide/api-types.js",
+  "./fs/fs-client.js",
+  "./recovery/console.js",
   "./recovery/pinout.js", "./recovery/esp-serial.js",
   // pinout.js statically imports these — precache so the dynamic-import
   // arc for Pinout still warms the whole module graph in one shot.
@@ -73,14 +77,12 @@ function isCacheableCrossOrigin(url) {
     if (url.pathname.includes("@peculiar/")) return true;
     if (url.pathname.includes("@mediapipe/")) return true;
     if (url.pathname.includes("onnxruntime-web")) return true;
+    // Monaco editor (ide/monaco.js) — the AMD min/vs bundle + its lazily
+    // fetched worker/language chunks, ~2 MB. Durable-cache so the IDE view
+    // is cold-bootable offline once visited, and each open is a cache hit.
+    if (url.pathname.includes("monaco-editor")) return true;
     return false;
   }
-  // CodeMirror 6 (scripts.js). Loaded from esm.sh (not jsdelivr) because
-  // esm.sh deduplicates @codemirror/state across packages, which fixes the
-  // "multiple instances of @codemirror/state" extension-set error that
-  // jsdelivr's /+esm produces. Cache everything esm.sh serves to keep the
-  // script editor cold-bootable offline once visited.
-  if (url.hostname === "esm.sh") return true;
   return false;
 }
 

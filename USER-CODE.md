@@ -35,7 +35,16 @@ const move = await pip.ask("Scene: chair ahead. Reply: forward, left, right, sto
 });
 ```
 
-In scope inside a script: `robot`, `robots`, `phones`, `pip`, `sleep(ms)`, `log(...)`, `speak(text)`. The Scripts dialog ships templates.
+In scope inside a script: `robot`, `robots`, `phones`, `pip`, `sleep(ms)`, `log(...)`, `speak(text)`. The IDE view (Scripts) has full IntelliSense for this surface — typing `robot.` offers the API with hover docs — and ships the templates as "New from template" seed files.
+
+## Where files live
+
+Scripts live in one of two places, shown side by side in the IDE's file tree:
+
+- **On the robot** — when a robot with the file service is connected, its files appear under "On <robot>". They're stored in a LittleFS partition in the robot's flash, so they survive a reboot and roam with the hardware. Save streams the file over BLE with a length + CRC32 check; a file only lands if it arrives intact.
+- **Local drafts** — files kept in this browser under "Local". The offline path: no robot needed, but they stay on this machine.
+
+Per-robot limits: 32 KB per file, 64 files. Over a limit, the save surfaces a plain-language error, not a silent failure.
 
 The `pip` namespace is thin: `pip.ask(prompt, opts?)` returns the LLM's text response. It's the seam between "user wrote the orchestration" and "the LLM decided this step" — same shape Pip uses internally, exposed so the two surfaces aren't siloed.
 

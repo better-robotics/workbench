@@ -59,10 +59,19 @@ Pure-function tests live in `tests/`; run with `make smoke`. Below needs hardwar
 - [ ] Click Reload on the banner → page reloads with new version, no stale assets.
 - [ ] Dismiss banner with × → no reload, banner gone for the session.
 
-## Scripts
+## Scripts (IDE view)
 
-- [ ] Open Scripts → load each template → Run executes.
+- [ ] Open Scripts → editor loads → "New from template…" seeds each template as a Local draft → Run executes.
+- [ ] Typing `robot.` offers API completions (move, led, op, watchFor, …) with hover docs — the Monaco TS worker + workbench.d.ts are live.
+- [ ] Cmd/Ctrl-Enter runs the active file; output pane shows log lines + return value.
 - [ ] `pip.ask` template fires Claude call → returns text.
 - [ ] `stop-sign` template: hold a stop sign to the robot camera → cruise halts within ~1 s, output logs detection + score. Confirms MediaPipe reflex path (closed-vocab, ~10–30ms) is live.
-- [ ] Stop button on a long-running script kills it (browser tab ↻ if needed).
+- [ ] Offline: with no robot connected, the Local section + editor still work (draft create / edit / run).
+
+## On-robot files (BLE file service)
+
+- [ ] Fresh-flashed board → connect → IDE tree shows "On <robot>" section (fs mounted). A board updated app-only over an old partition table shows no board section and all other caps work (fs reports unavailable).
+- [ ] Round-trip: New file under "On <robot>" → edit → Save → tree lists it with size. Reload the page → reconnect → reboot the robot → reopen the file → content is byte-identical (LittleFS survived the reboot).
+- [ ] Save a 10 KB file while toggling the LED mid-transfer → LED stays responsive (ops not starved by the file stream).
+- [ ] Quota errors surface in the UI, not the console: a >32 KB file → "file too large"; deleting works and the tree updates.
 

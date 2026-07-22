@@ -76,7 +76,7 @@ Adjacent work that defines what positioning BetterRobotics can claim. Frame: "wh
 - **Overlap:** LLM/VLA orchestration for hobby+research robots; v0.5 added Pi0-FAST, Real-Time Chunking, EnvHub ([HF blog](https://huggingface.co/blog/lerobot-release-v050), March 2026).
 - **Divergence:** Python stack, GPU-assumed, imitation/RL-focused. No BLE story, no browser runtime, no classroom onboarding. Arms + manipulation, not browser-paired hobby robots.
 - **Ships today that we don't:** actual VLA models, datasets, research community.
-- **Decision impact:** adjacent, not parallel — the "not real-time, not spatially aware, decision loop is seconds" scope line keeps us in a different lane. Potential future integration: `scripts.js` calling LeRobot policies client-side via transformers.js.
+- **Decision impact:** adjacent, not parallel — the "not real-time, not spatially aware, decision loop is seconds" scope line keeps us in a different lane. Potential future integration: user scripts (`ide/script-runtime.js`) calling LeRobot policies client-side via transformers.js.
 
 ## Out of scope (one-liners)
 

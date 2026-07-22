@@ -69,7 +69,7 @@ Before adding a logical layer, registry, wrapper, or routing decision, audit who
 
 - `DEV.md` — URL flags, `window.*` handles, IndexedDB stores, common debug paths.
 - `SMOKE.md` — manual checklist for architectural promises.
-- `USER-CODE.md` — surface that `scripts.js` exposes to user-authored code.
+- `USER-CODE.md` — surface that `ide/script-runtime.js` exposes to user-authored code (the IDE view's Run path; `ide/api-types.js` is its type-level twin for Monaco IntelliSense).
 - `HARDWARE.md` — wiring, board-specific knobs.
 - Pinned tracker (issue #45) — live pilot state: ranked gaps, watch-list. Rationale stays in `.claude/exploration.md`.
 - `.claude/exploration.md` — open architectural directions, design rationale, wired-but-unproven inventory, forks evaluated.
