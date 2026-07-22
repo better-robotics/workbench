@@ -1,18 +1,21 @@
 # esp32_robot — ESP-IDF firmware
 
-Firmware for the ESP32-CAM and ESP32-S3 robot tier. ESP-IDF v5.5.4, NimBLE host, esp32-camera.
+Firmware for the ESP32 robot tier. Built with **PlatformIO** (ESP-IDF 5.5.3 via `espressif32@6.13.0`), NimBLE host, esp32-camera. One env per board in `platformio.ini`.
 
 ## Build
 
 ```sh
-. ~/esp/esp-idf/export.sh   # if not already in this shell
-idf.py build
-idf.py -p /dev/cu.usbserial-* flash monitor
+pio run -e s3_cam              # build one board
+pio run -e s3_cam -t upload    # flash it
+pio device monitor -b 115200   # serial monitor
+pio run                        # build every board
 ```
 
-Or from repo root: `make compile`, `make flash`, `make monitor`.
+Boards: `aithinker_cam` · `devkit` · `s3_cam` · `c3_supermini`. Each env composes `sdkconfig.defaults` + `sdkconfig.defaults.board.<board>` (which sets the `CONFIG_BR_BOARD_*` Kconfig choice) via `board_build.cmake_extra_args`.
 
-`make publish-firmware` stages build artifacts to `docs/firmware/bins/` for the dashboard's web-flasher and OTA paths. CI runs the same target on every push to `firmware/**`.
+From repo root: `make compile` (all boards), `make flash BOARD=s3_cam`, `make monitor`.
+
+`make publish-firmware` builds every board and stages the bins + `manifest.json` to `docs/firmware/bins/<board>/` (via `tools/pio-stage.py`) for the dashboard's web-flasher and OTA paths. CI runs the same steps on every push to `firmware/**`.
 
 ## Subsystem map
 
@@ -46,7 +49,9 @@ ota_0    0x10000 1920K
 ota_1   0x1F0000 1920K
 ```
 
-## Targets
+## Boards
 
-- **ESP32-CAM-MB** (AI-Thinker, classic ESP32 + 4 MB SPI PSRAM): current dev target. Camera over HTTP MJPEG (`:81/stream`) — the only video transport.
-- **ESP32-S3** (planned): same firmware via build-time target switch. Octal PSRAM gives more headroom for future capabilities.
+- **aithinker_cam** — AI-Thinker ESP32-CAM (classic ESP32 + 4 MB SPI PSRAM). The headline board; camera over HTTP MJPEG (`:81/stream`).
+- **devkit** — ESP32 DevKitV1 / WROOM-32. No camera, ~25 usable GPIOs.
+- **s3_cam** — Freenove ESP32-S3-WROOM CAM (octal PSRAM, OV2640, onboard WS2812 RGB). See `HARDWARE.md`.
+- **c3_supermini** — ESP32-C3 SuperMini (RISC-V, native USB). No camera.

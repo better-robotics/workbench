@@ -2,29 +2,27 @@
 
 PORT        ?= $(shell ls /dev/cu.usbserial-* /dev/cu.usbmodem* 2>/dev/null | head -1)
 IDF_DIR     := firmware/esp32_robot_idf
-IDF_BUILD   := $(IDF_DIR)/build
 PUBLISH_DIR := docs/firmware/bins
-
-# Source the IDF environment only if idf.py isn't already on PATH. Lets a
-# user who pre-sourced (`get_idf`) keep their warm shell without paying
-# the ~1 s export-script tax on every make invocation; everyone else gets
-# auto-sourcing so `make flash` works in a vanilla terminal.
-IDF_EXPORT  := command -v idf.py >/dev/null 2>&1 || . ~/esp/esp-idf/export.sh >/dev/null
+# Every board env in firmware/esp32_robot_idf/platformio.ini —
+# publish-firmware builds + stages all of them.
+BOARDS      := aithinker_cam devkit s3_cam c3_supermini
 
 .PHONY: help setup compile flash flash-all monitor monitor-noreset flash-monitor preview publish publish-firmware smoke gen-uuids gen-constants install-hooks push
 
 help:
 	@echo ""
 	@echo "\033[2mSetup\033[0m"
-	@echo "  \033[36msetup\033[0m          Install ESP-IDF toolchain (once per machine)"
+	@echo "  \033[36msetup\033[0m          Install PlatformIO (once per machine; first build pulls the ESP-IDF toolchain)"
 	@echo ""
-	@echo "\033[2mFirmware (ESP32 local dev loop — wraps idf.py)\033[0m"
-	@echo "  \033[36mcompile\033[0m        Compile firmware/esp32_robot_idf"
-	@echo "  \033[36mflash\033[0m          Compile + upload over USB — fast dev iteration"
-	@echo "  \033[36mflash-all\033[0m      Compile + upload to every ESP32 on USB, skipping non-ESP32 ports"
-	@echo "  \033[36mmonitor\033[0m        Open serial monitor at 115200 (idf.py — pulses DTR/RTS, resets chip)"
+	@echo "\033[2mFirmware (ESP32 local dev loop — wraps PlatformIO)\033[0m"
+	@echo "  \033[36mcompile\033[0m        Build every board (or one: make compile BOARD=s3_cam)"
+	@echo "  \033[36mflash\033[0m          Build + upload one board: make flash BOARD=s3_cam [PORT=…]"
+	@echo "  \033[36mflash-all\033[0m      Upload one board to every matching ESP32 on USB: make flash-all BOARD=s3_cam"
+	@echo "  \033[36mmonitor\033[0m        Open serial monitor at 115200 (pio — pulses DTR/RTS, resets chip)"
 	@echo "  \033[36mmonitor-noreset\033[0m Live tail without resetting chip (safe alongside an active BLE session)"
-	@echo "  \033[36mflash-monitor\033[0m  Flash then open monitor"
+	@echo "  \033[36mflash-monitor\033[0m  Flash one board then open monitor: make flash-monitor BOARD=s3_cam"
+	@echo ""
+	@echo "  \033[2mBoards:\033[0m aithinker_cam · devkit · s3_cam · c3_supermini"
 	@echo ""
 	@echo "\033[2mTesting\033[0m"
 	@echo "  \033[36msmoke\033[0m              Run pure-function smoke tests (node --test). Hardware checks live in SMOKE.md."
@@ -38,18 +36,12 @@ help:
 	@echo ""
 
 setup:
-	@# ESP-IDF v5.3+ install: clone the repo and run install.sh once. The
-	@# IDF tools install ~1 GB into ~/.espressif (toolchain, openocd, python
-	@# venv). After this, source ~/esp/esp-idf/export.sh in each new shell.
-	@if [ ! -d ~/esp/esp-idf ]; then \
-		mkdir -p ~/esp && \
-		git clone --depth 1 --branch v5.3.1 --recursive https://github.com/espressif/esp-idf.git ~/esp/esp-idf; \
-	fi
-	~/esp/esp-idf/install.sh esp32,esp32s3
-	@echo ""
-	@echo "make compile/flash/monitor auto-source IDF — you can stop here."
-	@echo "Optional: 'alias get_idf=\". ~/esp/esp-idf/export.sh\"' in your shell rc"
-	@echo "to run idf.py directly (faster than make's per-invocation source)."
+	@# PlatformIO drives the ESP-IDF build (platformio.ini pins
+	@# espressif32@6.13.0 → IDF 5.5.3). No manual IDF clone: the first
+	@# `pio run` downloads the platform + per-target toolchains into
+	@# ~/.platformio automatically.
+	@command -v pio >/dev/null 2>&1 || pip3 install --user platformio
+	@echo "PlatformIO ready. First 'make compile' pulls the toolchain (~1 GB, once)."
 
 gen-uuids:
 	@# Single source of truth for BLE UUIDs lives in protocol/uuids.json.
@@ -65,19 +57,21 @@ gen-constants:
 	@# the motor watchdog / LLM pulse-duration caps.
 	@python3 tools/gen-constants.py
 
+# pio run builds every env in platformio.ini; scope to one with BOARD=.
 compile: gen-uuids gen-constants
-	$(IDF_EXPORT); cd $(IDF_DIR) && idf.py build
+	cd $(IDF_DIR) && pio run $(if $(BOARD),-e $(BOARD),)
 
-flash: compile
-	@test -n "$(PORT)" || (echo "No ESP32 detected on /dev/cu.usbserial-* or /dev/cu.usbmodem*. Is it plugged in?" && exit 1)
-	$(IDF_EXPORT); cd $(IDF_DIR) && idf.py -p "$(PORT)" flash
+flash: gen-uuids gen-constants
+	@test -n "$(BOARD)" || (echo "BOARD= required — one of: $(BOARDS)" && exit 1)
+	cd $(IDF_DIR) && pio run -e $(BOARD) -t upload $(if $(PORT),--upload-port "$(PORT)",)
 
-flash-all: compile
-	$(IDF_EXPORT); python3 tools/flash-all.py
+flash-all: gen-uuids gen-constants
+	@test -n "$(BOARD)" || (echo "BOARD= required — one of: $(BOARDS)" && exit 1)
+	cd $(IDF_DIR) && pio run -e $(BOARD)
+	BOARD=$(BOARD) python3 tools/flash-all.py
 
 monitor:
-	@test -n "$(PORT)" || (echo "No ESP32 detected on /dev/cu.usbserial-* or /dev/cu.usbmodem*" && exit 1)
-	$(IDF_EXPORT); cd $(IDF_DIR) && idf.py -p "$(PORT)" monitor
+	cd $(IDF_DIR) && pio device monitor $(if $(PORT),-p "$(PORT)",) -b 115200
 
 # Live serial tail that does NOT reset the chip on connect. idf.py monitor
 # pulses DTR/RTS as part of opening the port, which the USB-UART chip
@@ -99,18 +93,14 @@ preview:
 	@# HTTP/1.1 keep-alive pool stall that leaves module fetches pending.
 	@node scripts/serve.js
 
-# Stage ESP-IDF build artifacts for the dashboard's web-flasher (Recovery
-# flow) + BLE-OTA paths. Filenames preserved from the Arduino layout so
-# fielded units running the .ino can OTA into the IDF firmware without a
-# dashboard / partition-table change.
+# Build + stage every board's bins to docs/firmware/bins/<board>/ for the
+# dashboard's web-flasher (Recovery flow) + BLE-OTA paths. tools/pio-stage.py
+# writes each board's manifest.json with the per-chip flash offsets; CI runs
+# the same script per board.
 publish-firmware: compile
-	@mkdir -p $(PUBLISH_DIR)
-	cp $(IDF_BUILD)/esp32_robot.bin                       $(PUBLISH_DIR)/esp32_robot.bin
-	cp $(IDF_BUILD)/bootloader/bootloader.bin             $(PUBLISH_DIR)/bootloader.bin
-	cp $(IDF_BUILD)/partition_table/partition-table.bin   $(PUBLISH_DIR)/partitions.bin
-	cp $(IDF_BUILD)/ota_data_initial.bin                  $(PUBLISH_DIR)/boot_app0.bin
+	@for b in $(BOARDS); do python3 tools/pio-stage.py $$b; done
 	@echo ""
-	@echo "Firmware bins copied to $(PUBLISH_DIR). Commit and push to deploy."
+	@echo "Firmware bins staged in $(PUBLISH_DIR). Commit and push to deploy."
 
 publish: publish-firmware
 

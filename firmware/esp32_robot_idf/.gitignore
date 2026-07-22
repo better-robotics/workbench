@@ -1,6 +1,12 @@
 build/
+.pio/
 sdkconfig
 sdkconfig.old
+# PlatformIO generates a per-env sdkconfig.<env>; the tracked source of
+# truth is sdkconfig.defaults + sdkconfig.defaults.board.<board>.
+sdkconfig.*
+!sdkconfig.defaults
+!sdkconfig.defaults.*
 managed_components/
 dependencies.lock
 .cache/

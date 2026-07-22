@@ -96,41 +96,42 @@ jobs:
         with:
           python-version: '3.13'
 
+      - name: Install PlatformIO
+        run: pip install platformio
+
       - name: Generate uuids.h
         run: python3 tools/gen-uuids.py
 
       - name: Generate protocol_constants.h
         run: python3 tools/gen-constants.py
 
-      - name: Restore IDF build cache
-        # Per-board cache key — different boards produce different artifacts,
-        # so sharing the build/ dir corrupts the next board's link. Cache
-        # key includes the per-board overlay file so editing it busts the
-        # cache cell for that board only.
+      - name: Restore PlatformIO cache
+        # Per-board cache: ~/.platformio holds the espressif32 platform +
+        # per-target toolchains (the big first-run download); .pio/build and
+        # managed_components hold this board's objects. Different boards
+        # produce different artifacts, so the key is per-board. It hashes
+        # platformio.ini + the per-board overlay so editing either busts only
+        # that cell.
         uses: actions/cache@v4
         with:
           path: |
-            firmware/esp32_robot_idf/build
+            ~/.platformio
+            firmware/esp32_robot_idf/.pio
             firmware/esp32_robot_idf/managed_components
-          key: idf-build-v5.5.4-${{ github.repository }}-${{ matrix.board }}-${{ hashFiles('firmware/esp32_robot_idf/main/**', 'firmware/esp32_robot_idf/sdkconfig.defaults*', 'firmware/esp32_robot_idf/CMakeLists.txt', 'firmware/esp32_robot_idf/main/idf_component.yml', 'firmware/esp32_robot_idf/patches/**', 'firmware/esp32_robot_idf/build.sh') }}
+          key: pio-v6.13.0-${{ github.repository }}-${{ matrix.board }}-${{ hashFiles('firmware/esp32_robot_idf/platformio.ini', 'firmware/esp32_robot_idf/main/**', 'firmware/esp32_robot_idf/sdkconfig.defaults*', 'firmware/esp32_robot_idf/CMakeLists.txt') }}
           restore-keys: |
-            idf-build-v5.5.4-${{ github.repository }}-${{ matrix.board }}-
+            pio-v6.13.0-${{ github.repository }}-${{ matrix.board }}-
 
       - name: Build firmware
-        # build.sh picks the target + composes SDKCONFIG_DEFAULTS for the
-        # board, then stages bins + manifest.json to
+        # platformio.ini composes SDKCONFIG_DEFAULTS (base + per-board overlay)
+        # and sets the target from the board; pio-stage.py then copies the bins
+        # and writes manifest.json (per-chip flash offsets) to
         # docs/firmware/bins/<board>/.
-        #
-        # BOARD is inlined into the command string, not passed via env:.
-        # espressif/esp-idf-ci-action runs `command` inside its Docker
-        # container, and the action's docker run invocation only forwards
-        # IDF_TARGET — step-level env vars don't reach the container. The
-        # inline VAR=value prefix sets it in the container shell.
-        uses: espressif/esp-idf-ci-action@v1
-        with:
-          esp_idf_version: v5.5.4
-          path: 'firmware/esp32_robot_idf'
-          command: BOARD=${{ matrix.board }} ./build.sh
+        working-directory: firmware/esp32_robot_idf
+        run: pio run -e ${{ matrix.board }}
+
+      - name: Stage bins + manifest
+        run: python3 tools/pio-stage.py ${{ matrix.board }}
 
       - name: Static DRAM budget check
         # The classic ESP32-CAM has ~125 KB DRAM. Camera+BLE+WiFi+lwIP all
@@ -139,11 +140,13 @@ jobs:
         # Only aithinker_cam is sensitive (DevKit + C3 have no camera DMA
         # pressure on the same heap).
         if: matrix.board == 'aithinker_cam'
-        uses: espressif/esp-idf-ci-action@v1
-        with:
-          esp_idf_version: v5.5.4
-          path: 'firmware/esp32_robot_idf'
-          command: idf.py size 2>&1 | python3 ../../tools/check-dram-budget.py
+        # pio's `-t size` runs GNU size (no DRAM breakdown); esp-idf-size is
+        # the tool `idf.py size` uses — run it on the build's .map to get the
+        # DRAM row the budget check parses.
+        run: |
+          pip install esp-idf-size
+          python3 -m esp_idf_size firmware/esp32_robot_idf/.pio/build/aithinker_cam/esp32_robot.map 2>/dev/null \
+            | python3 tools/check-dram-budget.py
 
       - name: Upload board artifact
         uses: actions/upload-artifact@v4

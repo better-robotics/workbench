@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Parse `idf.py size` output and fail if static DRAM exceeds the budget.
+"""Parse an esp-idf-size table and fail if static DRAM exceeds the budget.
 
 Called from .github/workflows/build-firmware.yml after the build. The
 classic ESP32-CAM has ~125 KB DRAM; everything beyond ~100 KB starts
 starving lwIP's pbuf pool or the camera's contiguous DMA buffer request.
 Failing the build at PR time beats finding out by reflashing.
 
-Usage: idf.py size 2>&1 | python3 tools/check-dram-budget.py
+Under PlatformIO, `pio run -t size` gives GNU size (no DRAM breakdown), so
+CI feeds the build's .map through esp-idf-size (the tool idf.py size wraps):
+    python3 -m esp_idf_size <env>/esp32_robot.map | python3 tools/check-dram-budget.py
 """
 import re
 import sys

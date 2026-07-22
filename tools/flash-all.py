@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
-"""Flash every connected ESP32 board over USB, skipping ports that aren't one.
+"""Flash one board's image to every connected ESP32 over USB, skipping ports
+that aren't one.
 
-Loops `idf.py -p <port> flash` over every serial port whose USB vendor ID
-matches a known ESP32 bridge chip (FTDI, CP210x, CH340, Espressif native
-USB-CDC) — the same allowlist the browser recovery flasher uses to populate
-its device picker (docs/recovery/boards.js:ESP_USB_VIDS). A hub's USB-gadget
-console or any other unrelated serial device on the bus reports a different
-vendor ID and gets skipped instead of getting an esptool sync thrown at it.
+Loops `pio run -e <BOARD> -t upload --upload-port <port>` over every serial
+port whose USB vendor ID matches a known ESP32 bridge chip (FTDI, CP210x,
+CH340, Espressif native USB-CDC) — the same allowlist the browser recovery
+flasher uses (docs/recovery/boards.js:ESP_USB_VIDS). A hub's USB-gadget
+console or any unrelated serial device reports a different vendor ID and gets
+skipped instead of getting an esptool sync thrown at it.
 
-Usage:
-    make flash-all          # compiles, then flashes every ESP32 found
-    tools/flash-all.py      # same, run directly once idf.py is on PATH
-
-Assumes firmware/esp32_robot_idf/build/ already has a fresh build — `make
-flash-all` builds first via the `compile` target, same as plain `flash`.
+All matched ports get the SAME board's image — set BOARD to the variant on the
+bench. Usage:
+    make flash-all BOARD=s3_cam    # builds s3_cam, flashes every ESP32 found
+    BOARD=s3_cam tools/flash-all.py
 """
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -23,7 +23,11 @@ from pathlib import Path
 try:
     import serial.tools.list_ports as list_ports
 except ImportError:
-    sys.exit("pyserial missing — source ~/esp/esp-idf/export.sh (or run via `make flash-all`) first")
+    sys.exit("pyserial missing — `pip install pyserial` (PlatformIO bundles it in its venv)")
+
+BOARD = os.environ.get("BOARD")
+if not BOARD:
+    sys.exit("BOARD env var required (aithinker_cam | devkit | s3_cam | c3_supermini)")
 
 ROOT = Path(__file__).resolve().parent.parent
 BOARDS_JS = ROOT / "docs/recovery/boards.js"
@@ -64,8 +68,8 @@ def main():
 
     failed = []
     for p in matched:
-        print(f"\n==== flashing {p.device} ====", flush=True)
-        r = subprocess.run(["idf.py", "-p", p.device, "flash"], cwd=IDF_DIR)
+        print(f"\n==== flashing {BOARD} → {p.device} ====", flush=True)
+        r = subprocess.run(["pio", "run", "-e", BOARD, "-t", "upload", "--upload-port", p.device], cwd=IDF_DIR)
         if r.returncode != 0:
             failed.append(p.device)
 
