@@ -1,12 +1,24 @@
 {
   "board": "devkit",
   "chip": "esp32",
-  "version": "3f60bd2",
-  "built_at": "2026-07-22T02:26:48Z",
+  "version": "56e4e4a-dirty",
+  "built_at": "2026-07-22T02:45:20Z",
   "files": [
-    { "path": "bootloader.bin",  "offset": "0x1000" },
-    { "path": "partitions.bin",  "offset": "0x8000" },
-    { "path": "boot_app0.bin",   "offset": "0xE000" },
-    { "path": "firmware.bin",    "offset": "0x10000" }
+    {
+      "path": "bootloader.bin",
+      "offset": "0x1000"
+    },
+    {
+      "path": "partitions.bin",
+      "offset": "0x8000"
+    },
+    {
+      "path": "boot_app0.bin",
+      "offset": "0xE000"
+    },
+    {
+      "path": "firmware.bin",
+      "offset": "0x10000"
+    }
   ]
 }
