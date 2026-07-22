@@ -958,7 +958,60 @@ details.tray.has-alert > summary::after {
   color: var(--ink-muted);
 }
 .ide-tree { flex: 1; overflow-y: auto; padding-bottom: 8px; }
+.ide-tree[hidden] { display: none; }
 .ide-main { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
+
+/* Activity bar — the VS Code icon strip. Each icon switches the sidebar
+   panel; the active one carries a left accent rule. */
+.ide-activity {
+  width: 48px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 6px;
+  gap: 2px;
+  border-right: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+.ide-act {
+  width: 44px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--ink-muted);
+  border-left: 2px solid transparent;
+}
+.ide-act:hover { color: var(--ink); }
+.ide-act.active { color: var(--ink); border-left-color: var(--accent-ink); }
+.ide-act .icon-svg { width: 22px; height: 22px; }
+
+/* Flash view — swapped in for the file tree when the Flash activity is on. */
+.ide-flash-view { flex: 1; overflow-y: auto; padding: 4px 0 8px; }
+.ide-flash-view[hidden] { display: none; }
+.ide-flash-robot {
+  padding: 8px 12px 2px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-muted);
+}
+
+/* Collapsible section twisty (▾ expanded, ▸ collapsed). */
+.ide-tree-chevron {
+  display: inline-flex;
+  flex: none;
+  color: var(--ink-muted);
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+.ide-tree-chevron .icon-svg { width: 12px; height: 12px; }
+.ide-tree-section.collapsed .ide-tree-chevron { transform: rotate(-90deg); }
+.ide-tree-title { cursor: pointer; }
 
 /* Code-file glyph, dimmed accent — same slot in tree rows and tabs. */
 .ide-file-icon { display: inline-flex; flex: none; color: var(--accent-ink); opacity: 0.85; }

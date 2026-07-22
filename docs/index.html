@@ -292,9 +292,18 @@
     </div>
   </div>
   <div class="ide-body">
+    <nav class="ide-activity" aria-label="Views">
+      <button class="ide-act active" id="ide-act-explorer" data-view="explorer" aria-label="Explorer" title="Explorer">
+        <svg class="icon-svg"><use href="icons.svg#icon-file-code"/></svg>
+      </button>
+      <button class="ide-act" id="ide-act-flash" data-view="flash" aria-label="Flash &amp; firmware" title="Flash &amp; firmware">
+        <svg class="icon-svg"><use href="icons.svg#icon-cpu"/></svg>
+      </button>
+    </nav>
     <aside class="ide-sidebar">
-      <div class="ide-sidebar-head">Explorer</div>
+      <div class="ide-sidebar-head" id="ide-sidebar-title">Explorer</div>
       <div class="ide-tree" id="ide-tree"></div>
+      <div class="ide-flash-view" id="ide-flash" hidden></div>
     </aside>
     <div class="ide-main">
       <div class="ide-tabs" id="ide-tabs"></div>

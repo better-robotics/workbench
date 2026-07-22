@@ -64,6 +64,47 @@ const keyFor = (source, robotId, name) =>
 function connectedFsRobots() {
   return [...state.devices.values()].filter(e => e.status === "connected" && fsAvailable(e));
 }
+function connectedRobots() {
+  return [...state.devices.values()].filter(e => e.status === "connected");
+}
+
+// Activity-bar view switching (Explorer / Flash) — the VS Code shell around
+// Monaco is ours to build; Monaco is only the editor.
+let _view = "explorer";
+function setView(name) {
+  _view = name;
+  const tree = $("ide-tree"), flash = $("ide-flash"), title = $("ide-sidebar-title");
+  if (tree) tree.hidden = name !== "explorer";
+  if (flash) flash.hidden = name !== "flash";
+  if (title) title.textContent = name === "flash" ? "Flash" : "Explorer";
+  for (const btn of document.querySelectorAll(".ide-act")) {
+    btn.classList.toggle("active", btn.dataset.view === name);
+  }
+  if (name === "flash") renderFlash();
+}
+
+// Flash view: the firmware panel per connected robot (flash map + OTA). Its
+// own activity, distinct from the file explorer — raw flash, not files.
+function renderFlash() {
+  const host = $("ide-flash");
+  if (!host) return;
+  host.innerHTML = "";
+  const robots = connectedRobots();
+  if (robots.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "ide-tree-empty";
+    empty.textContent = "No robot connected.";
+    host.appendChild(empty);
+    return;
+  }
+  for (const entry of robots) {
+    const name = document.createElement("div");
+    name.className = "ide-flash-robot";
+    name.textContent = entry.name;
+    host.appendChild(name);
+    host.appendChild(firmwareSection(entry));
+  }
+}
 
 // ---- output pane ---------------------------------------------------------
 
@@ -427,9 +468,6 @@ async function renderTree() {
       li.textContent = `Unavailable: ${err.message}`;
       list.appendChild(li);
     }
-    // Firmware section for this robot — the flash map + OTA, distinct from
-    // the file list above (those are editable files; this is raw flash).
-    tree.appendChild(firmwareSection(entry));
   }
 
   // Local section — always present; the offline path.
@@ -457,9 +495,15 @@ async function renderTree() {
   highlightTreeActive();
 }
 
+// Collapsed section titles persist across re-renders (in-memory).
+const _collapsed = new Set();
+
 function treeSection(title, onNew) {
   const header = document.createElement("div");
   header.className = "ide-tree-section";
+  const chevron = document.createElement("span");
+  chevron.className = "ide-tree-chevron";
+  chevron.innerHTML = `<svg class="icon-svg"><use href="icons.svg#icon-chevron-down"/></svg>`;
   const label = document.createElement("span");
   label.className = "ide-tree-title";
   label.textContent = title;
@@ -469,10 +513,24 @@ function treeSection(title, onNew) {
   add.className = "ide-tree-add";
   add.setAttribute("aria-label", `New file in ${title}`);
   add.textContent = "+";
-  add.addEventListener("click", onNew);
-  header.append(label, meta, add);
+  add.addEventListener("click", (e) => { e.stopPropagation(); onNew(); });
+  header.append(chevron, label, meta, add);
   const list = document.createElement("ul");
   list.className = "ide-tree-list";
+
+  // Collapsible group (▾/▸). The robot's fs is a flat namespace, so these are
+  // section groups, not real subdirectories — but the affordance is the same.
+  const collapsed = _collapsed.has(title);
+  header.classList.toggle("collapsed", collapsed);
+  list.hidden = collapsed;
+  const toggle = () => {
+    const now = !_collapsed.has(title);
+    if (now) _collapsed.add(title); else _collapsed.delete(title);
+    header.classList.toggle("collapsed", now);
+    list.hidden = now;
+  };
+  chevron.addEventListener("click", toggle);
+  label.addEventListener("click", toggle);
   return { header, list, meta };
 }
 
@@ -700,6 +758,9 @@ function wire() {
   $("ide-close").addEventListener("click", closeIde);
   $("ide-run").addEventListener("click", run);
   $("ide-run-all").addEventListener("click", runFleet);
+  for (const btn of document.querySelectorAll(".ide-act")) {
+    btn.addEventListener("click", () => setView(btn.dataset.view));
+  }
   const sel = $("ide-template");
   sel.innerHTML = `<option value="">New from template…</option>` +
     TEMPLATES.map(t => `<option value="${t.id}">${t.label}</option>`).join("");
