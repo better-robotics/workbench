@@ -8,7 +8,7 @@ import { $ } from "../dom.js";
 import { state } from "../state.js";
 import { loadMonaco } from "./monaco.js";
 import { TEMPLATES } from "./script-runtime.js";
-import { runOnRobot, pyCapable } from "./script-runner.js";
+import { runOnRobot, runOnFleet, pyCapable } from "./script-runner.js";
 import {
   fsAvailable, listFiles, readFileText, writeFile, deleteFile,
 } from "../fs/fs-client.js";
@@ -297,6 +297,44 @@ async function stopRun() {
   appendOutput("— stopped —", "ide-out-note");
 }
 
+function pyRobots() {
+  return [...state.devices.values()].filter(pyCapable);
+}
+
+// Show "Run all (N)" only when ≥2 robots can run Python — ship-and-run-to-N.
+function refreshRunAll() {
+  const btn = $("ide-run-all");
+  if (!btn) return;
+  const n = pyRobots().length;
+  btn.hidden = n < 2;
+  btn.textContent = `Run all (${n})`;
+}
+
+// Ship + run the active file on every Python-capable robot at once.
+async function runFleet() {
+  if (_activeRun) { await stopRun(); return; }
+  const tab = _tabs.get(_activeKey);
+  if (!tab) return;
+  const robots = pyRobots();
+  clearOutput();
+  if (robots.length === 0) { appendOutput("No Python-capable robots connected.", "ide-out-error"); return; }
+  const body = tab.model.getValue();
+  if (tab.source === "local") saveLocalFile(tab.name, body);
+  appendOutput(`Running ${tab.name} on ${robots.length} robots…`, "ide-out-note");
+  setRunning(true);
+  try {
+    _activeRun = await runOnFleet(robots, tab.name, body, {
+      onText: (t) => appendStream(t),
+      onDone: () => { setRunning(false); _activeRun = null; appendOutput("— all done —", "ide-out-note"); renderTree(); },
+      onError: (tb) => appendStream(tb),
+    });
+  } catch (err) {
+    appendOutput(`Fleet run failed: ${err.message}`, "ide-out-error");
+    setRunning(false);
+    _activeRun = null;
+  }
+}
+
 // ---- new file / templates ------------------------------------------------
 
 function promptName(defaultName) {
@@ -399,6 +437,7 @@ async function renderTree() {
   if (names.length === 0) {
     localSec.list.innerHTML = `<li class="ide-tree-empty">No local drafts</li>`;
   }
+  refreshRunAll();
   for (const name of names) {
     localSec.list.appendChild(treeRow(name, "", {
       key: keyFor("local", null, name),
@@ -575,6 +614,7 @@ function wire() {
   _wired = true;
   $("ide-close").addEventListener("click", closeIde);
   $("ide-run").addEventListener("click", run);
+  $("ide-run-all").addEventListener("click", runFleet);
   const sel = $("ide-template");
   sel.innerHTML = `<option value="">New from template…</option>` +
     TEMPLATES.map(t => `<option value="${t.id}">${t.label}</option>`).join("");

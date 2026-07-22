@@ -362,6 +362,8 @@ function renderEntry(entry) {
       });
     }
     if (entry.snapshotBusy) activeOps.push({ text: "snapshotting…" });
+    // On-robot Python (issue #47) — running a script from the IDE.
+    if (entry.pyRun?.running) activeOps.push({ op: "python", text: `▶ ${entry.pyRun.name}` });
   }
   const opsRow = activeOps.length
     ? `<div class="robot-ops">${activeOps.map(o =>
