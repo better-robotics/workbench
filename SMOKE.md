@@ -62,7 +62,7 @@ Pure-function tests live in `tests/`; run with `make smoke`. Below needs hardwar
 
 ## Scripts (IDE view) — Python on the robot
 
-- [ ] Open Scripts (`>_` header button) with no robot connected → lands on Monitor with a "Connect a robot" CTA; pairing from it lights up the dashboard within ~2 s.
+- [ ] Open Scripts (`>_` header button) with no robot connected → lands on Monitor with both on-ramps: "Connect a robot" (BLE pair) and "Set up a new board (USB)" (flash flow); pairing lights up the dashboard within ~2 s.
 - [ ] With a robot connected, Scripts opens on the working view (Explorer) → Monaco loads in Python mode → "New from template…" seeds each `.py` template as a Local draft.
 - [ ] Typing `robot.` offers completions (move / led / sleep) with signatures. Status bar reads "Python".
 - [ ] With no Python-capable robot connected, Run surfaces "No Python-capable robot connected…" — authoring + Local drafts still work offline.

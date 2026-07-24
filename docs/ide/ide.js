@@ -162,10 +162,12 @@ function renderMonitor() {
   if (!host) return;
   const robots = connectedRobots();
   if (robots.length === 0) {
-    // Keep the existing CTA node across the 2 s ticks — a rebuild mid-click
-    // would swallow the pointer-down and eat the user's Connect press.
-    if (!host.querySelector(".ide-mon-connect")) {
+    // Keep the existing empty-state node across the 2 s ticks — a rebuild
+    // mid-click would swallow the pointer-down and eat the user's press.
+    if (!host.querySelector(".ide-mon-empty")) {
       host.innerHTML = "";
+      const ble = !!navigator.bluetooth;
+      const ser = "serial" in navigator;
       const empty = document.createElement("div");
       empty.className = "ide-mon-empty";
       const title = document.createElement("div");
@@ -174,18 +176,36 @@ function renderMonitor() {
       empty.appendChild(title);
       const sub = document.createElement("div");
       sub.className = "ide-mon-empty-sub";
-      sub.textContent = navigator.bluetooth
+      sub.textContent = ble
         ? "Pair a robot to see its live telemetry and run your scripts on it."
         : "This browser can't do Bluetooth — use Chrome or Edge on desktop.";
       empty.appendChild(sub);
-      if (navigator.bluetooth) {
-        const btn = document.createElement("button");
-        btn.className = "ide-mon-connect";
-        btn.textContent = "Connect a robot";
-        // scanForNew needs the click's user activation for requestDevice;
-        // the monitor tick re-render picks up the new robot within 2 s.
-        btn.addEventListener("click", () => scanForNew());
-        empty.appendChild(btn);
+      if (ble || ser) {
+        const row = document.createElement("div");
+        row.className = "ide-mon-actions";
+        if (ble) {
+          const btn = document.createElement("button");
+          btn.className = "ide-mon-connect";
+          btn.textContent = "Connect a robot";
+          // scanForNew needs the click's user activation for requestDevice;
+          // the monitor tick re-render picks up the new robot within 2 s.
+          btn.addEventListener("click", () => scanForNew());
+          row.appendChild(btn);
+        }
+        if (ser) {
+          // The fresh-board on-ramp: nothing to find over BLE until firmware
+          // is flashed over USB — same flow as the dashboard's setup card.
+          const usb = document.createElement("button");
+          usb.className = "secondary";
+          usb.textContent = "Set up a new board (USB)";
+          usb.addEventListener("click", async () => {
+            await import("../recovery/console.js").then(m => m.releasePort?.()).catch(() => {});
+            const { installEsp32 } = await import("../recovery/esp-serial.js");
+            installEsp32();
+          });
+          row.appendChild(usb);
+        }
+        empty.appendChild(row);
       }
       host.appendChild(empty);
     }
