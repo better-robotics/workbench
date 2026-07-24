@@ -678,7 +678,7 @@ document.addEventListener("keydown", (e) => {
   $("ide-modal").close();
 });
 
-// Recovery menu (BetterRobotics dropdown) — wired FIRST in DOMContentLoaded
+// Recovery menu (SprocketRobotics dropdown) — wired FIRST in DOMContentLoaded
 // inside try/catch so a failure later in init can never strand the user
 // without Hard Refresh. Uses optional chaining on every $() lookup so a
 // single missing element doesn't abort the rest of the wiring. Same panda
@@ -731,7 +731,7 @@ document.addEventListener("DOMContentLoaded", () => {
   try { wireRecoveryMenu(); } catch (err) { console.error("[recovery-menu]", err); }
   // Browsers without Web Bluetooth (iOS Safari is the common case — a
   // phone user who navigated phone → "Open dashboard view") still need
-  // the chrome to work: BetterRobotics menu, PWA install, update check,
+  // the chrome to work: SprocketRobotics menu, PWA install, update check,
   // random profile name. Surface the unsupported banner + disable BLE-only
   // buttons, then let the rest of init run.
   const hasBLE = !!navigator.bluetooth;
@@ -818,7 +818,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const mod = await import("./ide/ide.js");
     mod.openIde();
   });
-  // (BetterRobotics dropdown wiring moved to wireRecoveryMenu(), called
+  // (SprocketRobotics dropdown wiring moved to wireRecoveryMenu(), called
   // first in this DOMContentLoaded inside try/catch — see top of file.)
 
   $("label-close").addEventListener("click", () => $("label-modal").close());
@@ -933,7 +933,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // "Set up a robot" goes straight to the ESP32 Web-Serial flash — the only
   // hardware workbench sets up (a Raspberry Pi runs the classroom hub,
-  // provisioned from better-robotics/hub, not here). One platform, so there's
+  // provisioned from sprocket-robotics/hub, not here). One platform, so there's
   // no chooser: the button opens the native serial picker directly.
   const startEspInstall = async () => {
     if (!("serial" in navigator)) {

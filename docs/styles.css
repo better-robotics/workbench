@@ -95,7 +95,7 @@ html, body {
   height: 12px;
   color: var(--ink-muted);
   /* No flex `gap` on the button — that would also land between .logo-accent
-     and .logo-base, splitting "BetterRobotics" into two words. This margin
+     and .logo-base, splitting "SprocketRobotics" into two words. This margin
      is the caret's own spacing (was 2px flex-gap + 2px margin combined). */
   margin-left: 6px;
 }
@@ -1902,7 +1902,7 @@ body.phone .segmented .mode-btn { min-height: 44px; }
 
 /* Console (Pi USB-C + ESP32 USB serial unified) — full-viewport takeover
    rather than a centered floating modal: a terminal session is a workspace,
-   not a quick prompt. Its toolbar replaces the "BetterRobotics" topbar
+   not a quick prompt. Its toolbar replaces the "SprocketRobotics" topbar
    outright (inset: 0 paints over it — the dialog follows the topbar in DOM
    with no competing z-index), reclaiming the topbar's row for the terminal.
    flex-column so the active section's term container has a measurable size

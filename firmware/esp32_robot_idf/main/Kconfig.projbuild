@@ -1,4 +1,4 @@
-menu "Better Robotics"
+menu "Sprocket Robotics"
 
 choice BR_BOARD
     prompt "Target board"

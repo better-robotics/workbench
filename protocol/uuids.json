@@ -1,6 +1,6 @@
 {
   "_comment": "Single source of truth for all BLE UUIDs. Keys are UPPER_SNAKE_CASE so codegen can drop them straight into C #defines and JS named exports without any case translation. Edit this file, then run `make gen-uuids` (also runs automatically on `make compile`). Do NOT edit the generated files directly — `tools/gen-uuids.py` will overwrite them.",
-  "_hub_contract": "Cross-project channel mapping (MOTOR<->pwm with the +-100-percent vs +-255-duty scale conversion, LED+RGB<->set_led, TELEMETRY<->sys) is canonical in better-robotics/hub CONTRACT.md, 'The BLE transport (workbench)'. Keep that section in sync when a mapped char's payload changes.",
+  "_hub_contract": "Cross-project channel mapping (MOTOR<->pwm with the +-100-percent vs +-255-duty scale conversion, LED+RGB<->set_led, TELEMETRY<->sys) is canonical in sprocket-robotics/hub CONTRACT.md, 'The BLE transport (workbench)'. Keep that section in sync when a mapped char's payload changes.",
   "main_service": {
     "SERVICE_UUID":               "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d91",
     "LED_CHAR_UUID":              "a5f7c4d2-1b8e-4b9a-9c3d-5e8a7b6c4d92",

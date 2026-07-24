@@ -1,8 +1,8 @@
-# Better Robotics
+# Sprocket Robotics
 
 **Open a tab, pair a robot, ship code.**
 
-[![Build firmware](https://github.com/better-robotics/workbench/actions/workflows/build-firmware.yml/badge.svg)](https://github.com/better-robotics/workbench/actions/workflows/build-firmware.yml)
+[![Build firmware](https://github.com/sprocket-robotics/workbench/actions/workflows/build-firmware.yml/badge.svg)](https://github.com/sprocket-robotics/workbench/actions/workflows/build-firmware.yml)
 
 ## What this is
 
@@ -34,7 +34,7 @@ Browser is the IDE. Coding panel + capability cards. localStorage is the file sy
 1. Open the workbench — the **About** link on this repo — in Chrome or Edge.
 2. Flash or set up hardware:
    - **ESP32 on USB:** click **Flash firmware**
-   - **Raspberry Pi:** it runs the classroom **hub**, not workbench firmware — flash the flash-and-go image from [`better-robotics/hub`](https://github.com/better-robotics/hub) and it self-provisions.
+   - **Raspberry Pi:** it runs the classroom **hub**, not workbench firmware — flash the flash-and-go image from [`sprocket-robotics/hub`](https://github.com/sprocket-robotics/hub) and it self-provisions.
 3. Click **Scan**, pair a robot, toggle LED, onboard WiFi, drive motors.
 
 ### Develop locally
@@ -54,7 +54,7 @@ tests/                      Pure-function unit tests · make smoke
 .claude/                    Agent + project context
 ```
 
-The workbench drives ESP32 rovers over BLE; a Raspberry Pi runs the classroom hub ([`better-robotics/hub`](https://github.com/better-robotics/hub)), not workbench firmware. `docs/` is the GitHub Pages publish root — the site is the directory, no build step.
+The workbench drives ESP32 rovers over BLE; a Raspberry Pi runs the classroom hub ([`sprocket-robotics/hub`](https://github.com/sprocket-robotics/hub)), not workbench firmware. `docs/` is the GitHub Pages publish root — the site is the directory, no build step.
 
 ## Browser support
 

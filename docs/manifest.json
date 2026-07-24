@@ -1,6 +1,6 @@
 {
-  "name": "BetterRobotics",
-  "short_name": "BetterRobotics",
+  "name": "SprocketRobotics",
+  "short_name": "SprocketRobotics",
   "description": "Pair any robot in a browser tab. No network, no accounts, no servers.",
   "id": "./",
   "start_url": "./",

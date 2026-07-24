@@ -7,7 +7,7 @@ Diagnostic flags, console handles, debug paths. User-facing → `README.md`. Age
 ### Dashboard (`index.html`)
 - `?robot=<name>` — pre-selects a robot by name (useful for direct-link workflows). Implementation: `app.js`.
 - `?hub=<host>[&hubuser=<team>&hubpass=<code>]` — connects to a classroom hub's
-  MQTT broker over WebSockets (`ws://<host>:9001`, `better-robotics/hub`
+  MQTT broker over WebSockets (`ws://<host>:9001`, `sprocket-robotics/hub`
   CONTRACT.md) and surfaces its rovers as robot cards: joypad/keyboard drive,
   LED toggle, sys-derived telemetry, and the Pip/user-code motion tools all
   work through the same capability runtimes as BLE robots. Anonymous (no

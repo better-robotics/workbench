@@ -15,7 +15,7 @@ import { releaseAllGates } from "../watcher.js";
 
 // pip-core is dynamic-imported inside initAssistant() (not statically at
 // module-load) so that a CDN failure on the jsdelivr URL cannot brick
-// the whole module graph and strand the user without the BetterRobotics
+// the whole module graph and strand the user without the SprocketRobotics
 // recovery menu. The static-import shape would propagate the 404 to
 // assistant.js → app.js → DOMContentLoaded never fires → wireRecoveryMenu
 // never runs. Dynamic-import turns that into a runtime throw that the

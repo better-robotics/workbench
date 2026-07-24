@@ -38,7 +38,7 @@
   },
   "hub_broker": {
     "_targets": ["js"],
-    "_comment": "MQTT-over-WebSockets listener port — fixed convention with the hub's pi/mosquitto.example.conf (better-robotics/hub CONTRACT.md). js-only: in this repo only the dashboard (hub transport + pair signaling/lobby) dials the broker; robot firmware never does.",
+    "_comment": "MQTT-over-WebSockets listener port — fixed convention with the hub's pi/mosquitto.example.conf (sprocket-robotics/hub CONTRACT.md). js-only: in this repo only the dashboard (hub transport + pair signaling/lobby) dials the broker; robot firmware never does.",
     "WS_PORT": 9001
   }
 }

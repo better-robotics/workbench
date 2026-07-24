@@ -60,7 +60,7 @@ Buy in US: [Adafruit](https://www.adafruit.com/?q=ESP32-S3) (S3, C6), DigiKey, M
 
 A Raspberry Pi doesn't run workbench firmware — it runs the classroom **hub**
 (MQTT broker + dashboard the rovers talk to). Flash the flash-and-go image from
-[`better-robotics/hub`](https://github.com/better-robotics/hub) and it
+[`sprocket-robotics/hub`](https://github.com/sprocket-robotics/hub) and it
 self-provisions: its own `hub-XXXX` Wi-Fi, the dashboard at `hub.local`, and a
 USB-C recovery console. Hub wiring, the recovery plane, and image build all live
 in that repo — workbench itself only drives ESP32 rovers.

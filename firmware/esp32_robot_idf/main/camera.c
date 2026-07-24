@@ -15,7 +15,7 @@ static const char *TAG = "camera";
 // Camera pin map — board-specific. Selected by CONFIG_BR_BOARD_*.
 #if CONFIG_BR_BOARD_S3_CAM
 // Freenove ESP32-S3-WROOM CAM (OV2640) — the vendor's documented layout,
-// matching better-robotics/robot's proven CAM_PINS_FREENOVE_S3 map.
+// matching sprocket-robotics/robot's proven CAM_PINS_FREENOVE_S3 map.
 #define PWDN_GPIO_NUM     -1
 #define RESET_GPIO_NUM    -1
 #define XCLK_GPIO_NUM     15

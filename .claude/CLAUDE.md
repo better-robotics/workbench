@@ -31,7 +31,7 @@ Pattern: control = BLE, observe = wifi/discover, recover = USB.
 
 Channel semantics are shared with the classroom hub: the BLE↔MQTT mapping
 (MOTOR↔pwm incl. the ±100-percent vs ±255-duty scale, LED+RGB↔set_led,
-TELEMETRY↔sys, the 4000 ms drive cap) is canonical in `better-robotics/hub`
+TELEMETRY↔sys, the 4000 ms drive cap) is canonical in `sprocket-robotics/hub`
 CONTRACT.md § "The BLE transport (workbench)" — keep it in sync when a mapped
 payload changes here.
 

@@ -1,6 +1,6 @@
 # Field
 
-Adjacent work that defines what positioning BetterRobotics can claim. Frame: "what's already claimed in the surrounding field," not "who do we beat." Filtered for what would change a decision.
+Adjacent work that defines what positioning SprocketRobotics can claim. Frame: "what's already claimed in the surrounding field," not "who do we beat." Filtered for what would change a decision.
 
 ## schematik.io — not in this lane
 

@@ -1,5 +1,5 @@
 // Minimal MQTT 3.1.1 client over WebSocket, QoS 0 only — exactly the subset
-// the hub contract uses (better-robotics/hub CONTRACT.md). Hand-rolled
+// the hub contract uses (sprocket-robotics/hub CONTRACT.md). Hand-rolled
 // because the alternative is vendoring the ~300 KB mqtt.js bundle for
 // four packet types; if this ever needs QoS>0, retained handling, or
 // MQTT5 request/reply properties, vendor mqtt.js instead of growing this.

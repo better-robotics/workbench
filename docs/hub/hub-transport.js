@@ -1,4 +1,4 @@
-// Classroom-hub transport (better-robotics/hub CONTRACT.md): rovers that
+// Classroom-hub transport (sprocket-robotics/hub CONTRACT.md): rovers that
 // publish robots/<team>/sys on the hub's broker appear as robot cards and
 // are drivable over MQTT-over-WebSockets, no BLE pairing.
 //

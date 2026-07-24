@@ -2,7 +2,7 @@
 // retained. Two rendezvous, picked by what the page's origin is allowed to open:
 //
 //   http-served  → the hub broker, ws://<host>:9001. No prefix: that topic
-//                  space is better-robotics/hub CONTRACT.md § pair, and the
+//                  space is sprocket-robotics/hub CONTRACT.md § pair, and the
 //                  namespace IS the contract.
 //   https-served → a public MQTT broker over wss. A https page cannot open
 //                  ws:// at all (mixed content), and with the hub broker as
