@@ -791,15 +791,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const mod = await import("./recovery/pinout.js");
     mod.openPinoutDialog(id);
   });
-  // Serial console lives in the IDE's bottom panel (Serial tab); the header
-  // button is the recovery-path entry — reachable with zero robots paired,
-  // so it opens the panel directly rather than making the user find the tab.
-  $("serial-console-btn").addEventListener("click", async () => {
-    const mod = await import("./ide/ide.js");
-    mod.openIde({ panel: "serial" });
-  });
-  $("menu-scripts").addEventListener("click", async () => {
-    $("avatar-menu").hidePopover();
+  // The one IDE entry (>_ header button) — the avatar-menu Scripts item and
+  // the direct-to-serial jump both folded into it. ide.js picks the landing
+  // view (Monitor + connect CTA with no robot; the working view otherwise);
+  // the serial console is a visible panel tab inside.
+  $("ide-btn").addEventListener("click", async () => {
     const mod = await import("./ide/ide.js");
     mod.openIde();
   });

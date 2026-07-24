@@ -52,7 +52,7 @@
   </h1>
   <div class="topbar-spacer"></div>
   <div class="topbar-actions">
-    <button class="icon" id="serial-console-btn" aria-label="Serial console" title="Serial console"><svg class="icon-svg"><use href="icons.svg#icon-terminal"/></svg></button>
+    <button class="icon" id="ide-btn" aria-label="Scripts" title="Scripts"><svg class="icon-svg"><use href="icons.svg#icon-terminal"/></svg></button>
     <button class="icon pair-phone-btn" id="pair-phone-btn" aria-label="Pair a phone" title="Pair a phone"><svg class="icon-svg"><use href="icons.svg#icon-smartphone"/></svg></button>
     <button class="avatar-btn" id="avatar-btn" aria-label="Profile menu" aria-haspopup="menu">?</button>
   </div>
@@ -114,7 +114,6 @@
 <div id="avatar-menu" class="menu" popover="manual">
   <div class="menu-header" id="avatar-menu-name">Not set</div>
   <button class="menu-item" id="menu-settings"><svg class="icon-svg"><use href="icons.svg#icon-settings"/></svg>Settings</button>
-  <button class="menu-item" id="menu-scripts"><svg class="icon-svg"><use href="icons.svg#icon-file-code"/></svg>Scripts</button>
 </div>
 
 <div id="app-menu" class="menu" popover="manual">
@@ -320,6 +319,10 @@
            The serial session outlives panel/IDE close — Disconnect is the
            only thing that ends it (a stray Escape must not drop the port). -->
       <div class="ide-panel" id="ide-panel" hidden>
+        <!-- VS Code-style sash: drag resizes the panel, double-click toggles
+             maximize. Serial-only — Output stays auto-height (a one-line
+             "Saved" note shouldn't hold a claim on half the page). -->
+        <div class="ide-panel-sash serial-only" id="ide-panel-sash" role="separator" aria-orientation="horizontal" aria-label="Resize panel" aria-valuemin="120" tabindex="0" title="Drag to resize · double-click to maximize"></div>
         <div class="ide-panel-bar">
           <div class="ide-panel-tabs">
             <button class="ide-panel-tab active" data-panel="output">Output</button>

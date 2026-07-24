@@ -12,6 +12,7 @@ import { runOnRobot, runOnFleet, pyCapable } from "./script-runner.js";
 import {
   fsAvailable, listFiles, readFileText, writeFile, deleteFile, fsInfo,
 } from "../fs/fs-client.js";
+import { scanForNew } from "../ble/ble-lifecycle.js";
 import { updateFirmware, updateFromFile } from "../capabilities/ota.js";
 import { FLASH_MAP } from "./flash-map.js";
 import { formatUptime, formatRssi, formatResetReason } from "../format.js";
@@ -159,16 +160,39 @@ function monitorTick() {
 function renderMonitor() {
   const host = $("ide-monitor");
   if (!host) return;
-  const scroll = host.scrollTop;
-  host.innerHTML = "";
   const robots = connectedRobots();
   if (robots.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "ide-mon-empty";
-    empty.textContent = "No robot connected. Pair one to see its telemetry here.";
-    host.appendChild(empty);
+    // Keep the existing CTA node across the 2 s ticks — a rebuild mid-click
+    // would swallow the pointer-down and eat the user's Connect press.
+    if (!host.querySelector(".ide-mon-connect")) {
+      host.innerHTML = "";
+      const empty = document.createElement("div");
+      empty.className = "ide-mon-empty";
+      const title = document.createElement("div");
+      title.className = "ide-mon-empty-title";
+      title.textContent = "No robot connected";
+      empty.appendChild(title);
+      const sub = document.createElement("div");
+      sub.className = "ide-mon-empty-sub";
+      sub.textContent = navigator.bluetooth
+        ? "Pair a robot to see its live telemetry and run your scripts on it."
+        : "This browser can't do Bluetooth — use Chrome or Edge on desktop.";
+      empty.appendChild(sub);
+      if (navigator.bluetooth) {
+        const btn = document.createElement("button");
+        btn.className = "ide-mon-connect";
+        btn.textContent = "Connect a robot";
+        // scanForNew needs the click's user activation for requestDevice;
+        // the monitor tick re-render picks up the new robot within 2 s.
+        btn.addEventListener("click", () => scanForNew());
+        empty.appendChild(btn);
+      }
+      host.appendChild(empty);
+    }
     return;
   }
+  const scroll = host.scrollTop;
+  host.innerHTML = "";
   for (const entry of robots) host.appendChild(monitorPanel(entry));
   host.scrollTop = scroll;
   // Charts draw after layout (need clientWidth).
@@ -348,7 +372,70 @@ function setPanelTab(tab) {
   for (const b of panel.querySelectorAll(".ide-panel-tab")) {
     b.classList.toggle("active", b.dataset.panel === tab);
   }
+  applyPanelH();
   if (tab === "serial") ensureSerial();
+}
+
+// Serial-tab panel height — sash-dragged, persisted, clamped to leave the
+// toolbar + tab strip + a sliver of editor reachable. Monaco (automaticLayout)
+// and xterm (ResizeObserver in xterm-host.js) both re-fit on their own, so
+// resizing is pure CSS height from here.
+const PANEL_H_KEY = "better-robotics:ide:panel-h:v1";
+let _panelH = null;  // user-chosen px; null = the CSS default (40vh)
+try { _panelH = parseInt(localStorage.getItem(PANEL_H_KEY), 10) || null; } catch {}
+
+function panelMaxH() {
+  const body = document.querySelector(".ide-body");
+  return body ? Math.max(160, body.getBoundingClientRect().height - 84) : 600;
+}
+const clampPanelH = (h) => Math.min(panelMaxH(), Math.max(120, Math.round(h)));
+// Inline height only while the serial tab owns the panel — cleared on the
+// output tab so its auto-height CSS governs again.
+function applyPanelH() {
+  const panel = $("ide-panel");
+  if (!panel) return;
+  panel.style.height = (_panelTab === "serial" && _panelH) ? `${clampPanelH(_panelH)}px` : "";
+}
+function setPanelH(h) {
+  _panelH = clampPanelH(h);
+  applyPanelH();
+  $("ide-panel-sash")?.setAttribute("aria-valuenow", String(_panelH));
+}
+
+function wireSash() {
+  const sash = $("ide-panel-sash");
+  if (!sash) return;
+  sash.addEventListener("pointerdown", (e) => {
+    e.preventDefault();  // no text/terminal selection while dragging
+    sash.setPointerCapture(e.pointerId);
+    sash.classList.add("dragging");
+    const startY = e.clientY;
+    const startH = $("ide-panel").getBoundingClientRect().height;
+    const move = (ev) => setPanelH(startH + (startY - ev.clientY));
+    const up = () => {
+      sash.classList.remove("dragging");
+      sash.removeEventListener("pointermove", move);
+      try { localStorage.setItem(PANEL_H_KEY, String(_panelH)); } catch {}
+    };
+    sash.addEventListener("pointermove", move);
+    sash.addEventListener("pointerup", up, { once: true });
+    sash.addEventListener("pointercancel", up, { once: true });
+  });
+  // Double-click: maximize ⇄ restore (VS Code's panel toggle, minus the icon).
+  sash.addEventListener("dblclick", () => {
+    const max = panelMaxH();
+    const cur = $("ide-panel").getBoundingClientRect().height;
+    setPanelH(cur >= max - 8 ? Math.round(window.innerHeight * 0.4) : max);
+    try { localStorage.setItem(PANEL_H_KEY, String(_panelH)); } catch {}
+  });
+  // Keyboard resize — role="separator" earns arrow keys, not just a cursor.
+  sash.addEventListener("keydown", (e) => {
+    const step = e.key === "ArrowUp" ? 24 : e.key === "ArrowDown" ? -24 : 0;
+    if (!step) return;
+    e.preventDefault();
+    setPanelH($("ide-panel").getBoundingClientRect().height + step);
+    try { localStorage.setItem(PANEL_H_KEY, String(_panelH)); } catch {}
+  });
 }
 function openPanel(tab) {
   const panel = $("ide-panel");
@@ -982,13 +1069,15 @@ async function restoreSession() {
 
 // ---- open / wiring -------------------------------------------------------
 
-// `panel: "serial"` (the header terminal button) reveals the Serial tab
-// immediately — before Monaco loads, so recovery isn't gated on the editor.
-export async function openIde({ panel } = {}) {
+export async function openIde() {
   const dlg = $("ide-modal");
   if (!dlg.open) dlg.show();
   wire();
-  if (panel) openPanel(panel);
+  // Landing view: no robot connected → Monitor, whose empty state carries
+  // the Connect CTA — the bench order is robot first, then code, and the
+  // dashboard coming alive is the confirmation that pairing worked. With a
+  // robot connected, keep whatever view the user was in (explorer at first).
+  if (connectedRobots().length === 0) setView("monitor");
   const tree = $("ide-tree");
   if (tree && !tree.dataset.ready) tree.innerHTML = `<div class="ide-tree-loading">Loading editor…</div>`;
   try {
@@ -1043,6 +1132,7 @@ function wire() {
     btn.addEventListener("click", () => setPanelTab(btn.dataset.panel));
   }
   $("ide-panel-close").addEventListener("click", closePanel);
+  wireSash();
   const sel = $("ide-template");
   sel.innerHTML = `<option value="">New from template…</option>` +
     TEMPLATES.map(t => `<option value="${t.id}">${t.label}</option>`).join("");

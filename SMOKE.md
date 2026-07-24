@@ -49,7 +49,7 @@ Pure-function tests live in `tests/`; run with `make smoke`. Below needs hardwar
 
 ## Recovery
 
-- [ ] ESP32 serial console: header terminal button → IDE opens on the Serial panel → Connect → boot log + serial output streams.
+- [ ] ESP32 serial console: `>_` header button → Scripts → Serial panel tab → Connect → boot log + serial output streams; drag the sash to resize, double-click it to maximize.
 - [ ] Serial session survives the UI: switch to Output tab and back, hide the panel (×), close + reopen the IDE — port stays connected, scrollback intact, terminal re-fits without garbling.
 - [ ] ESP32 flash: Serial panel ⋯ → Flash firmware → bins stream, chip reboots; a live console session reconnects after.
 
@@ -62,7 +62,8 @@ Pure-function tests live in `tests/`; run with `make smoke`. Below needs hardwar
 
 ## Scripts (IDE view) — Python on the robot
 
-- [ ] Open Scripts → Monaco loads in Python mode → "New from template…" seeds each `.py` template as a Local draft.
+- [ ] Open Scripts (`>_` header button) with no robot connected → lands on Monitor with a "Connect a robot" CTA; pairing from it lights up the dashboard within ~2 s.
+- [ ] With a robot connected, Scripts opens on the working view (Explorer) → Monaco loads in Python mode → "New from template…" seeds each `.py` template as a Local draft.
 - [ ] Typing `robot.` offers completions (move / led / sleep) with signatures. Status bar reads "Python".
 - [ ] With no Python-capable robot connected, Run surfaces "No Python-capable robot connected…" — authoring + Local drafts still work offline.
 - [ ] With an S3 robot (VM firmware) connected: Run ships the file to /fs and executes it on-device; `print()` output streams into the panel; Cmd/Ctrl-Enter runs.

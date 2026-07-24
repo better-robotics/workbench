@@ -1089,7 +1089,23 @@ details.tray.has-alert > summary::after {
   flex-direction: column;
   flex: none;
   border-top: 1px solid var(--border-subtle);
+  position: relative;  /* sash anchors to the top edge */
 }
+/* Sash: 7px invisible grab strip straddling the panel's top border (VS
+   Code's pattern — the visible border stays 1px; the hit area doesn't).
+   Accent wash on hover/drag is the only paint. */
+.ide-panel-sash {
+  position: absolute;
+  top: -3px;
+  left: 0;
+  right: 0;
+  height: 7px;
+  cursor: row-resize;
+  touch-action: none;
+  z-index: 2;
+}
+.ide-panel-sash:hover,
+.ide-panel-sash.dragging { background: color-mix(in srgb, var(--focus) 55%, transparent); }
 .ide-panel[hidden] { display: none; }
 .ide-panel.serial { height: 40vh; min-height: 180px; }
 .ide-panel:not(.serial) .serial-only { display: none; }
@@ -1248,7 +1264,22 @@ details.tray.has-alert > summary::after {
 .ide-sidebar[hidden], .ide-main[hidden] { display: none; }
 .ide-monitor { flex: 1; overflow-y: auto; padding: 20px 24px; }
 .ide-monitor[hidden] { display: none; }
-.ide-mon-empty { color: var(--ink-muted); font-size: 13px; padding: 24px; }
+/* Monitor empty state doubles as the IDE's landing CTA when no robot is
+   connected (openIde lands here) — centered in the full-width dashboard so
+   "connect first" reads as the one next step, not a side note. */
+.ide-mon-empty {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  text-align: center;
+}
+.ide-mon-empty-title { font-size: 15px; font-weight: 500; color: var(--ink); }
+.ide-mon-empty-sub { font-size: 13px; color: var(--ink-muted); max-width: 44ch; }
+.ide-mon-connect { margin-top: 10px; }
 .ide-mon-panel { max-width: 1100px; margin: 0 auto 24px; }
 
 .ide-mon-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
