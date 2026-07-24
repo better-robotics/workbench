@@ -1080,13 +1080,52 @@ details.tray.has-alert > summary::after {
 /* Monaco host fills the remaining column. */
 .ide-editor { flex: 1; min-height: 0; }
 
+/* Bottom panel (Output | Serial tabs). Auto-height in output mode so a
+   one-line "Saved" note claims one line, not a terminal's worth of room;
+   .serial (set by ide.js's setPanelTab) pins real rows for xterm — FitAddon
+   sizes to the container, so the container must commit to a height first. */
+.ide-panel {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  border-top: 1px solid var(--border-subtle);
+}
+.ide-panel[hidden] { display: none; }
+.ide-panel.serial { height: 40vh; min-height: 180px; }
+.ide-panel:not(.serial) .serial-only { display: none; }
+.ide-panel-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 32px;
+  padding: 0 8px 0 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  flex: none;
+}
+.ide-panel-tabs { display: flex; align-items: center; gap: 10px; }
+.ide-panel-actions { display: flex; align-items: center; gap: 8px; }
+/* Same treatment as .ide-tab's active accent, rotated to an underline —
+   panel tabs switch panes, editor tabs switch files; kin, not identical. */
+.ide-panel-tab {
+  border: none; background: none; cursor: pointer;
+  padding: 7px 2px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-muted);
+}
+.ide-panel-tab.active { color: var(--ink); box-shadow: inset 0 -2px 0 var(--accent-ink); }
+.ide-panel-tab:not(.active):hover { color: var(--ink); }
+.ide-serial { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.ide-serial[hidden] { display: none; }
+
 .ide-output {
   font-family: "SF Mono", ui-monospace, Menlo, monospace;
   font-size: 12px;
   max-height: 30vh;
   overflow-y: auto;
   padding: 8px 12px;
-  border-top: 1px solid var(--border-subtle);
   background: color-mix(in srgb, var(--ink) 3%, transparent);
   white-space: pre-wrap;
   color: var(--ink-muted);
@@ -1900,61 +1939,11 @@ body.phone .segmented .mode-btn { min-height: 44px; }
 .pinout-svg.esp32 .pin-dot.esp-reserved  { fill: #6b7280; stroke: #1f2937; }
 .pinout-svg.esp32 .pin-dot.esp-forbidden { fill: #b91c1c; stroke: #450a0a; }
 
-/* Console (Pi USB-C + ESP32 USB serial unified) — full-viewport takeover
-   rather than a centered floating modal: a terminal session is a workspace,
-   not a quick prompt. Its toolbar replaces the "SprocketRobotics" topbar
-   outright (inset: 0 paints over it — the dialog follows the topbar in DOM
-   with no competing z-index), reclaiming the topbar's row for the terminal.
-   flex-column so the active section's term container has a measurable size
-   for FitAddon; recovery.js's ResizeObserver re-fits xterm on any viewport
-   resize. */
-/* [open]-scoped: an unscoped #console-modal rule would out-specificity the
-   UA's `dialog:not([open]) { display: none }` (ID beats attribute+element),
-   leaving a full-viewport `position: fixed` box laid out — invisible via
-   the shared `dialog { opacity: 0 }` transition rule, but still `pointer-
-   events: auto` and hit-testable, silently eating every click on the page
-   while "closed". Scoping to [open] lets the UA rule govern the closed
-   state normally. */
-#console-modal[open] {
-  position: fixed;
-  inset: 0;
-  margin: 0;
-  width: 100vw;
-  height: 100dvh;
-  max-width: none;
-  max-height: none;
-  min-width: 0;
-  min-height: 0;
-  padding: 0;
-  border-radius: 0;
-  box-shadow: none;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-#console-modal::backdrop { background: transparent; }
-/* Single toolbar row: title left, status/connect/flash/close right. No
-   mode switcher — console.js auto-detects Pi vs ESP32 from the connected
-   port, so there's nothing to pick before connecting. */
-.console-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  /* Same height + horizontal padding as .topbar — this row stands in for
-     the app header while the console is open, so it must land in the same
-     slot, not a near-miss of it. */
-  height: var(--topbar-height);
-  padding: 0 20px;
-  border-bottom: 1px solid var(--border-subtle);
-  flex: none;
-}
-.console-toolbar-left, .console-toolbar-right { display: flex; align-items: center; gap: 10px; }
-/* Connect is the only always-visible action and takes the bare-button accent
-   fill; the port-pick escape hatch and destructive Flash firmware moved
-   behind ⋯ (Apple HIG: one primary action per surface, rare + risky detours
-   in the overflow). The divider groups Connect away from ⋯/× so the accent
-   button doesn't read as part of the icon cluster. */
+/* Serial console styles — the session UI lives in the IDE's bottom panel
+   (see .ide-panel); these are the pieces it carries over from the retired
+   full-viewport console dialog. */
+/* The divider groups an accent action (Connect / Run) away from the icon
+   cluster so it doesn't read as part of it. */
 .toolbar-divider {
   width: 1px;
   align-self: stretch;
@@ -1962,11 +1951,11 @@ body.phone .segmented .mode-btn { min-height: 44px; }
   background: var(--border-default);
 }
 
-/* Status pill, grouped left with the title it describes rather than into the
-   action cluster (the robot card's split: identity + state left, actions
-   right). Beside Connect, proximity would claim it labels that button.
-   The dot alone can't carry state — color is the one channel that fails
-   silently for a colorblind operator and reads as nothing at all to a
+/* Status pill, grouped left beside the Serial tab it describes rather than
+   into the action cluster (the robot card's split: identity + state left,
+   actions right). Beside Connect, proximity would claim it labels that
+   button. The dot alone can't carry state — color is the one channel that
+   fails silently for a colorblind operator and reads as nothing at all to a
    screen reader, so the word rides with it (console.js's STATUS_LABEL). */
 .status-pill {
   display: inline-flex;
@@ -2002,14 +1991,6 @@ body.phone .segmented .mode-btn { min-height: 44px; }
 .console-empty-icon { font-size: 22px; color: var(--ink-muted); opacity: 0.6; }
 .console-empty-title { font-size: 13px; color: var(--ink-muted); }
 .console-empty-sub { font-size: 12px; color: var(--ink-muted); opacity: 0.7; }
-
-.console-section {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
-}
-.console-section[hidden] { display: none; }
 
 /* Install dialog (esp-flash-modal). One <dialog> hosts the full arc:
    connecting → board pick → write progress → done. The pick and

@@ -49,8 +49,9 @@ Pure-function tests live in `tests/`; run with `make smoke`. Below needs hardwar
 
 ## Recovery
 
-- [ ] ESP32 serial console: Serial console → Connect → boot log + serial output streams.
-- [ ] ESP32 flash: Serial console → Flash firmware → bins stream, chip reboots.
+- [ ] ESP32 serial console: header terminal button → IDE opens on the Serial panel → Connect → boot log + serial output streams.
+- [ ] Serial session survives the UI: switch to Output tab and back, hide the panel (×), close + reopen the IDE — port stays connected, scrollback intact, terminal re-fits without garbling.
+- [ ] ESP32 flash: Serial panel ⋯ → Flash firmware → bins stream, chip reboots; a live console session reconnects after.
 
 ## Offline / PWA
 

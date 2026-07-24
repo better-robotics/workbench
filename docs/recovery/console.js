@@ -1,9 +1,13 @@
-// Serial console for ESP32 boards. Classifies the picked port's VID *after*
-// connecting, so the operator doesn't have to pre-declare their bridge chip.
-// An unfiltered "show all ports" escape hatch (behind ⋯) connects to any
-// serial device without a recognized VID — e.g. a hub Pi's USB-CDC recovery
-// gadget. esp-serial.js owns the flash/install flow, reused here for the
-// Flash firmware button.
+// Serial console for ESP32 boards, hosted in the IDE's bottom panel (Serial
+// tab — ide/ide.js owns the panel shell; this module owns the session).
+// Classifies the picked port's VID *after* connecting, so the operator
+// doesn't have to pre-declare their bridge chip. An unfiltered "show all
+// ports" escape hatch (behind ⋯) connects to any serial device without a
+// recognized VID — e.g. a hub Pi's USB-CDC recovery gadget. esp-serial.js
+// owns the flash/install flow, reused here for the Flash firmware button.
+// The session outlives the panel and the IDE: hiding either just hides the
+// xterm (it keeps buffering); only Disconnect (or a flash needing the port)
+// releases it — so a stray Escape can never cost a live session.
 import { $, wirePopover } from "../dom.js";
 import { log } from "../log.js";
 import { mountTerminal } from "./xterm-host.js";
@@ -183,7 +187,6 @@ let _initialized = false;
 export function init() {
   if (_initialized) return;
   _initialized = true;
-  $("console-close").addEventListener("click", () => $("console-modal").close());
   $("console-connect").addEventListener("click", () => _port ? disconnect() : connect());
   // Port-pick escape hatch and Flash firmware live behind ⋯ so Connect reads
   // as the one primary action. Both are rare, deliberate detours from the
@@ -193,13 +196,6 @@ export function init() {
   $("console-show-all").addEventListener("click", () => {
     menu.hidePopover();
     connect({ unfiltered: true });
-  });
-  // No outside-click dismiss — terminal session is real work; an
-  // accidental click would kill the connection and scrollback. Explicit
-  // × button, Escape, or Disconnect only.
-  $("console-modal").addEventListener("close", () => {
-    if (menu.matches(":popover-open")) menu.hidePopover();
-    if (_port) disconnect();
   });
   // Flash firmware: independent action with its own port pick and dialog,
   // not gated by what this console session detected — release any active
@@ -215,3 +211,6 @@ export function init() {
 }
 
 export async function releasePort() { if (_port) await disconnect(); }
+// ide.js asks before retracting the bottom panel — an open port must keep
+// its tab reachable.
+export function isConnected() { return !!_port; }

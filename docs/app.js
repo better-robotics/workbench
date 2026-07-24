@@ -643,38 +643,21 @@ function showSwUpdateBanner(worker) {
 }
 setupServiceWorker({ onUnsolicitedUpdate: showSwUpdateBanner });
 
-// Console (Pi USB-C + ESP32 USB serial, unified) — console.js auto-detects
-// which device is plugged in from the picked port's VID, so there's no
-// mode to pass or remember here.
-async function openConsole() {
-  const mod = await import("./recovery/console.js");
-  mod.init();
-  // .show() not .showModal(): a modal dialog's showModal() promotes it into
-  // the browser's "top layer", which paints above Pip's popover-based bubble
-  // regardless of DOM/z-index order — leaving Pip unclickable (and stuck
-  // that way past close, if anything about the modal state lingers). The
-  // console is full-bleed with no backdrop dimming already, so it doesn't
-  // need modal semantics; non-modal keeps it in normal stacking order,
-  // where Pip's top-layer popover always wins.
-  if (!$("console-modal").open) $("console-modal").show();
-}
-// .show() doesn't get native Escape-to-close (that's showModal()-only) —
-// wire it manually to match every other dialog's close affordance. Yields to
-// an open console ⋯ menu: this listener registers at app.js load, before
-// console.js's lazy init wires the menu's own Escape, so without the guard
-// one Escape would dismiss both and take the terminal session with it.
-document.addEventListener("keydown", (e) => {
-  if (e.key !== "Escape" || !$("console-modal").open) return;
-  if ($("console-menu")?.matches(":popover-open")) return;
-  $("console-modal").close();
-});
-// Same manual-Escape wiring for the IDE view (also .show(), also full-bleed
-// so Pip stays clickable). Yields when Monaco already handled the Escape —
-// closing its autocomplete/find widget calls preventDefault, so a defaulty
-// Escape shouldn't also tear down the whole editor.
+// Manual Escape-to-close for the IDE view — .show() (not .showModal(): a
+// modal dialog's showModal() promotes it into the browser's "top layer",
+// which paints above Pip's popover-based bubble regardless of DOM/z-index
+// order — leaving Pip unclickable) doesn't get native Escape, so wire it to
+// match every other dialog's close affordance. Yields twice: when Monaco
+// already handled the Escape (closing its autocomplete/find widget calls
+// preventDefault — a defaulty Escape shouldn't also tear down the editor),
+// and to an open serial ⋯ menu (this listener registers at app.js load,
+// before console.js's lazy init wires the menu's own Escape — without the
+// guard one Escape would dismiss both). Closing the IDE never drops a live
+// serial session — the port survives until Disconnect (console.js).
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape" || !$("ide-modal")?.open) return;
   if (e.defaultPrevented) return;
+  if ($("console-menu")?.matches(":popover-open")) return;
   $("ide-modal").close();
 });
 
@@ -808,10 +791,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const mod = await import("./recovery/pinout.js");
     mod.openPinoutDialog(id);
   });
-  // Shell — lazy-import so xterm.js + WebRTC plumbing only load when the
-  // user actually opens a terminal session. Pi-only.
-  $("serial-console-btn").addEventListener("click", () => {
-    openConsole();
+  // Serial console lives in the IDE's bottom panel (Serial tab); the header
+  // button is the recovery-path entry — reachable with zero robots paired,
+  // so it opens the panel directly rather than making the user find the tab.
+  $("serial-console-btn").addEventListener("click", async () => {
+    const mod = await import("./ide/ide.js");
+    mod.openIde({ panel: "serial" });
   });
   $("menu-scripts").addEventListener("click", async () => {
     $("avatar-menu").hidePopover();

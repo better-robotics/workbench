@@ -274,7 +274,8 @@
      Monaco with IntelliSense for the script API, a file tree spanning
      on-robot files (BLE file service) + offline Local drafts, tabs, and the
      unchanged Run path. Opened non-modally (.show()) so Pip stays clickable;
-     the toolbar stands in for the app header like the serial console. -->
+     the toolbar stands in for the app header. Also hosts the serial console
+     (bottom panel, Serial tab) — the header's terminal button opens it. -->
 <dialog id="ide-modal" class="prepare-dialog ide-modal">
   <div class="ide-toolbar">
     <div class="ide-toolbar-left">
@@ -311,7 +312,39 @@
     <div class="ide-main">
       <div class="ide-tabs" id="ide-tabs"></div>
       <div class="ide-editor" id="ide-editor"></div>
-      <div class="ide-output" id="ide-output" aria-live="polite" hidden></div>
+      <!-- Bottom panel: Output | Serial tabs. Output is script stdout over
+           BLE (script-output.js); Serial is the USB console (recovery/
+           console.js) — same category, different transport, so tabs in one
+           panel rather than a second full-bleed dialog. Serial's controls
+           ride in the panel bar, CSS-gated to the serial tab (.serial-only).
+           The serial session outlives panel/IDE close — Disconnect is the
+           only thing that ends it (a stray Escape must not drop the port). -->
+      <div class="ide-panel" id="ide-panel" hidden>
+        <div class="ide-panel-bar">
+          <div class="ide-panel-tabs">
+            <button class="ide-panel-tab active" data-panel="output">Output</button>
+            <button class="ide-panel-tab" data-panel="serial">Serial</button>
+            <span class="status-pill serial-only">
+              <span class="dot" id="console-status-dot"></span>
+              <span id="console-status" aria-live="polite">Disconnected</span>
+            </span>
+          </div>
+          <div class="ide-panel-actions">
+            <button class="sm serial-only" id="console-connect">Connect</button>
+            <button class="icon serial-only" id="console-menu-btn" aria-label="More options"><svg class="icon-svg"><use href="icons.svg#icon-more"/></svg></button>
+            <button class="icon" id="ide-panel-close" aria-label="Hide panel"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
+          </div>
+        </div>
+        <div class="ide-output" id="ide-output" aria-live="polite"></div>
+        <div class="ide-serial" id="ide-serial" hidden>
+          <div id="console-term" class="recovery-term" hidden></div>
+          <div id="console-empty" class="console-empty">
+            <svg class="icon-svg console-empty-icon"><use href="icons.svg#icon-unplug"/></svg>
+            <span class="console-empty-title">Not connected</span>
+            <span class="console-empty-sub">Click Connect — or if your board isn't detected, pick its port from the ⋯ menu</span>
+          </div>
+        </div>
+      </div>
     </div>
     <!-- Monitor activity — a full-width device dashboard (real telemetry only),
          swapped in for the sidebar+editor when the Monitor icon is active. -->
@@ -327,38 +360,10 @@
   </div>
 </dialog>
 
-<!-- Unified Pi+ESP32 console (console.js) — auto-detects which device is
-     connected from the picked port's USB vendor ID rather than making the
-     operator pre-declare it. One connect/terminal/status for both; Flash
-     firmware is a separate always-available action (esptool-js targets
-     ESP chips only, but doesn't require this session to have detected one
-     — it does its own independent port pick). -->
-<dialog id="console-modal" class="prepare-dialog">
-  <div class="console-toolbar">
-    <div class="console-toolbar-left">
-      <div class="label"><svg class="icon-svg modal-title-icon"><use href="icons.svg#icon-terminal"/></svg>Serial console</div>
-      <span class="status-pill">
-        <span class="dot" id="console-status-dot"></span>
-        <span id="console-status" aria-live="polite">Disconnected</span>
-      </span>
-    </div>
-    <div class="console-toolbar-right">
-      <button class="sm" id="console-connect">Connect</button>
-      <span class="toolbar-divider"></span>
-      <button class="icon" id="console-menu-btn" aria-label="More options"><svg class="icon-svg"><use href="icons.svg#icon-more"/></svg></button>
-      <button class="icon" id="console-close" aria-label="Close"><svg class="icon-svg"><use href="icons.svg#icon-x"/></svg></button>
-    </div>
-  </div>
-  <div class="console-section">
-    <div id="console-term" class="recovery-term" hidden></div>
-    <div id="console-empty" class="console-empty">
-      <svg class="icon-svg console-empty-icon"><use href="icons.svg#icon-unplug"/></svg>
-      <span class="console-empty-title">Not connected</span>
-      <span class="console-empty-sub">Click Connect — or if your board isn't detected, pick its port from the ⋯ menu</span>
-    </div>
-  </div>
-</dialog>
-
+<!-- Serial ⋯ menu (console.js, hosted in the IDE's Serial panel tab).
+     "Flash firmware" here is the USB/esptool recovery path — works on a
+     bricked or blank board, unlike the IDE Flash activity's OTA-over-BLE
+     path which needs a connected robot. Both stay: recover = USB. -->
 <div id="console-menu" class="menu" popover="manual">
   <button class="menu-item" id="console-show-all"><svg class="icon-svg"><use href="icons.svg#icon-usb"/></svg>Show all serial ports</button>
   <button class="menu-item destructive" id="esp-serial-flash"><svg class="icon-svg"><use href="icons.svg#icon-download"/></svg>Flash firmware</button>

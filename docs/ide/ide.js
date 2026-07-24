@@ -327,7 +327,49 @@ function drawMonitorChart(canvas, history) {
   series("heap", "#4c9be8", [5, 3]);
 }
 
-// ---- output pane ---------------------------------------------------------
+// ---- bottom panel (Output | Serial) --------------------------------------
+// Output is script stdout over BLE; Serial is the USB console — same
+// category (text streaming back from a board), so one panel with tabs
+// instead of a second full-bleed dialog fighting this one for the viewport.
+
+let _panelTab = "output";
+let _serialMod = null;  // recovery/console.js, loaded on first Serial visit
+
+function setPanelTab(tab) {
+  _panelTab = tab;
+  const panel = $("ide-panel");
+  if (!panel) return;
+  // .serial on the panel drives both pane height (a terminal needs real
+  // rows; a one-line "Saved" note doesn't) and .serial-only control
+  // visibility — CSS-gated so there's no per-control hidden juggling here.
+  panel.classList.toggle("serial", tab === "serial");
+  $("ide-output").hidden = tab !== "output";
+  $("ide-serial").hidden = tab !== "serial";
+  for (const b of panel.querySelectorAll(".ide-panel-tab")) {
+    b.classList.toggle("active", b.dataset.panel === tab);
+  }
+  if (tab === "serial") ensureSerial();
+}
+function openPanel(tab) {
+  const panel = $("ide-panel");
+  if (!panel) return;
+  panel.hidden = false;
+  if (tab && tab !== _panelTab) setPanelTab(tab);
+  else if (tab === "serial") ensureSerial();
+}
+// Hiding the panel does NOT end a serial session — the port stays open and
+// xterm keeps buffering (ResizeObserver's zero-box guard skips the hidden
+// fit; reveal re-fits). Disconnect is the only session terminator.
+function closePanel() {
+  const panel = $("ide-panel");
+  if (panel) panel.hidden = true;
+}
+// Lazy: xterm.js + Web Serial plumbing load on first Serial-tab visit, not
+// with the IDE. console.js's init is idempotent, so re-entry is free.
+async function ensureSerial() {
+  _serialMod = await import("../recovery/console.js");
+  _serialMod.init();
+}
 
 function appendOutput(line, cls) {
   const out = $("ide-output");
@@ -337,7 +379,7 @@ function appendOutput(line, cls) {
   if (cls) div.className = cls;
   out.appendChild(div);
   out.scrollTop = out.scrollHeight;
-  out.hidden = false;
+  openPanel("output");
 }
 // Append streamed VM output (print / traceback text) into one running node so
 // partial-line chunks concatenate instead of each becoming its own row.
@@ -352,12 +394,15 @@ function appendStream(text) {
   }
   _streamEl.textContent += text;
   out.scrollTop = out.scrollHeight;
-  out.hidden = false;
+  openPanel("output");
 }
 function clearOutput() {
   const out = $("ide-output");
-  if (out) { out.innerHTML = ""; out.hidden = true; }
+  if (out) out.innerHTML = "";
   _streamEl = null;
+  // Retract the panel only when it's showing (now-empty) output and no
+  // serial session would vanish with it.
+  if (_panelTab === "output" && !_serialMod?.isConnected?.()) closePanel();
 }
 
 // ---- tabs ----------------------------------------------------------------
@@ -937,10 +982,13 @@ async function restoreSession() {
 
 // ---- open / wiring -------------------------------------------------------
 
-export async function openIde() {
+// `panel: "serial"` (the header terminal button) reveals the Serial tab
+// immediately — before Monaco loads, so recovery isn't gated on the editor.
+export async function openIde({ panel } = {}) {
   const dlg = $("ide-modal");
   if (!dlg.open) dlg.show();
   wire();
+  if (panel) openPanel(panel);
   const tree = $("ide-tree");
   if (tree && !tree.dataset.ready) tree.innerHTML = `<div class="ide-tree-loading">Loading editor…</div>`;
   try {
@@ -991,6 +1039,10 @@ function wire() {
   for (const btn of document.querySelectorAll(".ide-act")) {
     btn.addEventListener("click", () => setView(btn.dataset.view));
   }
+  for (const btn of document.querySelectorAll(".ide-panel-tab")) {
+    btn.addEventListener("click", () => setPanelTab(btn.dataset.panel));
+  }
+  $("ide-panel-close").addEventListener("click", closePanel);
   const sel = $("ide-template");
   sel.innerHTML = `<option value="">New from template…</option>` +
     TEMPLATES.map(t => `<option value="${t.id}">${t.label}</option>`).join("");
