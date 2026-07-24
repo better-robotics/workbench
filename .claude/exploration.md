@@ -1,6 +1,6 @@
 # Exploration
 
-Open architectural directions, design rationale, runtime state under validation, and forks evaluated but not taken. The thinking-in-progress layer. Live pilot state lives in the pinned tracker (issue #45); positioning research in `field.md`.
+Open architectural directions, design rationale, runtime state under validation, and forks evaluated but not taken. The thinking-in-progress layer. Live pilot state lives in the pinned tracker (issue #45); the survey of adjacent work is `RELATED-WORK.md`.
 
 ---
 
@@ -81,7 +81,7 @@ The original NFC role (handing the phone the puck's SoftAP creds) died with BLE-
 
 ## Open questions
 
-- **Visual / block-based authoring tier.** Capability cards and `pip.ask` are the only non-code surfaces — no block editor for "when distance < 30cm, stop and turn right." XRP and MicroBlocks (`field.md`) ship Blockly. Do cards + Pip cover non-coder authoring, or is a drag-drop tier needed?
+- **Visual / block-based authoring tier.** Capability cards and `pip.ask` are the only non-code surfaces — no block editor for "when distance < 30cm, stop and turn right." XRP and MicroBlocks (`RELATED-WORK.md`) ship Blockly. Do cards + Pip cover non-coder authoring, or is a drag-drop tier needed?
 - **Inter-robot messaging.** Every message fans out through the browser as hub — no robot↔robot path. Tied to the pub/sub direction but a separate architectural commitment.
 - **Coordinate frames + time sync.** Required for sensor fusion and any multi-robot localization. Nothing in the scaffold addresses them.
 
@@ -177,13 +177,13 @@ Local-cam helper card's only job: a "Send to phone" toggle button. Turning it on
 
 # Forks in the road — alternatives evaluated, with revisit triggers
 
-Adjacent technical paths declined, with the specific change in project direction that would trigger a revisit. (Distinct from `field.md`, which audits adjacent work.)
+Adjacent technical paths declined, with the specific change in project direction that would trigger a revisit. (Distinct from `RELATED-WORK.md`, which surveys adjacent work.)
 
 ## ESP32 WebRTC (esp_peer/libpeer) — removed 2026-07
 
 **What it was.** A vendored esp_peer/libpeer peer connection (BLE-signaled, four hand-patched chip-quirk fixes — forced DTLS client role, dashboard-supplied cert, dashboard-side SDP rewriting, mbedTLS Kconfig) carrying two data channels: camera video (chunked JPEG over an unreliable DataChannel, 3-5 fps — not real RTP video, the classic-ESP32 watchdog couldn't survive libpeer's video packetizer) and a WebRTC OTA fast-path (seconds vs ~30s BLE-stream).
 
-**Why removed.** The video path's only payoff over the already-shipped HTTP MJPEG fallback was cross-NAT reachability (STUN/TURN) — never a validated need for a classroom/hobbyist robot on the same LAN as its operator, per `field.md`'s own "not a teleop dashboard" positioning. The four-patch surface was fragile (hand-debugged against libpeer internals, ~215 KB flash) for a benefit nobody asked for. Removing it also meant losing the WebRTC OTA speedup that rode the same PeerConnection — accepted as the simpler, smaller-surface trade; ESP32 OTA is back to BLE-stream only (Lane 1) until the PNA-direct HTTP OTA lane (Lane 2, still "not yet implemented") lands.
+**Why removed.** The video path's only payoff over the already-shipped HTTP MJPEG fallback was cross-NAT reachability (STUN/TURN) — never a validated need for a classroom/hobbyist robot on the same LAN as its operator, against this project's own "not a teleop dashboard" scope line. The four-patch surface was fragile (hand-debugged against libpeer internals, ~215 KB flash) for a benefit nobody asked for. Removing it also meant losing the WebRTC OTA speedup that rode the same PeerConnection — accepted as the simpler, smaller-surface trade; ESP32 OTA is back to BLE-stream only (Lane 1) until the PNA-direct HTTP OTA lane (Lane 2, still "not yet implemented") lands.
 
 **Update (2026-07): the Pi robot was retired to the hub.** The Pi's WebRTC peer (shell, logs, OTA via aiortc) and its separate `webrtc-installable` camera were later removed outright when Pi provisioning moved to `sprocket-robotics/hub` — a Pi now runs the classroom hub, not workbench firmware. Workbench has no robot↔desktop WebRTC path at all anymore; the only WebRTC left is phone↔desktop pairing.
 

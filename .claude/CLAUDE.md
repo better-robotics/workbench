@@ -2,7 +2,7 @@
 
 The **browser-native robotics dev environment** — vibe-code robots in a tab, run them on real hardware over BLE. Pip (any tool-using LLM, with ask-human) is the AI-assist surface inside it. One of multiple authorable surfaces, not the headline.
 
-**Positioning** (full analysis + sources: `.claude/field.md`): four structural claims — browser-native dev surface (no install), browser-resident model serving (no GPU server), layered safety (firmware floor the planner can't bypass; ask-human as terminal cascade rung), static-site/no-accounts. Viam is the closest framing rhyme — server-resident B2B SaaS; inspiration for table-stakes, not competition.
+**Positioning** (survey + sources: `RELATED-WORK.md`): four structural claims — browser-native dev surface (no install), browser-resident model serving (no GPU server), layered safety (firmware floor the planner can't bypass; ask-human as terminal cascade rung), static-site/no-accounts. Viam is the closest framing rhyme — server-resident B2B SaaS; inspiration for table-stakes, not competition.
 
 **Anti-drift guards.** Failure modes to refuse:
 - *"Yet another fleet manager"* — server-resident cloud for N robots. Viam's space; ours is one operator running their own.
@@ -73,5 +73,5 @@ Before adding a logical layer, registry, wrapper, or routing decision, audit who
 - `HARDWARE.md` — wiring, board-specific knobs.
 - Pinned tracker (issue #45) — live pilot state: ranked gaps, watch-list. Rationale stays in `.claude/exploration.md`.
 - `.claude/exploration.md` — open architectural directions, design rationale, wired-but-unproven inventory, forks evaluated.
-- `.claude/field.md` — positioning analysis vs adjacent work.
+- `RELATED-WORK.md` — survey of adjacent work, written for an outside reader.
 - `make smoke` — pure-function tests (<1 s); `make install-hooks` wires pre-commit (`make smoke` + gen-uuids/gen-constants drift + sw.js VERSION stamp), bypassable with `--no-verify`, CI is the binding layer. `protocol/constants.json` (`tools/gen-constants.py`) is the uuids.json pattern applied to numeric cross-firmware constants (safety timeouts, BLE chunk sizes) — edit the JSON, not the generated `protocol_constants.h`/`docs/protocol-constants.js`.
